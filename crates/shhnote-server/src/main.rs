@@ -1,5 +1,7 @@
 mod api;
 mod app;
+mod content;
+mod i18n;
 mod web;
 
 use shhnote_core::config::Config;

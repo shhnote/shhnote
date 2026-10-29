@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}{{ ctx.t("contact-title") }}{% endblock %}
+
+{% block content %}
+<article class="prose">
+  <h1>{{ ctx.t("contact-title") }}</h1>
+  <p class="lead">{{ ctx.t("contact-lead") }}</p>
+
+  <h2>{{ ctx.t("contact-general-title") }}</h2>
+  <p>{{ ctx.t("contact-general-body") }}</p>
+  <p><a href="mailto:{{ contact_email }}">{{ contact_email }}</a></p>
+
+  <h2>{{ ctx.t("contact-security-title") }}</h2>
+  <p>{{ ctx.t("contact-security-body") }}</p>
+  <p><a href="mailto:{{ security_email }}">{{ security_email }}</a></p>
+  <p><a href="{{ ctx.href("/security") }}">{{ ctx.t("contact-security-link") }}</a></p>
+
+  <p class="hint">{{ ctx.t("contact-no-secrets") }}</p>
+</article>
+{% endblock %}

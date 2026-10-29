@@ -106,12 +106,79 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert!(body.contains(r#""version":"v1""#));
 
-        let (status, body) = get(&app, "localhost:3000", "/").await;
+        let (status, body) = get(&app, "localhost:3000", "/en").await;
         assert_eq!(status, StatusCode::OK);
-        assert!(body.contains(r#"href="http://localhost:3000/api/v1""#));
+        assert!(body.contains(r#"data-api="http://localhost:3000/api/v1""#));
 
-        let (status, _) = get(&app, "localhost:3000", "/v1").await;
+        let (status, body) = get(&app, "localhost:3000", "/api/nope").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(body.contains(r#""code":"not_found""#));
+
+        let (status, _) = get(&app, "localhost:3000", "/en/v1").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn website_pages() {
+        let app = router(&config(&[]));
+
+        for path in [
+            "/en",
+            "/en/s/abc123",
+            "/en/how-it-works",
+            "/en/about",
+            "/en/contact",
+            "/en/terms",
+            "/en/privacy",
+            "/en/security",
+        ] {
+            let (status, _) = get(&app, "localhost", path).await;
+            assert_eq!(status, StatusCode::OK, "{path}");
+        }
+
+        let (status, body) = get(&app, "localhost", "/de/terms").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("<h1>Nutzungsbedingungen</h1>"));
+        assert!(body.contains(r#"<html lang="de">"#));
+
+        let (status, body) = get(&app, "localhost", "/de/nope").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(body.contains("Seite nicht gefunden"));
+
+        let (status, _) = get(&app, "localhost", "/en/s/bad%22id").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn redirects_to_browser_language() {
+        let app = router(&config(&[]));
+        let req = Request::builder()
+            .uri("/s/abc?x=1")
+            .header(header::HOST, "localhost")
+            .header(header::ACCEPT_LANGUAGE, "de-DE,de;q=0.9")
+            .body(Body::empty())
+            .unwrap();
+        let res = app.oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(res.headers()[header::LOCATION], "/de/s/abc?x=1");
+        assert_eq!(res.headers()[header::VARY], "Accept-Language");
+    }
+
+    #[tokio::test]
+    async fn sets_security_headers() {
+        let app = router(&config(&[]));
+        let req = Request::builder()
+            .uri("/en/s/abc")
+            .header(header::HOST, "localhost")
+            .body(Body::empty())
+            .unwrap();
+        let res = app.oneshot(req).await.unwrap();
+        let headers = res.headers();
+        let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
+        assert!(csp.contains("script-src 'self'"));
+        assert!(csp.contains("frame-ancestors 'none'"));
+        assert_eq!(headers[header::REFERRER_POLICY], "no-referrer");
+        assert_eq!(headers[header::CACHE_CONTROL], "no-store");
     }
 
     async fn location(app: &Router, host: &str, path: &str) -> String {
@@ -145,7 +212,7 @@ mod tests {
             "/evil.com"
         );
 
-        let (status, _) = get(&app, "localhost", "/").await;
+        let (status, _) = get(&app, "localhost", "/en").await;
         assert_eq!(status, StatusCode::OK);
 
         let api_app = router(&config(&[
@@ -168,12 +235,12 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert!(body.contains(r#""version":"v1""#));
 
-        let (status, body) = get(&app, "example.com", "/").await;
+        let (status, body) = get(&app, "example.com", "/en").await;
         assert_eq!(status, StatusCode::OK);
-        assert!(body.contains(r#"href="https://api.example.com/v1""#));
+        assert!(body.contains(r#"data-api="https://api.example.com/v1""#));
 
         // Each host only serves its own routes.
-        let (status, _) = get(&app, "example.com", "/api/v1").await;
+        let (status, _) = get(&app, "example.com", "/en/api/v1").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         let (status, _) = get(&app, "api.example.com", "/").await;
         assert_eq!(status, StatusCode::NOT_FOUND);

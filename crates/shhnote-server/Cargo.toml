@@ -8,6 +8,8 @@ shhnote-core.workspace = true
 
 askama.workspace = true
 axum.workspace = true
+fluent-bundle.workspace = true
+pulldown-cmark.workspace = true
 serde.workspace = true
 tokio.workspace = true
 tower.workspace = true

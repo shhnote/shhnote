@@ -1,0 +1,435 @@
+:root {
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --text: #1c1d21;
+  --muted: #5d6170;
+  --border: #dcdde3;
+  --accent: #3b4bd8;
+  --accent-text: #ffffff;
+  --accent-soft: #e8eafc;
+  --focus: #3b4bd8;
+  --notice: #fff4d6;
+  --notice-border: #e9c766;
+  --radius: 10px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121317;
+    --surface: #1b1c22;
+    --text: #e8e9ee;
+    --muted: #a1a4b3;
+    --border: #2f313b;
+    --accent: #8d98ff;
+    --accent-text: #11121a;
+    --accent-soft: #252a4d;
+    --focus: #8d98ff;
+    --notice: #2e2814;
+    --notice-border: #7a6420;
+    color-scheme: dark;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 1rem/1.6 var(--font);
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+a {
+  color: var(--accent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.container {
+  width: 100%;
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: -3rem;
+  background: var(--surface);
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius);
+}
+
+.skip-link:focus {
+  top: 1rem;
+}
+
+/* Header and footer */
+
+.site-header {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.header-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.5rem;
+  padding-top: 0.9rem;
+  padding-bottom: 0.9rem;
+}
+
+.brand {
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: var(--text);
+  text-decoration: none;
+  margin-right: auto;
+}
+
+.site-nav ul,
+.language-nav ul,
+.site-footer ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.site-nav a,
+.site-footer a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.site-nav a:hover,
+.site-footer a:hover {
+  color: var(--text);
+}
+
+.language-nav {
+  font-size: 0.9rem;
+}
+
+.language-nav [aria-current] {
+  font-weight: 600;
+}
+
+main {
+  flex: 1;
+  padding-top: 2rem;
+  padding-bottom: 3rem;
+}
+
+.site-footer {
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem 1.5rem;
+  padding-top: 1.25rem;
+  padding-bottom: 1.25rem;
+}
+
+.footer-inner p {
+  margin: 0;
+}
+
+/* Text */
+
+h1 {
+  font-size: 1.9rem;
+  line-height: 1.25;
+  margin: 0 0 0.5rem;
+}
+
+.lead {
+  color: var(--muted);
+  font-size: 1.08rem;
+  margin-top: 0;
+}
+
+.intro {
+  margin-bottom: 1.5rem;
+}
+
+.prose h2 {
+  font-size: 1.25rem;
+  margin: 2rem 0 0.5rem;
+}
+
+.prose code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  background: var(--accent-soft);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+.prose blockquote,
+.notice {
+  margin: 0 0 1.5rem;
+  padding: 0.75rem 1rem;
+  background: var(--notice);
+  border: 1px solid var(--notice-border);
+  border-radius: var(--radius);
+}
+
+.prose blockquote p {
+  margin: 0;
+}
+
+.hint {
+  display: block;
+  color: var(--muted);
+  font-size: 0.875rem;
+  margin-top: 0.3rem;
+}
+
+/* Forms */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+}
+
+.field {
+  margin-bottom: 1.25rem;
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0 1.5rem;
+}
+
+label,
+.label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+textarea,
+input[type="password"],
+select {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.75rem;
+}
+
+textarea {
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  resize: vertical;
+  min-height: 10rem;
+}
+
+.button {
+  display: inline-block;
+  font: inherit;
+  font-weight: 600;
+  color: var(--accent-text);
+  background: var(--accent);
+  border: 0;
+  border-radius: var(--radius);
+  padding: 0.7rem 1.4rem;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.button:hover {
+  filter: brightness(1.08);
+}
+
+.status:empty {
+  display: none;
+}
+
+.status {
+  margin: 1rem 0 0;
+  color: var(--muted);
+}
+
+/* Drag and drop area */
+
+.dropzone {
+  position: relative;
+  display: block;
+  font-weight: 400;
+  text-align: center;
+  padding: 1.5rem 1rem;
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.dropzone:hover,
+.dropzone.is-dragging {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.dropzone:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* The real input covers the whole area, so clicking anywhere opens the file picker. */
+.dropzone input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.file-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+
+.file-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+.file-list button {
+  font: inherit;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* Toggle switch */
+
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  margin-top: 1.9rem;
+  margin-bottom: 0;
+}
+
+.switch input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.switch-track {
+  position: relative;
+  flex: none;
+  width: 2.6rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  background: var(--border);
+  transition: background 0.15s;
+}
+
+.switch-track::after {
+  content: "";
+  position: absolute;
+  top: 0.2rem;
+  left: 0.2rem;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+
+.switch input:checked + .switch-track {
+  background: var(--accent);
+}
+
+.switch input:checked + .switch-track::after {
+  transform: translateX(1.1rem);
+}
+
+.switch input:focus-visible + .switch-track {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Tabs */
+
+.tab-list {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--border);
+  margin: 1.5rem 0 0.5rem;
+}
+
+.tab-list button {
+  font: inherit;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 0.6rem 1rem;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+
+.tab-list button[aria-selected="true"] {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
+/* Once the script has built the tabs, the headings inside the panels are repeated by the tab labels. */
+.tabs.is-ready .tab-heading {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}

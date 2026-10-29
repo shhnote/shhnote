@@ -1,13 +1,61 @@
 <!doctype html>
-<html lang="en">
+<html lang="{{ ctx.locale }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}shhnote{% endblock %}</title>
+  <meta name="referrer" content="no-referrer">
+  <title>{% block title %}{% endblock %} – {{ ctx.t("brand-name") }}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/app.js" defer></script>
+  {%- for language in ctx.languages %}
+  <link rel="alternate" hreflang="{{ language.code }}" href="{{ language.href }}">
+  {%- endfor %}
 </head>
 <body>
-  <main>
+  <a class="skip-link" href="#main">{{ ctx.t("skip-to-content") }}</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="{{ ctx.href("") }}">{{ ctx.t("brand-name") }}</a>
+      <nav class="site-nav" aria-label="{{ ctx.t("nav-label") }}">
+        <ul>
+          <li><a href="{{ ctx.href("") }}">{{ ctx.t("nav-home") }}</a></li>
+          <li><a href="{{ ctx.href("/how-it-works") }}">{{ ctx.t("nav-how-it-works") }}</a></li>
+          <li><a href="{{ ctx.href("/about") }}">{{ ctx.t("nav-about") }}</a></li>
+          <li><a href="{{ ctx.href("/contact") }}">{{ ctx.t("nav-contact") }}</a></li>
+        </ul>
+      </nav>
+      <nav class="language-nav" aria-label="{{ ctx.t("nav-language") }}">
+        <ul>
+          {%- for language in ctx.languages %}
+          <li>
+            {%- if language.current %}
+            <span lang="{{ language.code }}" aria-current="true">{{ language.name }}</span>
+            {%- else %}
+            <a href="{{ language.href }}" lang="{{ language.code }}" hreflang="{{ language.code }}" data-keep-hash>{{ language.name }}</a>
+            {%- endif %}
+          </li>
+          {%- endfor %}
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="container">
     {% block content %}{% endblock %}
   </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <p>{{ ctx.t("footer-tagline") }}</p>
+      <nav aria-label="{{ ctx.t("footer-label") }}">
+        <ul>
+          <li><a href="{{ ctx.href("/terms") }}">{{ ctx.t("page-terms") }}</a></li>
+          <li><a href="{{ ctx.href("/privacy") }}">{{ ctx.t("page-privacy") }}</a></li>
+          <li><a href="{{ ctx.href("/security") }}">{{ ctx.t("page-security") }}</a></li>
+        </ul>
+      </nav>
+    </div>
+  </footer>
 </body>
 </html>

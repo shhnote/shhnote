@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}{{ ctx.t("home-title") }}{% endblock %}
+
+{% block content %}
+<section class="intro">
+  <h1>{{ ctx.t("home-title") }}</h1>
+  <p class="lead">{{ ctx.t("home-intro") }}</p>
+</section>
+
+<noscript>
+  <p class="notice">{{ ctx.t("noscript-create") }}</p>
+</noscript>
+
+{# Hidden until the script runs, because encryption happens in the browser. #}
+<form class="card create-form" data-create-form data-api="{{ api_url }}/v1" data-not-ready="{{ ctx.t("form-not-ready") }}" hidden>
+  <div class="field">
+    <label for="note">{{ ctx.t("form-note-label") }}</label>
+    <textarea id="note" name="note" rows="8" placeholder="{{ ctx.t("form-note-placeholder") }}" autocomplete="off" spellcheck="false"></textarea>
+  </div>
+
+  <div class="field">
+    <span class="label" id="files-label">{{ ctx.t("form-files-label") }}</span>
+    <label class="dropzone" data-dropzone>
+      <input type="file" name="files" multiple aria-labelledby="files-label" aria-describedby="files-hint">
+      <span class="dropzone-text">{{ ctx.t("form-files-drop") }}</span>
+      <span class="hint" id="files-hint">{{ upload_hint }}</span>
+    </label>
+    <ul class="file-list" data-file-list data-remove-label="{{ ctx.t("form-files-remove") }}"></ul>
+  </div>
+
+  <div class="field-row">
+    <div class="field">
+      <label for="expiry">{{ ctx.t("form-expiry-label") }}</label>
+      <select id="expiry" name="expiry">
+        <option value="300">{{ ctx.t("expiry-5m") }}</option>
+        <option value="3600">{{ ctx.t("expiry-1h") }}</option>
+        <option value="86400" selected>{{ ctx.t("expiry-1d") }}</option>
+        <option value="604800">{{ ctx.t("expiry-7d") }}</option>
+        <option value="2592000">{{ ctx.t("expiry-30d") }}</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label class="switch">
+        <input type="checkbox" name="burn" role="switch" checked aria-describedby="burn-hint">
+        <span class="switch-track" aria-hidden="true"></span>
+        <span>{{ ctx.t("form-burn-label") }}</span>
+      </label>
+      <span class="hint" id="burn-hint">{{ ctx.t("form-burn-hint") }}</span>
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="passphrase">{{ ctx.t("form-passphrase-label") }}</label>
+    <input type="password" id="passphrase" name="passphrase" autocomplete="new-password" aria-describedby="passphrase-hint">
+    <span class="hint" id="passphrase-hint">{{ ctx.t("form-passphrase-hint") }}</span>
+  </div>
+
+  <button type="submit" class="button">{{ ctx.t("form-submit") }}</button>
+  <p class="status" role="status" data-form-status></p>
+</form>
+{% endblock %}

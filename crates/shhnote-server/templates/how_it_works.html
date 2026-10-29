@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}{{ ctx.t("how-title") }}{% endblock %}
+
+{% block content %}
+<h1>{{ ctx.t("how-title") }}</h1>
+
+{# Without JavaScript both sections are shown one after the other; the script turns them into tabs. #}
+<div class="tabs" data-tabs>
+  <div class="tab-list" role="tablist" aria-label="{{ ctx.t("how-title") }}" hidden>
+    <button type="button" role="tab" id="tab-simple" aria-controls="simple" aria-selected="true">{{ ctx.t("how-tab-simple") }}</button>
+    <button type="button" role="tab" id="tab-technical" aria-controls="technical" aria-selected="false" tabindex="-1">{{ ctx.t("how-tab-technical") }}</button>
+  </div>
+
+  <section class="tab-panel prose" id="simple" role="tabpanel" aria-labelledby="tab-simple">
+    <h2 class="tab-heading">{{ ctx.t("how-tab-simple") }}</h2>
+    {{ simple|safe }}
+  </section>
+
+  <section class="tab-panel prose" id="technical" role="tabpanel" aria-labelledby="tab-technical">
+    <h2 class="tab-heading">{{ ctx.t("how-tab-technical") }}</h2>
+    {{ technical|safe }}
+  </section>
+</div>
+{% endblock %}
