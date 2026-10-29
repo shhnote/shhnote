@@ -4,5 +4,10 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+shhnote-core.workspace = true
+
+askama.workspace = true
 axum.workspace = true
+serde.workspace = true
 tokio.workspace = true
+tower.workspace = true

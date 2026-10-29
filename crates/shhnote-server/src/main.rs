@@ -1,14 +1,25 @@
-use axum::{Router, routing::get};
+mod api;
+mod app;
+mod web;
+
+use shhnote_core::config::Config;
 
 #[tokio::main]
 async fn main() {
-    let app = Router::new().route("/", get(hello));
+    let config = match Config::load() {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("config error: {e}");
+            std::process::exit(1);
+        }
+    };
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let app = app::router(&config);
+
+    let listener = tokio::net::TcpListener::bind(config.bind_addr)
+        .await
+        .unwrap();
     println!("listening on http://{}", listener.local_addr().unwrap());
+    println!("site at {}, API at {}/v1", config.url, config.api_url);
     axum::serve(listener, app).await.unwrap();
-}
-
-async fn hello() -> &'static str {
-    "Hello, world!"
 }
