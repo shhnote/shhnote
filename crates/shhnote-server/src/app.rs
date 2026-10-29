@@ -1,4 +1,10 @@
-use axum::{Router, extract::Request, http::header};
+use axum::{
+    Router,
+    extract::Request,
+    http::header,
+    middleware::{self, Next},
+    response::{IntoResponse, Redirect, Response},
+};
 use shhnote_core::config::{ApiRouting, Config};
 use tower::ServiceExt;
 
@@ -8,10 +14,28 @@ pub fn router(config: &Config) -> Router {
     let api = api::router();
     let web = web::router(config);
 
-    match &config.api_routing {
+    let app = match &config.api_routing {
         ApiRouting::Path => web.nest("/api", api),
         ApiRouting::Subdomain { host } => route_by_host(host.clone(), api, web),
+    };
+    app.layer(middleware::from_fn(redirect_trailing_slash))
+}
+
+// Gives every page one URL, so `/api/v1/` and `/api/v1` don't count as different pages.
+async fn redirect_trailing_slash(req: Request, next: Next) -> Response {
+    let path = req.uri().path();
+    if path == "/" || !path.ends_with('/') {
+        return next.run(req).await;
     }
+
+    // Collapse leading slashes too: a redirect to `//evil.com` would send the browser to another site.
+    let path = format!("/{}", path.trim_matches(['/', '\\']));
+    let location = match req.uri().query() {
+        Some(query) => format!("{path}?{query}"),
+        None => path,
+    };
+    // 308 keeps the request method, so a POST is not silently turned into a GET.
+    Redirect::permanent(&location).into_response()
 }
 
 // Sends requests for the API subdomain to the API router, and everything else to the website.
@@ -88,6 +112,48 @@ mod tests {
 
         let (status, _) = get(&app, "localhost:3000", "/v1").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    async fn location(app: &Router, host: &str, path: &str) -> String {
+        let req = Request::builder()
+            .uri(path)
+            .header(header::HOST, host)
+            .body(Body::empty())
+            .unwrap();
+        let res = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::PERMANENT_REDIRECT);
+        res.headers()[header::LOCATION]
+            .to_str()
+            .unwrap()
+            .to_string()
+    }
+
+    #[tokio::test]
+    async fn redirects_trailing_slashes() {
+        let app = router(&config(&[]));
+        assert_eq!(location(&app, "localhost", "/api/v1/").await, "/api/v1");
+        assert_eq!(
+            location(&app, "localhost", "/api/v1/?a=1").await,
+            "/api/v1?a=1"
+        );
+        assert_eq!(
+            location(&app, "localhost", "//evil.com/").await,
+            "/evil.com"
+        );
+        assert_eq!(
+            location(&app, "localhost", "/\\evil.com/").await,
+            "/evil.com"
+        );
+
+        let (status, _) = get(&app, "localhost", "/").await;
+        assert_eq!(status, StatusCode::OK);
+
+        let api_app = router(&config(&[
+            ("APP_ENV", "production"),
+            ("APP_URL", "https://example.com"),
+            ("API_ROUTING", "subdomain"),
+        ]));
+        assert_eq!(location(&api_app, "api.example.com", "/v1/").await, "/v1");
     }
 
     #[tokio::test]

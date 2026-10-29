@@ -7,7 +7,11 @@ use std::{
 };
 
 const MIN_SECRET_LEN: usize = 32;
-const DEFAULT_UPLOAD_MAX_BYTES: u64 = 25 * 1024 * 1024;
+const MIB: u64 = 1024 * 1024;
+// Bigger files in the database slow it down, so this limit can be lowered but never raised.
+const MAX_INLINE_BYTES: u64 = 3 * MIB / 2;
+const DEFAULT_LOCAL_MAX_BYTES: u64 = 10 * MIB;
+const DEFAULT_S3_MAX_BYTES: u64 = 25 * MIB;
 
 #[derive(Debug)]
 pub struct Config {
@@ -23,7 +27,6 @@ pub struct Config {
     pub trusted_proxies: Vec<IpAddr>,
     pub database: Database,
     pub storage: Storage,
-    pub upload_max_bytes: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,9 +67,18 @@ pub enum Database {
 }
 
 #[derive(Debug)]
-pub enum Storage {
+pub struct Storage {
+    // Files up to this size are stored in the database itself.
+    pub inline_max_bytes: u64,
+    // Where larger files go. `None` means only inline files are allowed.
+    pub external: Option<ExternalStorage>,
+}
+
+#[derive(Debug)]
+pub enum ExternalStorage {
     Local {
         path: PathBuf,
+        max_bytes: u64,
     },
     S3 {
         bucket: String,
@@ -74,7 +86,24 @@ pub enum Storage {
         endpoint: Option<String>,
         access_key_id: String,
         secret_access_key: Secret,
+        max_bytes: u64,
     },
+}
+
+impl Storage {
+    pub fn max_upload_bytes(&self) -> u64 {
+        self.external
+            .as_ref()
+            .map_or(self.inline_max_bytes, ExternalStorage::max_bytes)
+    }
+}
+
+impl ExternalStorage {
+    pub fn max_bytes(&self) -> u64 {
+        match self {
+            Self::Local { max_bytes, .. } | Self::S3 { max_bytes, .. } => *max_bytes,
+        }
+    }
 }
 
 // Wraps sensitive values so they never show up in logs or error messages by accident.
@@ -188,11 +217,6 @@ impl Config {
                 .map_err(|e| invalid("TRUSTED_PROXIES", e))?,
         };
 
-        let upload_max_bytes = vars.parse_or("UPLOAD_MAX_BYTES", DEFAULT_UPLOAD_MAX_BYTES)?;
-        if upload_max_bytes == 0 {
-            return Err(invalid("UPLOAD_MAX_BYTES", "must be greater than 0"));
-        }
-
         Ok(Self {
             env,
             debug,
@@ -206,7 +230,6 @@ impl Config {
             trusted_proxies,
             database: Database::from_vars(&vars)?,
             storage: Storage::from_vars(&vars)?,
-            upload_max_bytes,
         })
     }
 }
@@ -235,23 +258,63 @@ impl Database {
 
 impl Storage {
     fn from_vars(vars: &Vars) -> Result<Self, ConfigError> {
-        match vars.get("STORAGE_DRIVER").unwrap_or("local") {
-            "local" => Ok(Self::Local {
+        let inline_max_bytes = vars.parse_or("UPLOAD_MAX_INLINE_BYTES", MAX_INLINE_BYTES)?;
+        if inline_max_bytes == 0 || inline_max_bytes > MAX_INLINE_BYTES {
+            return Err(invalid(
+                "UPLOAD_MAX_INLINE_BYTES",
+                format!("must be between 1 and {MAX_INLINE_BYTES}"),
+            ));
+        }
+
+        let external = match vars.get("STORAGE_DRIVER").unwrap_or("inline") {
+            "inline" => None,
+            "local" => Some(ExternalStorage::Local {
                 path: vars
                     .get("STORAGE_LOCAL_PATH")
                     .unwrap_or("storage/uploads")
                     .into(),
+                max_bytes: external_max_bytes(
+                    vars,
+                    "UPLOAD_MAX_LOCAL_BYTES",
+                    DEFAULT_LOCAL_MAX_BYTES,
+                    inline_max_bytes,
+                )?,
             }),
-            "s3" => Ok(Self::S3 {
+            "s3" => Some(ExternalStorage::S3 {
                 bucket: vars.required("S3_BUCKET")?.to_string(),
                 region: vars.required("S3_REGION")?.to_string(),
                 endpoint: vars.get("S3_ENDPOINT").map(str::to_string),
                 access_key_id: vars.required("S3_ACCESS_KEY_ID")?.to_string(),
                 secret_access_key: Secret(vars.required("S3_SECRET_ACCESS_KEY")?.to_string()),
+                max_bytes: external_max_bytes(
+                    vars,
+                    "UPLOAD_MAX_S3_BYTES",
+                    DEFAULT_S3_MAX_BYTES,
+                    inline_max_bytes,
+                )?,
             }),
-            _ => Err(invalid("STORAGE_DRIVER", "must be local or s3")),
-        }
+            _ => return Err(invalid("STORAGE_DRIVER", "must be inline, local or s3")),
+        };
+
+        Ok(Self {
+            inline_max_bytes,
+            external,
+        })
     }
+}
+
+fn external_max_bytes(
+    vars: &Vars,
+    name: &'static str,
+    default: u64,
+    inline_max_bytes: u64,
+) -> Result<u64, ConfigError> {
+    let max_bytes = vars.parse_or(name, default)?;
+    // Files up to the inline limit always go in the database, so a lower limit here makes no sense.
+    if max_bytes < inline_max_bytes {
+        return Err(invalid(name, "must be at least UPLOAD_MAX_INLINE_BYTES"));
+    }
+    Ok(max_bytes)
 }
 
 impl FromStr for AppEnv {
@@ -376,8 +439,9 @@ mod tests {
         assert_eq!(config.bind_addr, "127.0.0.1:3000".parse().unwrap());
         assert_eq!(config.log_level, LogLevel::Info);
         assert!(config.trusted_proxies.is_empty());
-        assert_eq!(config.upload_max_bytes, DEFAULT_UPLOAD_MAX_BYTES);
-        assert!(matches!(config.storage, Storage::Local { .. }));
+        assert_eq!(config.storage.inline_max_bytes, MAX_INLINE_BYTES);
+        assert!(config.storage.external.is_none());
+        assert_eq!(config.storage.max_upload_bytes(), MAX_INLINE_BYTES);
     }
 
     #[test]
@@ -484,6 +548,53 @@ mod tests {
         assert!(matches!(
             Config::from_vars(&vars),
             Err(ConfigError::Missing("PG_DATABASE"))
+        ));
+    }
+
+    #[test]
+    fn inline_limit_can_only_be_lowered() {
+        let vars = with(&[("UPLOAD_MAX_INLINE_BYTES", "1000000")]);
+        let config = Config::from_vars(&vars).unwrap();
+        assert_eq!(config.storage.inline_max_bytes, 1_000_000);
+
+        let vars = with(&[("UPLOAD_MAX_INLINE_BYTES", "2000000")]);
+        assert!(matches!(
+            Config::from_vars(&vars),
+            Err(ConfigError::Invalid {
+                name: "UPLOAD_MAX_INLINE_BYTES",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn external_storage_defaults() {
+        let config = Config::from_vars(&with(&[("STORAGE_DRIVER", "local")])).unwrap();
+        assert_eq!(config.storage.max_upload_bytes(), DEFAULT_LOCAL_MAX_BYTES);
+
+        let vars = with(&[
+            ("STORAGE_DRIVER", "s3"),
+            ("S3_BUCKET", "shhnote"),
+            ("S3_REGION", "us-east-1"),
+            ("S3_ACCESS_KEY_ID", "id"),
+            ("S3_SECRET_ACCESS_KEY", "secret"),
+        ]);
+        let config = Config::from_vars(&vars).unwrap();
+        assert_eq!(config.storage.max_upload_bytes(), DEFAULT_S3_MAX_BYTES);
+    }
+
+    #[test]
+    fn external_limit_must_cover_inline_limit() {
+        let vars = with(&[
+            ("STORAGE_DRIVER", "local"),
+            ("UPLOAD_MAX_LOCAL_BYTES", "1000"),
+        ]);
+        assert!(matches!(
+            Config::from_vars(&vars),
+            Err(ConfigError::Invalid {
+                name: "UPLOAD_MAX_LOCAL_BYTES",
+                ..
+            })
         ));
     }
 
