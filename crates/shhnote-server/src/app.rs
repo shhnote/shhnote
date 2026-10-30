@@ -8,10 +8,13 @@ use axum::{
 use shhnote_core::config::{ApiRouting, Config};
 use tower::ServiceExt;
 
-use crate::{api, web};
+use crate::{
+    api::{self, ApiState},
+    web,
+};
 
-pub fn router(config: &Config) -> Router {
-    let api = api::router();
+pub fn router(config: &Config, state: ApiState) -> Router {
+    let api = api::router(state);
     let web = web::router(config);
 
     let app = match &config.api_routing {
@@ -61,11 +64,35 @@ fn request_host(req: &Request) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::{collections::HashMap, sync::Arc};
 
     use axum::{body::Body, http::StatusCode};
+    use shhnote_core::settings::Settings;
+    use shhnote_store::{Store, sqlite_path_for_tests};
 
     use super::*;
+    use crate::api::Limits;
+
+    // Each test gets its own database file; the helper deletes any existing file with that name.
+    static NEXT_DB: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+    async fn state(config: &Config) -> ApiState {
+        let n = NEXT_DB.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = sqlite_path_for_tests(&format!("app-{n}"));
+        let store = Store::connect_url(&format!("sqlite://{}?mode=rwc", path.display()))
+            .await
+            .unwrap();
+        ApiState {
+            store,
+            settings: Arc::new(Settings::default()),
+            limits: Limits::from_config(config),
+        }
+    }
+
+    async fn build(changes: &[(&str, &str)]) -> Router {
+        let config = config(changes);
+        router(&config, state(&config).await)
+    }
 
     fn config(changes: &[(&str, &str)]) -> Config {
         let mut vars: HashMap<String, String> = [
@@ -99,7 +126,7 @@ mod tests {
 
     #[tokio::test]
     async fn path_routing() {
-        let app = router(&config(&[]));
+        let app = build(&[]).await;
 
         let (status, body) = get(&app, "localhost:3000", "/api/v1").await;
         assert_eq!(status, StatusCode::OK);
@@ -111,7 +138,7 @@ mod tests {
 
         let (status, body) = get(&app, "localhost:3000", "/api/nope").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
-        assert!(body.contains(r#""code":"not_found""#));
+        assert!(body.contains(r#""code":"no_such_endpoint""#));
 
         let (status, _) = get(&app, "localhost:3000", "/en/v1").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
@@ -119,7 +146,7 @@ mod tests {
 
     #[tokio::test]
     async fn website_pages() {
-        let app = router(&config(&[]));
+        let app = build(&[]).await;
 
         for path in [
             "/en",
@@ -147,7 +174,7 @@ mod tests {
 
     #[tokio::test]
     async fn redirects_to_browser_language() {
-        let app = router(&config(&[]));
+        let app = build(&[]).await;
         let req = Request::builder()
             .uri("/s?x=1")
             .header(header::HOST, "localhost")
@@ -162,7 +189,7 @@ mod tests {
 
     #[tokio::test]
     async fn sets_security_headers() {
-        let app = router(&config(&[]));
+        let app = build(&[]).await;
         let req = Request::builder()
             .uri("/en/s")
             .header(header::HOST, "localhost")
@@ -193,7 +220,7 @@ mod tests {
 
     #[tokio::test]
     async fn redirects_trailing_slashes() {
-        let app = router(&config(&[]));
+        let app = build(&[]).await;
         assert_eq!(location(&app, "localhost", "/api/v1/").await, "/api/v1");
         assert_eq!(
             location(&app, "localhost", "/api/v1/?a=1").await,
@@ -211,21 +238,23 @@ mod tests {
         let (status, _) = get(&app, "localhost", "/en").await;
         assert_eq!(status, StatusCode::OK);
 
-        let api_app = router(&config(&[
+        let api_app = build(&[
             ("SHH_ENV", "production"),
             ("SHH_URL", "https://example.com"),
             ("SHH_API_ROUTING", "subdomain"),
-        ]));
+        ])
+        .await;
         assert_eq!(location(&api_app, "api.example.com", "/v1/").await, "/v1");
     }
 
     #[tokio::test]
     async fn subdomain_routing() {
-        let app = router(&config(&[
+        let app = build(&[
             ("SHH_ENV", "production"),
             ("SHH_URL", "https://example.com"),
             ("SHH_API_ROUTING", "subdomain"),
-        ]));
+        ])
+        .await;
 
         let (status, body) = get(&app, "api.example.com", "/v1").await;
         assert_eq!(status, StatusCode::OK);

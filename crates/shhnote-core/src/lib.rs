@@ -7,5 +7,6 @@ pub mod fragment;
 pub mod kdf;
 pub mod padding;
 pub mod secret;
+pub mod settings;
 
 pub use error::Error;

@@ -1,0 +1,13 @@
+[package]
+name = "shhnote-store"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+shhnote-core.workspace = true
+
+sqlx.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+getrandom.workspace = true
