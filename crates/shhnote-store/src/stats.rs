@@ -38,10 +38,13 @@ pub struct Report {
 
 impl Store {
     pub async fn stats(&self) -> Result<Stats, Error> {
+        // Postgres sums bigints into NUMERIC, which the Any driver cannot decode; cast it back.
         let totals = sqlx::query(
-            "SELECT COALESCE(SUM(created), 0) AS created, COALESCE(SUM(viewed), 0) AS viewed, \
-             COALESCE(SUM(burned), 0) AS burned, COALESCE(SUM(expired), 0) AS expired, \
-             COALESCE(SUM(removed), 0) AS removed FROM stats_daily",
+            "SELECT CAST(COALESCE(SUM(created), 0) AS BIGINT) AS created, \
+             CAST(COALESCE(SUM(viewed), 0) AS BIGINT) AS viewed, \
+             CAST(COALESCE(SUM(burned), 0) AS BIGINT) AS burned, \
+             CAST(COALESCE(SUM(expired), 0) AS BIGINT) AS expired, \
+             CAST(COALESCE(SUM(removed), 0) AS BIGINT) AS removed FROM stats_daily",
         )
         .fetch_one(&self.pool)
         .await?;

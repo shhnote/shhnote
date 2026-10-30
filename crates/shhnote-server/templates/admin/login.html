@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block title %}{{ ctx.t("admin-login-title") }}{% endblock %}
+
+{% block content %}
+<section class="section">
+  <div class="container">
+    <div class="vault">
+      <form class="panel stack" method="post" action="{{ ctx.href("/admin/login") }}">
+        <div class="stack--sm">
+          <p class="eyebrow">{{ ctx.t("admin-title") }}</p>
+          <h1 class="panel__heading">{{ ctx.t("admin-login-title") }}</h1>
+          <p>{{ ctx.t("admin-login-intro") }}</p>
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="credential">{{ ctx.t("admin-login-label") }}</label>
+          <input class="form-input" type="password" id="credential" name="credential" autocomplete="off" required autofocus>
+        </div>
+        {%- if let Some(error) = error %}
+        <p class="callout callout--danger" role="alert">{{ error }}</p>
+        {%- endif %}
+        <button type="submit" class="btn btn--primary w-full">{{ ctx.t("admin-login-submit") }}</button>
+      </form>
+    </div>
+  </div>
+</section>
+{% endblock %}

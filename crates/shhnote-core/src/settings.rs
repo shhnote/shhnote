@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::{Arc, RwLock},
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +22,8 @@ pub struct RateLimits {
     pub confirm_per_hour: u32,
     pub burn_per_hour: u32,
     pub report_per_hour: u32,
+    // Admin login attempts.
+    pub login_per_hour: u32,
     pub user_multiplier: u32,
 }
 
@@ -30,6 +35,7 @@ impl Default for RateLimits {
             confirm_per_hour: 60,
             burn_per_hour: 30,
             report_per_hour: 10,
+            login_per_hour: 20,
             user_multiplier: 10,
         }
     }
@@ -52,6 +58,8 @@ pub struct Settings {
     pub daily_retention_days: i64,
     pub rate_limits: RateLimits,
     pub salt_rotation_secs: i64,
+    // When true, only requests with a `user` API key may create secrets (private instances).
+    pub require_api_key_for_create: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -91,6 +99,7 @@ impl Default for Settings {
             daily_retention_days: 365,
             rate_limits: RateLimits::default(),
             salt_rotation_secs: 3600,
+            require_api_key_for_create: false,
         }
     }
 }
@@ -144,7 +153,11 @@ impl Settings {
                 "rate_confirm_per_hour" => parse(value).map(|v| s.rate_limits.confirm_per_hour = v),
                 "rate_burn_per_hour" => parse(value).map(|v| s.rate_limits.burn_per_hour = v),
                 "rate_report_per_hour" => parse(value).map(|v| s.rate_limits.report_per_hour = v),
+                "rate_login_per_hour" => parse(value).map(|v| s.rate_limits.login_per_hour = v),
                 "rate_user_multiplier" => parse(value).map(|v| s.rate_limits.user_multiplier = v),
+                "require_api_key_for_create" => {
+                    parse(value).map(|v| s.require_api_key_for_create = v)
+                }
                 "salt_rotation_secs" => parse(value).map(|v| s.salt_rotation_secs = v),
                 "regions" => serde_json::from_str(value)
                     .map(|v| s.regions = v)
@@ -179,6 +192,80 @@ impl Settings {
     }
 }
 
+impl Settings {
+    // Every setting as the string an admin form or the database holds it in. The admin panel
+    // stores only entries that differ from `Settings::default().as_strings()`.
+    pub fn as_strings(&self) -> BTreeMap<&'static str, String> {
+        let (padding_mode, padding_min, padding_ladder) = match &self.padding {
+            PaddingPolicy::Padme { min } => ("padme", min.to_string(), String::new()),
+            PaddingPolicy::Buckets { ladder } => (
+                "buckets",
+                PaddingPolicy::DEFAULT_MIN.to_string(),
+                ladder
+                    .iter()
+                    .map(u64::to_string)
+                    .collect::<Vec<_>>()
+                    .join(","),
+            ),
+        };
+        let list = |v: &[i64]| v.iter().map(i64::to_string).collect::<Vec<_>>().join(",");
+        let r = self.rate_limits;
+        BTreeMap::from([
+            ("site_name", self.site_name.clone()),
+            ("contact_email", self.contact_email.clone()),
+            ("security_email", self.security_email.clone()),
+            ("padding_mode", padding_mode.to_string()),
+            ("padding_min", padding_min),
+            ("padding_ladder", padding_ladder),
+            ("claim_window_secs", self.claim_window_secs.to_string()),
+            ("min_ttl_secs", self.min_ttl_secs.to_string()),
+            ("max_ttl_secs", self.max_ttl_secs.to_string()),
+            ("default_ttl_secs", self.default_ttl_secs.to_string()),
+            ("ttl_presets", list(&self.ttl_presets)),
+            ("text_max_bytes", self.text_max_bytes.to_string()),
+            ("files_enabled", self.files_enabled.to_string()),
+            (
+                "regions",
+                serde_json::to_string(&self.regions).unwrap_or_default(),
+            ),
+            (
+                "daily_retention_days",
+                self.daily_retention_days.to_string(),
+            ),
+            ("rate_create_per_hour", r.create_per_hour.to_string()),
+            ("rate_reveal_per_hour", r.reveal_per_hour.to_string()),
+            ("rate_confirm_per_hour", r.confirm_per_hour.to_string()),
+            ("rate_burn_per_hour", r.burn_per_hour.to_string()),
+            ("rate_report_per_hour", r.report_per_hour.to_string()),
+            ("rate_login_per_hour", r.login_per_hour.to_string()),
+            ("rate_user_multiplier", r.user_multiplier.to_string()),
+            ("salt_rotation_secs", self.salt_rotation_secs.to_string()),
+            (
+                "require_api_key_for_create",
+                self.require_api_key_for_create.to_string(),
+            ),
+        ])
+    }
+}
+
+// The live settings, swapped atomically when an admin saves. Readers get a cheap `Arc`
+// snapshot, so a request never sees a half-updated set.
+pub struct SettingsCell(RwLock<Arc<Settings>>);
+
+impl SettingsCell {
+    pub fn new(settings: Settings) -> Self {
+        Self(RwLock::new(Arc::new(settings)))
+    }
+
+    pub fn load(&self) -> Arc<Settings> {
+        self.0.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub fn store(&self, settings: Settings) {
+        *self.0.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(settings);
+    }
+}
+
 fn parse<T: std::str::FromStr>(value: &str) -> Result<T, String>
 where
     T::Err: std::fmt::Display,
@@ -190,6 +277,10 @@ fn parse_list<T: std::str::FromStr>(value: &str) -> Result<Vec<T>, String>
 where
     T::Err: std::fmt::Display,
 {
+    // An empty value is an empty list (the admin form sends "" for an unused ladder).
+    if value.trim().is_empty() {
+        return Ok(Vec::new());
+    }
     value.split(',').map(|v| parse(v.trim())).collect()
 }
 
@@ -221,6 +312,19 @@ mod tests {
         assert_eq!(s.max_ttl_secs, MAX_TTL_CEILING);
         assert!(s.files_enabled);
         assert_eq!(warnings.len(), 2, "{warnings:?}");
+    }
+
+    #[test]
+    fn string_form_round_trips() {
+        let defaults = Settings::default();
+        let strings: HashMap<String, String> = defaults
+            .as_strings()
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect();
+        let (back, warnings) = Settings::with_overrides(&strings);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(back, defaults);
     }
 
     #[test]

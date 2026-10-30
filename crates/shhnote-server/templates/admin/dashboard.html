@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{%- import "partials/admin_nav.html" as nav -%}
+
+{% block title %}{{ ctx.t("admin-nav-dashboard") }}{% endblock %}
+
+{% block content %}
+<section class="section">
+  <div class="container stack" style="gap:2rem">
+    {% call nav::admin_nav(ctx, admin) %}{% endcall %}
+    <h1>{{ ctx.t("admin-dashboard-title") }}</h1>
+
+    <dl class="stat-grid">
+      <div><dt>{{ ctx.t("admin-stat-active") }}</dt><dd>{{ stats.active }}</dd></div>
+      <div><dt>{{ ctx.t("admin-stat-created") }}</dt><dd>{{ stats.created }}</dd></div>
+      <div><dt>{{ ctx.t("admin-stat-viewed") }}</dt><dd>{{ stats.viewed }}</dd></div>
+      <div><dt>{{ ctx.t("admin-stat-burned") }}</dt><dd>{{ stats.burned }}</dd></div>
+      <div><dt>{{ ctx.t("admin-stat-expired") }}</dt><dd>{{ stats.expired }}</dd></div>
+      <div><dt>{{ ctx.t("admin-stat-removed") }}</dt><dd>{{ stats.removed }}</dd></div>
+    </dl>
+
+    <h2>{{ ctx.t("admin-daily-title") }}</h2>
+    {%- if days.is_empty() %}
+    <p class="color-muted">{{ ctx.t("admin-daily-empty") }}</p>
+    {%- else %}
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr>
+          <th scope="col">{{ ctx.t("admin-daily-day") }}</th>
+          <th scope="col">{{ ctx.t("admin-stat-created") }}</th>
+          <th scope="col">{{ ctx.t("admin-stat-viewed") }}</th>
+          <th scope="col">{{ ctx.t("admin-stat-burned") }}</th>
+          <th scope="col">{{ ctx.t("admin-stat-expired") }}</th>
+          <th scope="col">{{ ctx.t("admin-stat-removed") }}</th>
+        </tr></thead>
+        <tbody>
+          {%- for d in days %}
+          <tr><th scope="row">{{ d.day }}</th><td>{{ d.created }}</td><td>{{ d.viewed }}</td><td>{{ d.burned }}</td><td>{{ d.expired }}</td><td>{{ d.removed }}</td></tr>
+          {%- endfor %}
+        </tbody>
+      </table>
+    </div>
+    {%- endif %}
+  </div>
+</section>
+{% endblock %}

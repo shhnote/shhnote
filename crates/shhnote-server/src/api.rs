@@ -19,7 +19,7 @@ use shhnote_core::{
     fragment,
     padding::PaddingPolicy,
     secret::credential_hash,
-    settings::{Region, Settings},
+    settings::{Region, Settings, SettingsCell},
 };
 use shhnote_store::{Lifetime, NewSecret, Served, Store};
 
@@ -31,21 +31,18 @@ pub const EXPIRES_IN_HEADER: HeaderName = HeaderName::from_static("x-shh-expires
 #[derive(Clone)]
 pub struct ApiState {
     pub store: Store,
-    pub settings: Arc<Settings>,
+    pub settings: Arc<SettingsCell>,
     pub limits: Limits,
     pub limiter: Arc<RateLimiter>,
 }
 
 impl ApiState {
     pub fn new(store: Store, settings: Settings, config: &Config) -> Self {
-        let limiter = RateLimiter::new(
-            settings.rate_limits,
-            settings.salt_rotation_secs,
-            config.trusted_proxies.clone(),
-        );
+        let settings = Arc::new(SettingsCell::new(settings));
+        let limiter = RateLimiter::new(settings.clone(), config.trusted_proxies.clone());
         Self {
             store,
-            settings: Arc::new(settings),
+            settings,
             limits: Limits::from_config(config),
             limiter: Arc::new(limiter),
         }
@@ -88,9 +85,8 @@ pub fn router(state: ApiState) -> Router {
 fn v1(state: ApiState) -> Router {
     // Room for the multipart framing around the largest blob we accept.
     let body_limit = (state.limits.max_blob_bytes() + 16 * 1024) as usize;
-    let limited = |endpoint: Endpoint| {
-        middleware::from_fn_with_state((state.limiter.clone(), endpoint), limit)
-    };
+    let limited =
+        |endpoint: Endpoint| middleware::from_fn_with_state((state.clone(), endpoint), limit);
     Router::new()
         .route("/", get(info))
         .route("/config", get(config))
@@ -152,7 +148,7 @@ enum PaddingResponse<'a> {
 
 async fn config(State(state): State<ApiState>) -> Json<ConfigResponse<'static>> {
     // The settings live for the process, so handing out references is fine.
-    let settings: &'static Settings = Box::leak(Box::new((*state.settings).clone()));
+    let settings: &'static Settings = Box::leak(Box::new((*state.settings.load()).clone()));
     Json(ConfigResponse {
         fragment_version: fragment::VERSION,
         padding: match &settings.padding {
@@ -197,7 +193,7 @@ async fn create(
     let burn_key = decode32(&meta.burn_key).ok_or(ApiError::bad_request("invalid_burn_key"))?;
     let lifetime =
         Lifetime::parse(&meta.lifetime).ok_or(ApiError::bad_request("invalid_lifetime"))?;
-    let settings = &state.settings;
+    let settings = state.settings.load();
     if !(settings.min_ttl_secs..=settings.max_ttl_secs).contains(&meta.ttl_seconds) {
         return Err(ApiError::bad_request("invalid_ttl"));
     }
@@ -259,7 +255,7 @@ async fn reveal(
     let mut token = [0u8; 32];
     getrandom::fill(&mut token).map_err(|_| ApiError::Internal)?;
     let claim_key = credential_hash(&token);
-    let window = state.settings.claim_window_secs;
+    let window = state.settings.load().claim_window_secs;
     match state
         .store
         .claim(&lookup_key, &claim_key, now, window)

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{%- import "partials/admin_nav.html" as nav -%}
+
+{% block title %}{{ ctx.t("admin-nav-keys") }}{% endblock %}
+
+{% block content %}
+<section class="section">
+  <div class="container stack" style="gap:2rem">
+    {% call nav::admin_nav(ctx, admin) %}{% endcall %}
+    <div class="stack--sm">
+      <h1>{{ ctx.t("admin-keys-title") }}</h1>
+      <p class="color-muted">{{ ctx.t("admin-keys-intro") }}</p>
+    </div>
+
+    {%- if let Some(key) = new_key %}
+    <div class="panel stack" data-new-key>
+      <p class="eyebrow">{{ ctx.t("admin-keys-created-title") }}</p>
+      <p>{{ ctx.t("admin-keys-created") }}</p>
+      <div class="readout"><code class="readout__val" data-new-key-value>{{ key }}</code></div>
+    </div>
+    {%- endif %}
+    {%- if let Some(error) = error %}
+    <p class="callout callout--danger" role="alert">{{ error }}</p>
+    {%- endif %}
+
+    <form method="post" action="{{ ctx.href("/admin/keys") }}" class="panel form-grid">
+      <input type="hidden" name="csrf" value="{{ admin.csrf }}">
+      <h2 class="form-grid__full">{{ ctx.t("admin-keys-new-title") }}</h2>
+      <div class="form-field">
+        <label class="form-label" for="key-name">{{ ctx.t("admin-keys-name") }}</label>
+        <input class="form-input" id="key-name" name="name" maxlength="80" required>
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="key-scope">{{ ctx.t("admin-keys-scope") }}</label>
+        <select class="form-select" id="key-scope" name="scope">
+          <option value="user">{{ ctx.t("admin-scope-user") }}</option>
+          <option value="admin">{{ ctx.t("admin-scope-admin") }}</option>
+        </select>
+      </div>
+      <div class="form-field form-grid__full">
+        <button type="submit" class="btn btn--primary">{{ ctx.t("admin-keys-create") }}</button>
+      </div>
+    </form>
+
+    {%- if rows.is_empty() %}
+    <p class="color-muted">{{ ctx.t("admin-keys-empty") }}</p>
+    {%- else %}
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr>
+          <th scope="col">{{ ctx.t("admin-keys-name") }}</th>
+          <th scope="col">{{ ctx.t("admin-keys-scope") }}</th>
+          <th scope="col">{{ ctx.t("admin-keys-col-created") }}</th>
+          <th scope="col">{{ ctx.t("admin-keys-col-last-used") }}</th>
+          <th scope="col"><span class="visually-hidden">{{ ctx.t("admin-keys-delete") }}</span></th>
+        </tr></thead>
+        <tbody>
+          {%- for k in rows %}
+          <tr>
+            <td>{{ k.name }}</td>
+            <td><code>{{ k.scope }}</code></td>
+            <td>{{ k.created }}</td>
+            <td>{% if let Some(t) = k.last_used %}{{ t }}{% else %}{{ ctx.t("admin-keys-never") }}{% endif %}</td>
+            <td>
+              <form method="post" action="{{ ctx.href("/admin/keys/delete") }}">
+                <input type="hidden" name="csrf" value="{{ admin.csrf }}">
+                <input type="hidden" name="key_hash" value="{{ k.hash_hex }}">
+                <button type="submit" class="btn btn--danger btn--sm">{{ ctx.t("admin-keys-delete") }}</button>
+              </form>
+            </td>
+          </tr>
+          {%- endfor %}
+        </tbody>
+      </table>
+    </div>
+    {%- endif %}
+  </div>
+</section>
+{% endblock %}

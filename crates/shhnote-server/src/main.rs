@@ -34,13 +34,26 @@ async fn main() {
         eprintln!("warning: {warning}");
     }
 
-    scheduler::spawn(
-        store.clone(),
-        Duration::from_secs(60),
-        settings.daily_retention_days,
-    );
+    if std::env::args().nth(1).as_deref() == Some("reset-admin") {
+        match store.delete_admin_keys().await {
+            Ok(n) => println!(
+                "deleted {n} admin key(s); SHH_ADMIN_TOKEN works again until a new one is created"
+            ),
+            Err(e) => {
+                eprintln!("database error: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+    if config.admin_token.is_some() && matches!(store.admin_key_count().await, Ok(n) if n > 0) {
+        eprintln!(
+            "warning: SHH_ADMIN_TOKEN is set but an admin API key exists, so the token is ignored; unset it"
+        );
+    }
 
-    let state = ApiState::new(store, settings, &config);
+    let state = ApiState::new(store.clone(), settings, &config);
+    scheduler::spawn(store, Duration::from_secs(60), state.settings.clone());
     let app = app::router(&config, state);
 
     let listener = tokio::net::TcpListener::bind(config.bind_addr)

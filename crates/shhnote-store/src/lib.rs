@@ -7,10 +7,12 @@ use sqlx::{
     migrate::{Migration, MigrationType, Migrator},
 };
 
+mod api_keys;
 mod secrets;
 mod settings;
 mod stats;
 
+pub use api_keys::{ApiKey, Scope};
 pub use secrets::{Lifetime, NewSecret, Served, Sweep, TtlServed};
 pub use stats::{Day, Report, Stats};
 

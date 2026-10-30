@@ -542,3 +542,306 @@ async fn rate_limits_are_per_client_and_per_endpoint() {
     .await;
     assert_eq!(config.status, StatusCode::OK);
 }
+
+// --- admin panel
+
+const BOOTSTRAP: &str = "test-bootstrap-token-of-at-least-32-chars";
+
+async fn admin_server(name: &str) -> (Router, Store) {
+    let vars: HashMap<String, String> = [
+        ("SHH_ENV", "local"),
+        ("SHH_URL", "http://localhost:3000"),
+        ("SHH_SECRET_KEY", &"s".repeat(44)),
+        ("SHH_DB", "sqlite"),
+        ("SHH_ADMIN_TOKEN", BOOTSTRAP),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+    let config = Config::from_vars(&vars).unwrap();
+    let path = sqlite_path_for_tests(name);
+    let store = Store::connect_url(&format!("sqlite://{}?mode=rwc", path.display()))
+        .await
+        .unwrap();
+    let app = app::router(
+        &config,
+        ApiState::new(store.clone(), Settings::default(), &config),
+    );
+    (app, store)
+}
+
+async fn get_page(app: &Router, path: &str, cookie: &str) -> Reply {
+    let req = Request::get(path)
+        .header(header::HOST, "localhost")
+        .header(header::COOKIE, cookie)
+        .body(Body::empty())
+        .unwrap();
+    send(app, req).await
+}
+
+async fn post_form(app: &Router, path: &str, cookie: &str, fields: &[(&str, &str)]) -> Reply {
+    let body = fields
+        .iter()
+        .map(|(k, v)| format!("{k}={}", urlencode(v)))
+        .collect::<Vec<_>>()
+        .join("&");
+    let req = Request::post(path)
+        .header(header::HOST, "localhost")
+        .header(header::COOKIE, cookie)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from(body))
+        .unwrap();
+    send(app, req).await
+}
+
+fn urlencode(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+fn text(reply: &Reply) -> String {
+    String::from_utf8(reply.body.clone()).unwrap()
+}
+
+fn between<'a>(haystack: &'a str, start: &str, end: &str) -> &'a str {
+    let from = haystack.find(start).expect(start) + start.len();
+    let to = haystack[from..].find(end).expect(end);
+    &haystack[from..from + to]
+}
+
+fn location(reply: &Reply) -> &str {
+    reply.headers[header::LOCATION].to_str().unwrap()
+}
+
+fn session_cookie(reply: &Reply) -> String {
+    let set = reply.headers[header::SET_COOKIE].to_str().unwrap();
+    assert!(
+        set.contains("HttpOnly") && set.contains("SameSite=Strict"),
+        "{set}"
+    );
+    set.split(';').next().unwrap().to_string()
+}
+
+async fn login(app: &Router, credential: &str) -> Reply {
+    post_form(app, "/en/admin/login", "", &[("credential", credential)]).await
+}
+
+fn csrf_of(page: &Reply) -> String {
+    between(&text(page), "name=\"csrf\" value=\"", "\"").to_string()
+}
+
+async fn create_key(app: &Router, cookie: &str, csrf: &str, name: &str, scope: &str) -> String {
+    let page = post_form(
+        app,
+        "/en/admin/keys",
+        cookie,
+        &[("csrf", csrf), ("name", name), ("scope", scope)],
+    )
+    .await;
+    assert_eq!(page.status, StatusCode::OK);
+    between(&text(&page), "data-new-key-value>", "<").to_string()
+}
+
+#[tokio::test]
+async fn admin_login_bootstrap_then_keys() {
+    let (app, store) = admin_server("admin-login").await;
+
+    // Anonymous visitors are sent to the login page; a wrong credential is refused.
+    let reply = get_page(&app, "/en/admin", "").await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER);
+    assert_eq!(location(&reply), "/en/admin/login");
+    assert_eq!(login(&app, "nope").await.status, StatusCode::UNAUTHORIZED);
+
+    // The bootstrap token works on a fresh install.
+    let reply = login(&app, BOOTSTRAP).await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER);
+    let cookie = session_cookie(&reply);
+    let dashboard = get_page(&app, "/en/admin", &cookie).await;
+    assert_eq!(dashboard.status, StatusCode::OK);
+    assert!(text(&dashboard).contains("bootstrap token"));
+
+    // Forms need the CSRF token bound to the session.
+    let keys = get_page(&app, "/en/admin/keys", &cookie).await;
+    let csrf = csrf_of(&keys);
+    let forged = post_form(
+        &app,
+        "/en/admin/keys",
+        &cookie,
+        &[("csrf", "wrong"), ("name", "x"), ("scope", "user")],
+    )
+    .await;
+    assert_eq!(forged.status, StatusCode::FORBIDDEN);
+
+    // Keys are shown once and stored hashed.
+    let user_key = create_key(&app, &cookie, &csrf, "ci", "user").await;
+    assert_eq!(user_key.len(), 43);
+    let listed = store.list_api_keys().await.unwrap();
+    assert_eq!(listed[0].name, "ci");
+    assert_eq!(
+        listed[0].key_hash,
+        shhnote_core::secret::credential_hash(user_key.as_bytes())
+    );
+    assert!(!text(&get_page(&app, "/en/admin/keys", &cookie).await).contains(&user_key));
+
+    // Once an admin key exists the bootstrap token and its sessions stop working.
+    let admin_key = create_key(&app, &cookie, &csrf, "laptop", "admin").await;
+    assert_eq!(
+        get_page(&app, "/en/admin", &cookie).await.status,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        login(&app, BOOTSTRAP).await.status,
+        StatusCode::UNAUTHORIZED
+    );
+    let reply = login(&app, &admin_key).await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER);
+    let cookie = session_cookie(&reply);
+    assert_eq!(
+        get_page(&app, "/en/admin", &cookie).await.status,
+        StatusCode::OK
+    );
+    // A user key cannot sign in.
+    assert_eq!(
+        login(&app, &user_key).await.status,
+        StatusCode::UNAUTHORIZED
+    );
+
+    // Deleting the admin key ends its session.
+    let csrf = csrf_of(&get_page(&app, "/en/admin/keys", &cookie).await);
+    let hash_hex: String = shhnote_core::secret::credential_hash(admin_key.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let reply = post_form(
+        &app,
+        "/en/admin/keys/delete",
+        &cookie,
+        &[("csrf", &csrf), ("key_hash", &hash_hex)],
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        get_page(&app, "/en/admin", &cookie).await.status,
+        StatusCode::SEE_OTHER
+    );
+    // With no admin key left, the bootstrap token works again (what `reset-admin` relies on).
+    assert_eq!(login(&app, BOOTSTRAP).await.status, StatusCode::SEE_OTHER);
+}
+
+#[tokio::test]
+async fn admin_settings_apply_live_and_store_only_overrides() {
+    let (app, store) = admin_server("admin-settings").await;
+    let cookie = session_cookie(&login(&app, BOOTSTRAP).await);
+    let csrf = csrf_of(&get_page(&app, "/en/admin/settings", &cookie).await);
+    let user_key = create_key(&app, &cookie, &csrf, "ci", "user").await;
+
+    // The form always sends every field; change two of them.
+    let mut fields: Vec<(String, String)> = Settings::default()
+        .as_strings()
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+    for (k, v) in &mut fields {
+        match k.as_str() {
+            "rate_reveal_per_hour" => *v = "1".to_string(),
+            "site_name" => *v = "Vault".to_string(),
+            _ => {}
+        }
+    }
+    fields.push(("csrf".to_string(), csrf.clone()));
+    let borrowed: Vec<(&str, &str)> = fields
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    let reply = post_form(&app, "/en/admin/settings", &cookie, &borrowed).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", text(&reply));
+    assert!(text(&reply).contains("Saved."));
+
+    let overrides = store.setting_overrides().await.unwrap();
+    assert_eq!(overrides.len(), 2, "{overrides:?}");
+    assert_eq!(overrides["rate_reveal_per_hour"], "1");
+
+    // The new limit applies without a restart: one reveal passes, the next is refused.
+    let body = json!({"lookup": b64(&random32())});
+    assert_uniform_negative(
+        &post_json_from(&app, "/api/v1/secrets/reveal", body.clone(), "203.0.113.9").await,
+    );
+    assert_eq!(
+        post_json_from(&app, "/api/v1/secrets/reveal", body.clone(), "203.0.113.9")
+            .await
+            .status,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    // A user API key has its own, larger bucket.
+    let req = Request::post("/api/v1/secrets/reveal")
+        .header(header::HOST, "localhost")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::AUTHORIZATION, format!("Bearer {user_key}"))
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    assert_uniform_negative(&send(&app, req).await);
+    assert!(
+        store.list_api_keys().await.unwrap()[0]
+            .last_used_at
+            .is_some()
+    );
+
+    // The site name reaches the pages.
+    assert!(text(&get_page(&app, "/en", "").await).contains("Vault"));
+
+    // A bad value is rejected as a whole and nothing changes.
+    for (k, v) in &mut fields {
+        if k == "max_ttl_secs" {
+            *v = "not a number".to_string();
+        }
+    }
+    let borrowed: Vec<(&str, &str)> = fields
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    let reply = post_form(&app, "/en/admin/settings", &cookie, &borrowed).await;
+    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(store.setting_overrides().await.unwrap().len(), 2);
+
+    // Private instance: creating needs a user key, everything else stays open.
+    for (k, v) in &mut fields {
+        match k.as_str() {
+            "max_ttl_secs" => *v = Settings::default().max_ttl_secs.to_string(),
+            "require_api_key_for_create" => *v = "true".to_string(),
+            _ => {}
+        }
+    }
+    let borrowed: Vec<(&str, &str)> = fields
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    assert_eq!(
+        post_form(&app, "/en/admin/settings", &cookie, &borrowed)
+            .await
+            .status,
+        StatusCode::OK
+    );
+    let refused = create(
+        &app,
+        json!({"ttl_seconds": 3600, "single_view": true, "burn_token": b64(&random32())}),
+        &[0u8; 16],
+    )
+    .await;
+    assert_eq!(refused.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(refused.json()["error"]["code"], "api_key_required");
+    assert_uniform_negative(
+        &post_json_from(
+            &app,
+            "/api/v1/secrets/burn",
+            json!({"burn_token": b64(&random32())}),
+            "203.0.113.9",
+        )
+        .await,
+    );
+}

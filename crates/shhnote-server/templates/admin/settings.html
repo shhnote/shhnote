@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{%- import "partials/admin_nav.html" as nav -%}
+
+{% block title %}{{ ctx.t("admin-nav-settings") }}{% endblock %}
+
+{% block content %}
+<section class="section">
+  <div class="container stack" style="gap:2rem">
+    {% call nav::admin_nav(ctx, admin) %}{% endcall %}
+    <div class="stack--sm">
+      <h1>{{ ctx.t("admin-settings-title") }}</h1>
+      <p class="color-muted">{{ ctx.t("admin-settings-intro") }}</p>
+    </div>
+
+    {%- if saved %}
+    <p class="callout" role="status">{{ ctx.t("admin-settings-saved") }}</p>
+    {%- endif %}
+    {%- if !errors.is_empty() %}
+    <div class="callout callout--danger" role="alert">
+      <ul>
+        {%- for e in errors %}<li>{{ e }}</li>{%- endfor %}
+      </ul>
+    </div>
+    {%- endif %}
+
+    <form method="post" action="{{ ctx.href("/admin/settings") }}" class="form-grid">
+      <input type="hidden" name="csrf" value="{{ admin.csrf }}">
+      {%- for f in fields %}
+      <div class="form-field">
+        <label class="form-label" for="s-{{ f.key }}">{{ ctx.tn("setting-", f.key, "") }}</label>
+        {%- if f.key == "files_enabled" || f.key == "require_api_key_for_create" %}
+        <span class="toggle">
+          <input type="checkbox" id="s-{{ f.key }}" name="{{ f.key }}" value="true"{% if f.value == "true" %} checked{% endif %}>
+          <span class="track" aria-hidden="true"></span>
+        </span>
+        {%- else if f.key == "padding_mode" %}
+        <select class="form-select" id="s-{{ f.key }}" name="{{ f.key }}">
+          <option value="padme"{% if f.value == "padme" %} selected{% endif %}>padme</option>
+          <option value="buckets"{% if f.value == "buckets" %} selected{% endif %}>buckets</option>
+        </select>
+        {%- else if f.key == "regions" %}
+        <textarea class="form-textarea" id="s-{{ f.key }}" name="{{ f.key }}" rows="3" style="min-height:5rem">{{ f.value }}</textarea>
+        {%- else %}
+        <input class="form-input" id="s-{{ f.key }}" name="{{ f.key }}" value="{{ f.value }}">
+        {%- endif %}
+        <p class="input-help">{{ ctx.tn("setting-", f.key, "-help") }} <span class="color-faint">{{ ctx.t("admin-settings-default") }} <code>{{ f.default }}</code></span></p>
+      </div>
+      {%- endfor %}
+      <div class="form-field form-grid__full">
+        <button type="submit" class="btn btn--primary">{{ ctx.t("admin-settings-save") }}</button>
+      </div>
+    </form>
+  </div>
+</section>
+{% endblock %}

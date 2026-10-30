@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use shhnote_store::{Lifetime, NewSecret, Store, Sweep, sqlite_path_for_tests};
+use shhnote_store::{Lifetime, NewSecret, Scope, Store, Sweep, sqlite_path_for_tests};
 use tokio::sync::Mutex;
 
 const WINDOW: i64 = 900;
@@ -454,5 +454,57 @@ async fn old_days_roll_up_into_their_year() {
             0,
             "{backend}: idempotent"
         );
+    }
+}
+
+#[tokio::test]
+async fn api_keys_round_trip() {
+    for (backend, store) in backends("api_keys").await {
+        let _guard = fresh(backend, &store).await;
+        let admin = key(1);
+        let user = key(2);
+        assert_eq!(store.admin_key_count().await.unwrap(), 0, "{backend}");
+        store
+            .create_api_key(&admin, "laptop", Scope::Admin, 100)
+            .await
+            .unwrap();
+        store
+            .create_api_key(&user, "ci", Scope::User, 200)
+            .await
+            .unwrap();
+        assert_eq!(store.admin_key_count().await.unwrap(), 1, "{backend}");
+
+        let found = store.find_api_key(&user).await.unwrap().unwrap();
+        assert_eq!(
+            (found.name.as_str(), found.scope, found.last_used_at),
+            ("ci", Scope::User, None),
+            "{backend}"
+        );
+        store.touch_api_key(&user, 300).await.unwrap();
+        assert_eq!(
+            store
+                .find_api_key(&user)
+                .await
+                .unwrap()
+                .unwrap()
+                .last_used_at,
+            Some(300),
+            "{backend}"
+        );
+        assert!(
+            store.find_api_key(&key(3)).await.unwrap().is_none(),
+            "{backend}"
+        );
+
+        let listed = store.list_api_keys().await.unwrap();
+        assert_eq!(
+            listed.iter().map(|k| k.name.as_str()).collect::<Vec<_>>(),
+            vec!["ci", "laptop"],
+            "{backend}"
+        );
+        assert!(store.delete_api_key(&user).await.unwrap(), "{backend}");
+        assert!(!store.delete_api_key(&user).await.unwrap(), "{backend}");
+        assert_eq!(store.delete_admin_keys().await.unwrap(), 1, "{backend}");
+        assert!(store.list_api_keys().await.unwrap().is_empty(), "{backend}");
     }
 }

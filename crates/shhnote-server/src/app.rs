@@ -14,8 +14,8 @@ use crate::{
 };
 
 pub fn router(config: &Config, state: ApiState) -> Router {
+    let web = web::router(config, &state);
     let api = api::router(state);
-    let web = web::router(config);
 
     let app = match &config.api_routing {
         ApiRouting::Path => web.nest("/api", api),

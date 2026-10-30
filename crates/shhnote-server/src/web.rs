@@ -10,23 +10,35 @@ use axum::{
     routing::get,
 };
 use fluent_bundle::FluentArgs;
-use shhnote_core::config::{ApiRouting, Config};
+use shhnote_core::{
+    config::{ApiRouting, AppEnv, Config},
+    secret::credential_hash,
+    settings::SettingsCell,
+};
+use shhnote_store::Store;
 
 use crate::{
+    admin,
+    api::ApiState,
     content::{Content, Doc},
     i18n::{self, I18n, LOCALES},
+    ratelimit::RateLimiter,
 };
 
-// TODO: move these to database settings once they exist, so each install can set its own.
-const CONTACT_EMAIL: &str = "hello@example.com";
-const SECURITY_EMAIL: &str = "security@example.com";
 // TODO: settings. Empty hides the source links.
 const REPO_URL: &str = "https://github.com/zbcdo/shhnote";
 
 const MIB: u64 = 1024 * 1024;
 
-struct Shared {
+pub(crate) struct Shared {
     i18n: I18n,
+    pub(crate) store: Store,
+    pub(crate) settings: Arc<SettingsCell>,
+    pub(crate) limiter: Arc<RateLimiter>,
+    // Signs admin sessions; comes from SHH_SECRET_KEY.
+    pub(crate) secret_key: Vec<u8>,
+    pub(crate) secure_cookies: bool,
+    pub(crate) admin_token_hash: Option<[u8; 32]>,
     asset_version: String,
     // app.css with the asset hash substituted into its font URLs.
     css: String,
@@ -38,14 +50,23 @@ struct Shared {
 
 // Each locale gets its own copy of the page routes, so handlers know their language without parsing the URL.
 #[derive(Clone)]
-struct PageState {
-    shared: Arc<Shared>,
-    locale: &'static str,
+pub(crate) struct PageState {
+    pub(crate) shared: Arc<Shared>,
+    pub(crate) locale: &'static str,
 }
 
-pub fn router(config: &Config) -> Router {
+pub fn router(config: &Config, api: &ApiState) -> Router {
     let shared = Arc::new(Shared {
         i18n: I18n::load(),
+        store: api.store.clone(),
+        settings: api.settings.clone(),
+        limiter: api.limiter.clone(),
+        secret_key: config.secret_key.expose().as_bytes().to_vec(),
+        secure_cookies: config.env == AppEnv::Production,
+        admin_token_hash: config
+            .admin_token
+            .as_ref()
+            .map(|t| credential_hash(t.expose().as_bytes())),
         asset_version: asset_version(),
         css: APP_CSS.replace("__V__", &asset_version()),
         content: Content::load(),
@@ -90,29 +111,34 @@ fn pages(state: PageState) -> Router {
         .route("/terms", get(terms))
         .route("/privacy", get(privacy))
         .route("/security", get(security))
+        .nest("/admin", admin::routes())
         .fallback(not_found)
         .with_state(state)
 }
 
 // What every page template needs: translations and the language switcher.
-struct Ctx<'a> {
-    shared: &'a Shared,
-    locale: &'static str,
+pub(crate) struct Ctx<'a> {
+    pub(crate) shared: &'a Shared,
+    pub(crate) locale: &'static str,
     // The page's path without the locale prefix, for marking the current nav item.
-    path: String,
-    languages: Vec<LanguageLink>,
+    pub(crate) path: String,
+    pub(crate) languages: Vec<LanguageLink>,
 }
 
-struct LanguageLink {
-    code: &'static str,
-    name: String,
-    href: String,
-    current: bool,
+pub(crate) struct LanguageLink {
+    pub(crate) code: &'static str,
+    pub(crate) name: String,
+    pub(crate) href: String,
+    pub(crate) current: bool,
 }
 
 impl PageState {
+    pub(crate) fn href(&self, path: &str) -> String {
+        format!("/{}{path}", self.locale)
+    }
+
     // `path` is the page's path without the locale prefix, e.g. `/terms`.
-    fn ctx(&self, path: &str) -> Ctx<'_> {
+    pub(crate) fn ctx(&self, path: &str) -> Ctx<'_> {
         let languages = LOCALES
             .iter()
             .map(|&code| LanguageLink {
@@ -132,42 +158,47 @@ impl PageState {
 }
 
 impl Ctx<'_> {
-    fn t(&self, key: &str) -> String {
+    pub(crate) fn t(&self, key: &str) -> String {
         self.shared.i18n.t(self.locale, key, None)
     }
 
     // Builds keys like `hood-3-label` for templates that loop over numbered items.
-    fn tn(&self, prefix: &str, n: &str, suffix: &str) -> String {
+    pub(crate) fn tn(&self, prefix: &str, n: &str, suffix: &str) -> String {
         self.t(&format!("{prefix}{n}{suffix}"))
     }
 
-    fn tn2(&self, prefix: &str, a: &str, mid: &str, b: &str) -> String {
+    pub(crate) fn tn2(&self, prefix: &str, a: &str, mid: &str, b: &str) -> String {
         self.t(&format!("{prefix}{a}{mid}{b}"))
     }
 
-    fn t_args(&self, key: &str, args: &FluentArgs) -> String {
+    pub(crate) fn t_args(&self, key: &str, args: &FluentArgs) -> String {
         self.shared.i18n.t(self.locale, key, Some(args))
     }
 
-    fn href(&self, path: &str) -> String {
+    pub(crate) fn href(&self, path: &str) -> String {
         format!("/{}{path}", self.locale)
     }
 
-    fn api_url(&self) -> &str {
+    // The configured site name; the Fluent `brand-name` term stays the project name.
+    pub(crate) fn site_name(&self) -> String {
+        self.shared.settings.load().site_name.clone()
+    }
+
+    pub(crate) fn api_url(&self) -> &str {
         &self.shared.api_url
     }
 
-    fn asset_version(&self) -> &str {
+    pub(crate) fn asset_version(&self) -> &str {
         &self.shared.asset_version
     }
 
-    fn repo_url(&self) -> &str {
+    pub(crate) fn repo_url(&self) -> &str {
         REPO_URL
     }
 
     // The strings the page script needs, as a JSON object. `<` is escaped so a translation can
     // never close the `<script>` block it is embedded in.
-    fn ui_json(&self) -> String {
+    pub(crate) fn ui_json(&self) -> String {
         let map: BTreeMap<&str, String> = UI_KEYS.iter().map(|key| (*key, self.t(key))).collect();
         serde_json::to_string(&map)
             .unwrap_or_default()
@@ -297,12 +328,13 @@ struct ContactPage<'a> {
 }
 
 async fn contact(State(state): State<PageState>) -> Response {
+    let settings = state.shared.settings.load();
     render(
         &state,
         ContactPage {
             ctx: state.ctx("/contact"),
-            contact_email: CONTACT_EMAIL,
-            security_email: SECURITY_EMAIL,
+            contact_email: &settings.contact_email,
+            security_email: &settings.security_email,
         },
     )
 }
@@ -353,9 +385,11 @@ async fn not_found(State(state): State<PageState>) -> Response {
     error_page(&state, StatusCode::NOT_FOUND)
 }
 
-fn error_page(state: &PageState, status: StatusCode) -> Response {
+pub(crate) fn error_page(state: &PageState, status: StatusCode) -> Response {
     let key = match status {
         StatusCode::NOT_FOUND => "error-404",
+        StatusCode::FORBIDDEN => "error-403",
+        StatusCode::BAD_REQUEST => "error-400",
         _ => "error-500",
     };
     let ctx = state.ctx("");
@@ -376,7 +410,7 @@ fn error_page(state: &PageState, status: StatusCode) -> Response {
 }
 
 // A template error becomes a 500 page instead of crashing the request.
-fn render(state: &PageState, page: impl Template) -> Response {
+pub(crate) fn render(state: &PageState, page: impl Template) -> Response {
     match page.render() {
         Ok(html) => Html(html).into_response(),
         Err(e) => {
