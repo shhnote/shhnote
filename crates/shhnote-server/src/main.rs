@@ -1,7 +1,7 @@
-use std::{net::SocketAddr, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use shhnote_core::{config::Config, settings::Settings};
-use shhnote_server::{api::ApiState, app, scheduler};
+use shhnote_server::{api::ApiState, app, scheduler, storage::Blobs};
 use shhnote_store::Store;
 
 #[tokio::main]
@@ -52,8 +52,30 @@ async fn main() {
         );
     }
 
-    let state = ApiState::new(store.clone(), settings, &config);
-    scheduler::spawn(store, Duration::from_secs(60), state.settings.clone());
+    let storage = match &config.storage.external {
+        Some(external) => match Blobs::open(external).await {
+            Ok(blobs) => Some(Arc::new(blobs)),
+            Err(e) => {
+                eprintln!("storage error: {e}");
+                std::process::exit(1);
+            }
+        },
+        None => None,
+    };
+
+    if !settings.inline_enabled && storage.is_none() {
+        eprintln!(
+            "warning: inline_enabled is off but SHH_STORAGE is inline, so blobs stay in the database"
+        );
+    }
+
+    let state = ApiState::new(store.clone(), settings, &config, storage.clone());
+    scheduler::spawn(
+        store,
+        Duration::from_secs(60),
+        state.settings.clone(),
+        storage,
+    );
     let app = app::router(&config, state);
 
     let listener = tokio::net::TcpListener::bind(config.bind_addr)

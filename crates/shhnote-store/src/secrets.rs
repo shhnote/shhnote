@@ -263,6 +263,17 @@ impl Store {
             .collect()
     }
 
+    // Everything the external tier holds, pending deletes included, against its ceiling.
+    pub async fn external_bytes(&self) -> Result<u64, Error> {
+        let row = sqlx::query(
+            "SELECT CAST(COALESCE(SUM(bucket), 0) AS BIGINT) AS n FROM secrets WHERE external_ref IS NOT NULL",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        let n: i64 = row.try_get("n")?;
+        Ok(n.max(0) as u64)
+    }
+
     pub async fn finish_delete(&self, lookup_key: &[u8]) -> Result<(), Error> {
         sqlx::query("DELETE FROM secrets WHERE lookup_key = $1 AND status = 'pending_delete'")
             .bind(lookup_key.to_vec())

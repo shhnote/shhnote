@@ -3,7 +3,7 @@ import { ShhError } from "../crypto/error.ts";
 import { encrypt, generateRandomness } from "../crypto/secret.ts";
 import { Api, ApiError, type Lifetime } from "./api.ts";
 import { loadArgon2 } from "./argon2-loader.ts";
-import { $, hide, setStatus, show, wireCopy } from "./dom.ts";
+import { $, $$, hide, setStatus, show, wireCopy } from "./dom.ts";
 import type { Dropzone } from "./dropzone.ts";
 import { t } from "./i18n.ts";
 
@@ -16,6 +16,17 @@ export function wireCreate(form: HTMLFormElement, dropzone: Dropzone | undefined
   const wrapper = $("[data-create-wrapper]");
   show(wrapper);
 
+  // Instance policy: with files switched off the drop zone goes away and the API would refuse
+  // anything file-sized anyway.
+  let filesEnabled = true;
+  void api.config().then((config) => {
+    filesEnabled = config.files_enabled;
+    if (!filesEnabled) {
+      dropzone?.reset();
+      for (const zone of $$("[data-dropzone]", form)) hide(zone);
+    }
+  }, () => {});
+
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const data = new FormData(form);
@@ -23,7 +34,7 @@ export function wireCreate(form: HTMLFormElement, dropzone: Dropzone | undefined
     const passphrase = String(data.get("passphrase") ?? "");
     const lifetime: Lifetime = data.get("burn") ? "single_view" : "ttl";
     const ttlSeconds = Number(data.get("expiry"));
-    const files = dropzone?.files ?? [];
+    const files = filesEnabled ? (dropzone?.files ?? []) : [];
 
     if (text.length === 0 && files.length === 0) {
       setStatus(status, t("create-error-empty"));

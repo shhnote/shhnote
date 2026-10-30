@@ -678,6 +678,15 @@ function wireCreate(form, dropzone) {
   const result = $("[data-create-result]");
   const wrapper = $("[data-create-wrapper]");
   show(wrapper);
+  let filesEnabled = true;
+  void api.config().then((config) => {
+    filesEnabled = config.files_enabled;
+    if (!filesEnabled) {
+      dropzone?.reset();
+      for (const zone of $$("[data-dropzone]", form)) hide(zone);
+    }
+  }, () => {
+  });
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const data = new FormData(form);
@@ -685,7 +694,7 @@ function wireCreate(form, dropzone) {
     const passphrase = String(data.get("passphrase") ?? "");
     const lifetime = data.get("burn") ? "single_view" : "ttl";
     const ttlSeconds = Number(data.get("expiry"));
-    const files = dropzone?.files ?? [];
+    const files = filesEnabled ? dropzone?.files ?? [] : [];
     if (text.length === 0 && files.length === 0) {
       setStatus(status, t("create-error-empty"));
       return;

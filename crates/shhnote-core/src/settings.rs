@@ -54,6 +54,8 @@ pub struct Settings {
     pub ttl_presets: Vec<i64>,
     pub text_max_bytes: u64,
     pub files_enabled: bool,
+    // When false, every blob goes to the external tier; needs `SHH_STORAGE` to enable one.
+    pub inline_enabled: bool,
     pub regions: Vec<Region>,
     pub daily_retention_days: i64,
     pub rate_limits: RateLimits,
@@ -95,6 +97,7 @@ impl Default for Settings {
             ],
             text_max_bytes: 64 * 1024,
             files_enabled: true,
+            inline_enabled: true,
             regions: Vec::new(),
             daily_retention_days: 365,
             rate_limits: RateLimits::default(),
@@ -147,6 +150,7 @@ impl Settings {
                 "ttl_presets" => parse_list(value).map(|v| s.ttl_presets = v),
                 "text_max_bytes" => parse(value).map(|v| s.text_max_bytes = v),
                 "files_enabled" => parse(value).map(|v| s.files_enabled = v),
+                "inline_enabled" => parse(value).map(|v| s.inline_enabled = v),
                 "daily_retention_days" => parse(value).map(|v| s.daily_retention_days = v),
                 "rate_create_per_hour" => parse(value).map(|v| s.rate_limits.create_per_hour = v),
                 "rate_reveal_per_hour" => parse(value).map(|v| s.rate_limits.reveal_per_hour = v),
@@ -224,6 +228,7 @@ impl Settings {
             ("ttl_presets", list(&self.ttl_presets)),
             ("text_max_bytes", self.text_max_bytes.to_string()),
             ("files_enabled", self.files_enabled.to_string()),
+            ("inline_enabled", self.inline_enabled.to_string()),
             (
                 "regions",
                 serde_json::to_string(&self.regions).unwrap_or_default(),

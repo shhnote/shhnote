@@ -15,7 +15,7 @@ use shhnote_core::{secret::credential_hash, settings::Settings};
 use shhnote_store::{ApiKey, Scope};
 
 use crate::{
-    api::now,
+    clock::{format_date, format_time, now},
     ratelimit::{Endpoint, Peer},
     web::{Ctx, PageState, error_page, render},
 };
@@ -615,38 +615,6 @@ fn unhex(text: &str) -> Option<Vec<u8>> {
         .collect()
 }
 
-// Civil date from unix seconds (Howard Hinnant's algorithm), so no date crate is needed.
-fn civil(secs: i64) -> (i64, u32, u32, u32, u32) {
-    let days = secs.div_euclid(DAY);
-    let rem = secs.rem_euclid(DAY);
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    (
-        year,
-        month,
-        day,
-        (rem / 3600) as u32,
-        ((rem % 3600) / 60) as u32,
-    )
-}
-
-fn format_date(secs: i64) -> String {
-    let (y, m, d, _, _) = civil(secs);
-    format!("{y:04}-{m:02}-{d:02}")
-}
-
-fn format_time(secs: i64) -> String {
-    let (y, m, d, hh, mm) = civil(secs);
-    format!("{y:04}-{m:02}-{d:02} {hh:02}:{mm:02} UTC")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -679,12 +647,6 @@ mod tests {
             }
             .csrf(secret)
         );
-    }
-
-    #[test]
-    fn formats_dates() {
-        assert_eq!(format_date(1_767_225_600), "2026-01-01");
-        assert_eq!(format_time(1_793_318_400 + 3661), "2026-10-30 01:01 UTC");
     }
 
     #[test]

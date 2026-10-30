@@ -28,7 +28,7 @@
       {%- for f in fields %}
       <div class="form-field">
         <label class="form-label" for="s-{{ f.key }}">{{ ctx.tn("setting-", f.key, "") }}</label>
-        {%- if f.key == "files_enabled" || f.key == "require_api_key_for_create" %}
+        {%- if f.key == "files_enabled" || f.key == "inline_enabled" || f.key == "require_api_key_for_create" %}
         <span class="toggle">
           <input type="checkbox" id="s-{{ f.key }}" name="{{ f.key }}" value="true"{% if f.value == "true" %} checked{% endif %}>
           <span class="track" aria-hidden="true"></span>

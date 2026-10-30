@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::SocketAddr};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use axum::{
     Router,
@@ -17,8 +17,9 @@ use shhnote_core::{
     settings::Settings,
 };
 use shhnote_server::{
-    api::{ApiState, CLAIM_TOKEN_HEADER, EXPIRES_IN_HEADER},
-    app,
+    api::{ApiState, CLAIM_TOKEN_HEADER, EXPIRES_IN_HEADER, now},
+    app, scheduler,
+    storage::Blobs,
 };
 use shhnote_store::{Store, sqlite_path_for_tests};
 use tower::ServiceExt;
@@ -50,7 +51,7 @@ async fn server_with(name: &str, overrides: &[(&str, &str)]) -> Router {
         .collect();
     let (settings, warnings) = Settings::with_overrides(&overrides);
     assert!(warnings.is_empty(), "{warnings:?}");
-    app::router(&config, ApiState::new(store, settings, &config))
+    app::router(&config, ApiState::new(store, settings, &config, None))
 }
 
 async fn post_json_from(app: &Router, path: &str, body: Value, ip: &str) -> Reply {
@@ -565,7 +566,7 @@ async fn admin_server(name: &str) -> (Router, Store) {
         .unwrap();
     let app = app::router(
         &config,
-        ApiState::new(store.clone(), Settings::default(), &config),
+        ApiState::new(store.clone(), Settings::default(), &config, None),
     );
     (app, store)
 }
@@ -844,4 +845,247 @@ async fn admin_settings_apply_live_and_store_only_overrides() {
         )
         .await,
     );
+}
+
+// --- external storage tier
+
+async fn external_server(name: &str, tier: &[(&str, &str)]) -> (Router, Store, Arc<Blobs>) {
+    external_server_with(name, tier, &[]).await
+}
+
+async fn external_server_with(
+    name: &str,
+    tier: &[(&str, &str)],
+    overrides: &[(&str, &str)],
+) -> (Router, Store, Arc<Blobs>) {
+    let mut vars: HashMap<String, String> = [
+        ("SHH_ENV", "local"),
+        ("SHH_URL", "http://localhost:3000"),
+        ("SHH_SECRET_KEY", &"s".repeat(44)),
+        ("SHH_DB", "sqlite"),
+        // The smallest inline ceiling, so a 128 KiB bucket is external.
+        ("SHH_INLINE_MAX", "65536"),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+    vars.extend(tier.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+    let config = Config::from_vars(&vars).unwrap();
+    let blobs = Arc::new(
+        Blobs::open(config.storage.external.as_ref().unwrap())
+            .await
+            .unwrap(),
+    );
+    let path = sqlite_path_for_tests(name);
+    let store = Store::connect_url(&format!("sqlite://{}?mode=rwc", path.display()))
+        .await
+        .unwrap();
+    let overrides: HashMap<String, String> = overrides
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    let (settings, warnings) = Settings::with_overrides(&overrides);
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let app = app::router(
+        &config,
+        ApiState::new(store.clone(), settings, &config, Some(blobs.clone())),
+    );
+    (app, store, blobs)
+}
+
+async fn reveal(app: &Router, keys: &Keys) -> Reply {
+    post_json(
+        app,
+        "/api/v1/secrets/reveal",
+        json!({"lookup": b64(&keys.lookup)}),
+    )
+    .await
+}
+
+async fn burn(app: &Router, keys: &Keys) -> Reply {
+    post_json(
+        app,
+        "/api/v1/secrets/burn",
+        json!({"burn_token": b64(&keys.burn_token)}),
+    )
+    .await
+}
+
+// The same lifecycle on every tier: store, stream back, refuse past the ceiling, park on
+// burn, scrub. The ceiling in the config is 300 000 bytes, room for two 128 KiB objects.
+async fn external_tier_flow(app: &Router, store: &Store, blobs: &Blobs) {
+    const LARGE: u64 = 131_072;
+    let first = keys();
+    let blob = raw_blob(LARGE);
+    assert_eq!(
+        create(app, meta(&first, "ttl", 86400), &blob).await.status,
+        StatusCode::CREATED
+    );
+    assert_eq!(store.external_bytes().await.unwrap(), LARGE);
+
+    let reply = reveal(app, &first).await;
+    assert_eq!(reply.status, StatusCode::OK);
+    assert_eq!(
+        reply.headers[header::CONTENT_LENGTH],
+        blob.len().to_string()
+    );
+    assert_eq!(reply.headers[header::CACHE_CONTROL], "no-store");
+    assert_eq!(reply.body, blob);
+
+    // A large blob of the wrong length is refused after spooling and leaves nothing behind.
+    let mut odd = raw_blob(LARGE);
+    odd.push(0);
+    let reply = create(app, meta(&keys(), "ttl", 86400), &odd).await;
+    assert_eq!(reply.status, StatusCode::BAD_REQUEST);
+    assert_eq!(reply.json()["error"]["code"], "invalid_blob_length");
+    assert_eq!(store.external_bytes().await.unwrap(), LARGE);
+
+    // Second one fits, third would cross the ceiling; small secrets are unaffected.
+    let second = keys();
+    assert_eq!(
+        create(app, meta(&second, "ttl", 86400), &raw_blob(LARGE))
+            .await
+            .status,
+        StatusCode::CREATED
+    );
+    let reply = create(app, meta(&keys(), "ttl", 86400), &raw_blob(LARGE)).await;
+    assert_eq!(reply.status, StatusCode::INSUFFICIENT_STORAGE);
+    assert_eq!(reply.json()["error"]["code"], "storage_full");
+    let small = keys();
+    assert_eq!(
+        create(app, meta(&small, "ttl", 86400), &raw_blob(65536))
+            .await
+            .status,
+        StatusCode::CREATED
+    );
+    assert_eq!(store.external_bytes().await.unwrap(), 2 * LARGE);
+
+    // Burning parks the row: the object still counts until the scrubber confirms it is gone.
+    assert_eq!(burn(app, &first).await.status, StatusCode::NO_CONTENT);
+    assert_uniform_negative(&reveal(app, &first).await);
+    assert_eq!(store.external_bytes().await.unwrap(), 2 * LARGE);
+    scheduler::scrub(store, Some(blobs)).await;
+    assert_eq!(store.external_bytes().await.unwrap(), LARGE);
+    assert!(store.pending_deletes().await.unwrap().is_empty());
+
+    // Room again.
+    assert_eq!(
+        create(app, meta(&keys(), "ttl", 86400), &raw_blob(LARGE))
+            .await
+            .status,
+        StatusCode::CREATED
+    );
+    assert_eq!(reveal(app, &second).await.status, StatusCode::OK);
+    assert_eq!(reveal(app, &small).await.status, StatusCode::OK);
+
+    // Leave the tier empty.
+    assert_eq!(burn(app, &second).await.status, StatusCode::NO_CONTENT);
+    assert_eq!(burn(app, &small).await.status, StatusCode::NO_CONTENT);
+    let third_burn = store.sweep(now() + 90_000).await.unwrap();
+    assert_eq!(third_burn.expired, 1);
+    scheduler::scrub(store, Some(blobs)).await;
+    assert_eq!(store.external_bytes().await.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn local_tier_round_trips_and_scrubs() {
+    let root = std::env::temp_dir().join("shhnote-api-local-tier");
+    let _ = tokio::fs::remove_dir_all(&root).await;
+    let (app, store, blobs) = external_server(
+        "api-local-tier",
+        &[
+            ("SHH_STORAGE", "local"),
+            ("SHH_LOCAL_PATH", root.to_str().unwrap()),
+            ("SHH_LOCAL_MAX_TOTAL_BYTES", "300000"),
+        ],
+    )
+    .await;
+    external_tier_flow(&app, &store, &blobs).await;
+    for dir in ["blobs", "tmp"] {
+        let mut entries = tokio::fs::read_dir(root.join(dir)).await.unwrap();
+        assert!(
+            entries.next_entry().await.unwrap().is_none(),
+            "{dir} not empty"
+        );
+    }
+    let _ = tokio::fs::remove_dir_all(&root).await;
+}
+
+// Runs only against a real bucket: set SHH_TEST_S3_ENDPOINT, _BUCKET, _REGION,
+// _ACCESS_KEY_ID and _SECRET_ACCESS_KEY (MinIO or any S3-compatible service).
+#[tokio::test]
+async fn s3_tier_round_trips_and_scrubs() {
+    let names = [
+        "ENDPOINT",
+        "BUCKET",
+        "REGION",
+        "ACCESS_KEY_ID",
+        "SECRET_ACCESS_KEY",
+    ];
+    let values: Vec<Option<String>> = names
+        .iter()
+        .map(|n| std::env::var(format!("SHH_TEST_S3_{n}")).ok())
+        .collect();
+    if values.iter().any(Option::is_none) {
+        eprintln!("skipping: SHH_TEST_S3_* not set");
+        return;
+    }
+    let mut tier: Vec<(&str, &str)> = names
+        .iter()
+        .zip(&values)
+        .map(|(n, v)| {
+            let key: &'static str = Box::leak(format!("SHH_S3_{n}").into_boxed_str());
+            (key, v.as_deref().unwrap())
+        })
+        .collect();
+    tier.push(("SHH_STORAGE", "s3"));
+    tier.push(("SHH_S3_MAX_TOTAL_BYTES", "300000"));
+    let (app, store, blobs) = external_server("api-s3-tier", &tier).await;
+    external_tier_flow(&app, &store, &blobs).await;
+}
+
+#[tokio::test]
+async fn inline_disabled_sends_every_blob_external() {
+    let root = std::env::temp_dir().join("shhnote-api-inline-off");
+    let _ = tokio::fs::remove_dir_all(&root).await;
+    let (app, store, blobs) = external_server_with(
+        "api-inline-off",
+        &[
+            ("SHH_STORAGE", "local"),
+            ("SHH_LOCAL_PATH", root.to_str().unwrap()),
+            ("SHH_LOCAL_MAX_TOTAL_BYTES", "300000"),
+        ],
+        &[("inline_enabled", "false")],
+    )
+    .await;
+    // Far below the inline ceiling, yet it lands on disk.
+    let keys = keys();
+    let blob = raw_blob(65536);
+    assert_eq!(
+        create(&app, meta(&keys, "ttl", 86400), &blob).await.status,
+        StatusCode::CREATED
+    );
+    assert_eq!(store.external_bytes().await.unwrap(), 65536);
+    let reply = reveal(&app, &keys).await;
+    assert_eq!(reply.status, StatusCode::OK);
+    assert_eq!(reply.body, blob);
+    assert_eq!(burn(&app, &keys).await.status, StatusCode::NO_CONTENT);
+    scheduler::scrub(&store, Some(&blobs)).await;
+    assert_eq!(store.external_bytes().await.unwrap(), 0);
+    let _ = tokio::fs::remove_dir_all(&root).await;
+}
+
+#[tokio::test]
+async fn files_disabled_caps_blobs_at_text_size() {
+    let app = server_with("api-files-off", &[("files_enabled", "false")]).await;
+    // A text-sized blob is fine; a megabyte can only be a file.
+    assert_eq!(
+        create(&app, meta(&keys(), "ttl", 86400), &raw_blob(65536))
+            .await
+            .status,
+        StatusCode::CREATED
+    );
+    let reply = create(&app, meta(&keys(), "ttl", 86400), &raw_blob(1_048_576)).await;
+    assert_eq!(reply.status, StatusCode::BAD_REQUEST);
+    assert_eq!(reply.json()["error"]["code"], "files_disabled");
 }

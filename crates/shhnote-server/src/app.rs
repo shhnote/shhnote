@@ -81,7 +81,7 @@ mod tests {
         let store = Store::connect_url(&format!("sqlite://{}?mode=rwc", path.display()))
             .await
             .unwrap();
-        ApiState::new(store, Settings::default(), config)
+        ApiState::new(store, Settings::default(), config, None)
     }
 
     async fn build(changes: &[(&str, &str)]) -> Router {

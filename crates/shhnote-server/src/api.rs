@@ -1,7 +1,4 @@
-use std::{
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::sync::Arc;
 
 use axum::{
     Json, Router,
@@ -18,12 +15,16 @@ use shhnote_core::{
     config::Config,
     fragment,
     padding::PaddingPolicy,
+    padding::blob_len,
     secret::credential_hash,
     settings::{Region, Settings, SettingsCell},
 };
 use shhnote_store::{Lifetime, NewSecret, Served, Store};
 
-use crate::ratelimit::{Endpoint, RateLimiter, limit};
+use crate::{
+    ratelimit::{Endpoint, RateLimiter, limit},
+    storage::{Blobs, Spool},
+};
 
 pub const CLAIM_TOKEN_HEADER: HeaderName = HeaderName::from_static("x-shh-claim-token");
 pub const EXPIRES_IN_HEADER: HeaderName = HeaderName::from_static("x-shh-expires-in-hours");
@@ -34,10 +35,17 @@ pub struct ApiState {
     pub settings: Arc<SettingsCell>,
     pub limits: Limits,
     pub limiter: Arc<RateLimiter>,
+    // The external tier, if `SHH_STORAGE` enables one.
+    pub storage: Option<Arc<Blobs>>,
 }
 
 impl ApiState {
-    pub fn new(store: Store, settings: Settings, config: &Config) -> Self {
+    pub fn new(
+        store: Store,
+        settings: Settings,
+        config: &Config,
+        storage: Option<Arc<Blobs>>,
+    ) -> Self {
         let settings = Arc::new(SettingsCell::new(settings));
         let limiter = RateLimiter::new(settings.clone(), config.trusted_proxies.clone());
         Self {
@@ -45,6 +53,7 @@ impl ApiState {
             settings,
             limits: Limits::from_config(config),
             limiter: Arc::new(limiter),
+            storage,
         }
     }
 }
@@ -198,35 +207,115 @@ async fn create(
         return Err(ApiError::bad_request("invalid_ttl"));
     }
 
-    let blob_field = next_field(&mut multipart, "blob").await?;
-    let blob = blob_field.bytes().await.map_err(|_| ApiError::TooLarge)?;
+    let mut blob_field = next_field(&mut multipart, "blob").await?;
+    // Small blobs stay in memory; once one outgrows the inline tier it is spooled to disk.
+    // With the inline tier switched off (and an external one present) nothing stays in memory.
+    let inline_allowed = settings.inline_enabled || state.storage.is_none();
+    let memory_limit = if inline_allowed {
+        blob_len(state.limits.inline_max) as usize
+    } else {
+        0
+    };
+    let mut sink = Sink::Memory(Vec::new());
+    while let Some(chunk) = blob_field.chunk().await.map_err(multipart_error)? {
+        if let (Sink::Memory(buf), Some(storage)) = (&mut sink, &state.storage)
+            && buf.len() + chunk.len() > memory_limit
+        {
+            let mut spool = storage.spool().await.map_err(ApiError::internal)?;
+            spool.write(buf).await.map_err(ApiError::internal)?;
+            sink = Sink::Spool(spool);
+        }
+        match &mut sink {
+            Sink::Memory(buf) => buf.extend_from_slice(&chunk),
+            Sink::Spool(spool) => spool.write(&chunk).await.map_err(ApiError::internal)?,
+        }
+    }
+    let len = match &sink {
+        Sink::Memory(buf) => buf.len() as u64,
+        Sink::Spool(spool) => spool.bytes_written(),
+    };
     let bucket = settings
         .padding
-        .bucket_for_blob_len(blob.len() as u64)
+        .bucket_for_blob_len(len)
         .map_err(|_| ApiError::bad_request("invalid_blob_length"))?;
     if bucket > state.limits.max_blob_bytes() {
         return Err(ApiError::TooLarge);
     }
-    if bucket > state.limits.inline_max {
-        // TODO: external tier (SPEC §6.1). Until it exists, large blobs are refused.
-        return Err(ApiError::TooLarge);
+    // The server cannot tell files from text, but with files switched off nothing larger than
+    // the biggest possible text secret needs to be accepted (SPEC §6).
+    if !settings.files_enabled && bucket > text_only_bucket(&settings) {
+        return Err(ApiError::bad_request("files_disabled"));
     }
 
     let now = now();
-    let secret = NewSecret {
+    let expires_at = now + meta.ttl_seconds;
+    let secret = |blob, external_ref| NewSecret {
         lookup_key,
         burn_key,
         lifetime,
         bucket,
-        blob: Some(blob.to_vec()),
-        external_ref: None,
-        expires_at: now + meta.ttl_seconds,
+        blob,
+        external_ref,
+        expires_at,
     };
-    match state.store.create(&secret, now).await {
-        Ok(true) => Ok(StatusCode::CREATED),
-        Ok(false) => Err(ApiError::bad_request("duplicate_key")),
-        Err(e) => Err(ApiError::internal(e)),
+    match sink {
+        Sink::Memory(buf) if bucket <= state.limits.inline_max && inline_allowed => {
+            match state.store.create(&secret(Some(buf), None), now).await {
+                Ok(true) => Ok(StatusCode::CREATED),
+                Ok(false) => Err(ApiError::bad_request("duplicate_key")),
+                Err(e) => Err(ApiError::internal(e)),
+            }
+        }
+        // A blob above the inline ceiling that never spilled means there is no external tier.
+        Sink::Memory(_) => Err(ApiError::TooLarge),
+        Sink::Spool(spool) => {
+            let storage = state.storage.as_ref().ok_or(ApiError::Internal)?;
+            // The tier ceiling counts everything in it, pending deletes included (SPEC §6).
+            let used = state
+                .store
+                .external_bytes()
+                .await
+                .map_err(ApiError::internal)?;
+            if used + bucket > storage.max_total_bytes() {
+                return Err(ApiError::StorageFull);
+            }
+            let spooled = spool.finish().await.map_err(ApiError::internal)?;
+            let key = Blobs::new_key().map_err(ApiError::internal)?;
+            storage
+                .put(&key, spooled)
+                .await
+                .map_err(ApiError::internal)?;
+            // Only an active row makes the object reachable; without one it is garbage.
+            match state
+                .store
+                .create(&secret(None, Some(key.clone())), now)
+                .await
+            {
+                Ok(true) => Ok(StatusCode::CREATED),
+                other => {
+                    if let Err(e) = storage.delete(&key).await {
+                        eprintln!("storage: could not remove orphaned object: {e}");
+                    }
+                    match other {
+                        Ok(_) => Err(ApiError::bad_request("duplicate_key")),
+                        Err(e) => Err(ApiError::internal(e)),
+                    }
+                }
+            }
+        }
     }
+}
+
+enum Sink {
+    Memory(Vec<u8>),
+    Spool(Spool),
+}
+
+// The largest padded size a text-only secret can need: the text limit with room for JSON
+// escaping (worst case doubles it) and the manifest around it.
+fn text_only_bucket(settings: &Settings) -> u64 {
+    let payload = 2 * settings.text_max_bytes + 1024;
+    settings.padding.padded_size(payload).unwrap_or(0)
 }
 
 #[derive(Deserialize)]
@@ -246,7 +335,7 @@ async fn reveal(
     if let Some(token) = &body.claim_token {
         let claim_key = credential_hash(&decode32_or_random(token)?);
         return match state.store.redownload(&lookup_key, &claim_key, now).await {
-            Ok(Some(served)) => blob_response(served, HeaderMap::new()),
+            Ok(Some(served)) => blob_response(&state, served, HeaderMap::new()).await,
             Ok(None) => Err(ApiError::NotFound),
             Err(e) => Err(ApiError::internal(e)),
         };
@@ -267,7 +356,7 @@ async fn reveal(
                 CLAIM_TOKEN_HEADER,
                 header_value(&URL_SAFE_NO_PAD.encode(token)),
             );
-            return blob_response(served, headers);
+            return blob_response(&state, served, headers).await;
         }
         Ok(None) => {}
         Err(e) => return Err(ApiError::internal(e)),
@@ -280,25 +369,40 @@ async fn reveal(
             let hours = (remaining + 3599) / 3600;
             let mut headers = HeaderMap::new();
             headers.insert(EXPIRES_IN_HEADER, header_value(&hours.to_string()));
-            blob_response(ttl.served, headers)
+            blob_response(&state, ttl.served, headers).await
         }
         Ok(None) => Err(ApiError::NotFound),
         Err(e) => Err(ApiError::internal(e)),
     }
 }
 
-fn blob_response(served: Served, mut headers: HeaderMap) -> Result<Response, ApiError> {
-    let Some(blob) = served.blob else {
-        // TODO: stream external blobs through the server (SPEC §6.1).
-        eprintln!("external blob requested but the external tier is not implemented");
-        return Err(ApiError::NotFound);
+// Inline blobs come from the row; external ones are streamed through the server, never
+// linked to directly (SPEC §6).
+async fn blob_response(
+    state: &ApiState,
+    served: Served,
+    mut headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    let body = match (served.blob, served.external_ref) {
+        (Some(blob), _) => Body::from(blob),
+        (None, Some(key)) => {
+            let storage = state.storage.as_ref().ok_or_else(|| {
+                ApiError::internal("external blob requested but no external tier is configured")
+            })?;
+            storage.get(&key).await.map_err(ApiError::internal)?
+        }
+        (None, None) => return Err(ApiError::internal("row has neither blob nor object")),
     };
     headers.insert(
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/octet-stream"),
     );
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    Ok((StatusCode::OK, headers, Body::from(blob)).into_response())
+    headers.insert(
+        header::CONTENT_LENGTH,
+        header_value(&blob_len(served.bucket).to_string()),
+    );
+    Ok((StatusCode::OK, headers, body).into_response())
 }
 
 #[derive(Deserialize)]
@@ -410,16 +514,13 @@ fn header_value(text: &str) -> HeaderValue {
     HeaderValue::from_str(text).expect("base64url and digits are valid header text")
 }
 
-pub fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-}
+pub use crate::clock::now;
 
 pub enum ApiError {
     BadRequest(&'static str),
     TooLarge,
+    // The external tier's ceiling is reached; small secrets still work.
+    StorageFull,
     // The one response every failed secret operation gets (SPEC §4).
     NotFound,
     Internal,
@@ -464,6 +565,11 @@ impl IntoResponse for ApiError {
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "too_large",
                 "The blob is larger than this instance accepts.",
+            ),
+            Self::StorageFull => error_response(
+                StatusCode::INSUFFICIENT_STORAGE,
+                "storage_full",
+                "This instance has no room for large secrets right now.",
             ),
             Self::NotFound => uniform_negative(),
             Self::Internal => error_response(
