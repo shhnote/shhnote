@@ -8,7 +8,8 @@
   "scripts": {
     "test": "node --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "build": "esbuild src/index.ts --bundle --format=esm --target=es2022 --outfile=dist/shh.js"
+    "build:lib": "esbuild src/index.ts --bundle --format=esm --target=es2022 --outfile=../crates/shhnote-server/static/shh.js",
+    "build:app": "esbuild src/main.ts --bundle --format=esm --target=es2022 --outfile=../crates/shhnote-server/static/app.js"
   },
   "devDependencies": {
     "@types/node": "26.6.6",

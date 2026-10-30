@@ -86,3 +86,54 @@ error-404-body = Diese Seite gibt es nicht. Wenn du einem geheimen Link gefolgt 
 error-500-title = Etwas ist schiefgelaufen
 error-500-body = Bei uns ist etwas Unerwartetes passiert. Bitte versuch es gleich noch einmal.
 error-home-link = Zur Startseite
+
+## Create result
+
+result-title = Dein Link ist fertig
+result-intro = Kopiere den Link und teile ihn. Sobald du diese Seite verlässt, wird er nicht mehr angezeigt.
+result-share-label = Teilen-Link
+result-burn-label = Brenn-Link
+result-burn-hint = Behalte diesen für dich. Damit kannst du das Geheimnis zerstören, bevor es jemand liest. Geht er verloren, lässt er sich nicht wiederherstellen.
+result-passphrase-reminder = Du hast eine Passphrase gesetzt. Schick sie auf einem anderen Weg als den Link.
+result-copy = Kopieren
+result-copied = Kopiert
+result-destroy = Jetzt zerstören
+result-destroyed = Zerstört. Das Geheimnis ist vom Server gelöscht.
+result-another = Weiteres Geheimnis erstellen
+create-encrypting = Wird in deinem Browser verschlüsselt …
+create-uploading = Wird hochgeladen …
+create-error-empty = Gib einen Text ein oder füge mindestens eine Datei hinzu.
+create-error-too-large = Das ist mehr, als diese Seite annimmt. Entferne Dateien oder kürze den Text.
+create-error-network = Der Server ist nicht erreichbar. Prüfe deine Verbindung und versuch es erneut.
+create-error-failed = Beim Erstellen des Geheimnisses ist etwas schiefgelaufen. Bitte versuch es erneut.
+
+## Reveal states
+
+reveal-fetching = Verschlüsseltes Geheimnis wird geladen …
+reveal-decrypting = Wird in deinem Browser entschlüsselt …
+reveal-passphrase-title = Dieses Geheimnis braucht eine Passphrase
+reveal-passphrase-label = Passphrase
+reveal-passphrase-submit = Entsperren
+reveal-wrong-passphrase = Diese Passphrase war nicht richtig. Versuch es erneut.
+reveal-revealed-title = Hier ist es
+reveal-single-view = Das war die einzige Ansicht. Das Geheimnis wurde vom Server gelöscht.
+reveal-expires-one = Dieser Link funktioniert noch etwa eine Stunde.
+reveal-expires-many = Dieser Link funktioniert noch etwa { "{hours}" } Stunden.
+reveal-copy-text = Text kopieren
+reveal-download = Herunterladen
+reveal-close-warning = Sichere jetzt, was du brauchst. Sobald du diese Seite verlässt, lässt es sich nicht mehr abrufen.
+reveal-not-found-title = Hier gibt es kein Geheimnis
+reveal-not-found-body = Dieser Link ist ungültig, oder das Geheimnis wurde bereits angesehen, ist abgelaufen oder wurde zerstört. Wir speichern nicht, was davon zutrifft.
+reveal-error-network = Der Server ist nicht erreichbar. Versuch es gleich noch einmal.
+reveal-error-corrupt = Dieses Geheimnis konnte nicht entschlüsselt werden. Der Link ist vielleicht unvollständig.
+
+## Burn page
+
+burn-title = Dieses Geheimnis zerstören
+burn-intro = Das ist ein Brenn-Link. Noch ist nichts passiert. Mit der Bestätigung wird das Geheimnis endgültig gelöscht, bevor es jemand öffnen kann.
+burn-confirm = Geheimnis zerstören
+burn-working = Wird zerstört …
+burn-done-title = Das Geheimnis wurde zerstört
+burn-done-body = Es ist vom Server gelöscht. Wer den Teilen-Link öffnet, sieht nur noch, dass kein Geheimnis gefunden wurde.
+burn-not-found-title = Nichts zu zerstören
+burn-not-found-body = Dieser Brenn-Link ist ungültig, oder das Geheimnis wurde bereits angesehen, ist abgelaufen oder wurde zerstört.

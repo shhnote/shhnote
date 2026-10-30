@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}{{ ctx.t("burn-title") }}{% endblock %}
+
+{% block content %}
+{# Opening this page destroys nothing; only the button does. #}
+<article data-burn-page>
+  <section data-state="armed">
+    <div class="intro">
+      <h1>{{ ctx.t("burn-title") }}</h1>
+      <p class="lead">{{ ctx.t("burn-intro") }}</p>
+    </div>
+    <noscript>
+      <p class="notice">{{ ctx.t("noscript-view") }}</p>
+    </noscript>
+    <form class="card" data-burn-form hidden>
+      <button type="submit" class="button button-danger">{{ ctx.t("burn-confirm") }}</button>
+      <p class="status" role="status" data-form-status></p>
+    </form>
+  </section>
+
+  <section data-state="done" hidden>
+    <div class="intro">
+      <h1>{{ ctx.t("burn-done-title") }}</h1>
+      <p class="lead">{{ ctx.t("burn-done-body") }}</p>
+      <p><a class="button" href="{{ ctx.href("") }}">{{ ctx.t("error-home-link") }}</a></p>
+    </div>
+  </section>
+
+  <section data-state="notfound" hidden>
+    <div class="intro error">
+      <h1>{{ ctx.t("burn-not-found-title") }}</h1>
+      <p class="lead">{{ ctx.t("burn-not-found-body") }}</p>
+      <p><a class="button" href="{{ ctx.href("") }}">{{ ctx.t("error-home-link") }}</a></p>
+    </div>
+  </section>
+</article>
+{% endblock %}

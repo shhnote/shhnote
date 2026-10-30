@@ -5,13 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <title>{% block title %}{% endblock %} – {{ ctx.t("brand-name") }}</title>
-  <link rel="stylesheet" href="/static/app.css">
-  <script src="/static/app.js" defer></script>
+  <link rel="stylesheet" href="/static/app.css?v={{ ctx.asset_version() }}">
+  <script type="module" src="/static/app.js?v={{ ctx.asset_version() }}"></script>
   {%- for language in ctx.languages %}
   <link rel="alternate" hreflang="{{ language.code }}" href="{{ language.href }}">
   {%- endfor %}
 </head>
-<body>
+<body data-api="{{ ctx.api_url() }}/v1" data-asset-version="{{ ctx.asset_version() }}">
+  {# Text the page script shows at runtime, translated server-side. A JSON block is data, not a script, so the CSP allows it. #}
+  <script type="application/json" data-i18n>{{ ctx.ui_json()|safe }}</script>
   <a class="skip-link" href="#main">{{ ctx.t("skip-to-content") }}</a>
 
   <header class="site-header">

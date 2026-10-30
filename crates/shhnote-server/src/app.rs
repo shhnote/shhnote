@@ -151,6 +151,7 @@ mod tests {
         for path in [
             "/en",
             "/en/s",
+            "/en/burn",
             "/en/how-it-works",
             "/en/about",
             "/en/contact",

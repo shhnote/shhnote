@@ -23,18 +23,18 @@ pub extern "C" fn shh_alloc(len: usize) -> *mut u8 {
     ptr
 }
 
-// # Safety
-// `ptr` and `len` must come from a matching `shh_alloc` call.
+/// # Safety
+/// `ptr` and `len` must come from a matching `shh_alloc` call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn shh_free(ptr: *mut u8, len: usize) {
     drop(unsafe { Vec::from_raw_parts(ptr, 0, len.max(1)) });
 }
 
-// Argon2id with a 32-byte output. Returns 0 on success, 1 for parameters outside the
-// bounds, 2 if hashing failed. `out` must point at 32 writable bytes.
-//
-// # Safety
-// All pointers must be valid for the given lengths inside wasm memory.
+/// Argon2id with a 32-byte output. Returns 0 on success, 1 for parameters outside the
+/// bounds, 2 if hashing failed. `out` must point at 32 writable bytes.
+///
+/// # Safety
+/// All pointers must be valid for the given lengths inside wasm memory.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn shh_argon2id(
     pwd: *const u8,

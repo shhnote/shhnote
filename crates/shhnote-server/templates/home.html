@@ -13,7 +13,7 @@
 </noscript>
 
 {# Hidden until the script runs, because encryption happens in the browser. #}
-<form class="card create-form" data-create-form data-api="{{ api_url }}/v1" data-not-ready="{{ ctx.t("form-not-ready") }}" hidden>
+<form class="card create-form" data-create-form hidden>
   <div class="field">
     <label for="note">{{ ctx.t("form-note-label") }}</label>
     <textarea id="note" name="note" rows="8" placeholder="{{ ctx.t("form-note-placeholder") }}" autocomplete="off" spellcheck="false"></textarea>
@@ -64,4 +64,34 @@
   <button type="submit" class="button">{{ ctx.t("form-submit") }}</button>
   <p class="status" role="status" data-form-status></p>
 </form>
+
+{# Shown in place of the form once the secret is stored. The links exist only in this page's memory. #}
+<section class="card result" data-create-result hidden>
+  <h2>{{ ctx.t("result-title") }}</h2>
+  <p class="lead">{{ ctx.t("result-intro") }}</p>
+
+  <div class="field">
+    <span class="label">{{ ctx.t("result-share-label") }}</span>
+    <div class="readout">
+      <code data-share-link></code>
+      <button type="button" class="button button-small" data-copy="share">{{ ctx.t("result-copy") }}</button>
+    </div>
+    <p class="notice" data-passphrase-reminder hidden>{{ ctx.t("result-passphrase-reminder") }}</p>
+  </div>
+
+  <div class="field">
+    <span class="label">{{ ctx.t("result-burn-label") }}</span>
+    <div class="readout">
+      <code data-burn-link></code>
+      <button type="button" class="button button-small" data-copy="burn">{{ ctx.t("result-copy") }}</button>
+    </div>
+    <span class="hint">{{ ctx.t("result-burn-hint") }}</span>
+  </div>
+
+  <div class="actions">
+    <button type="button" class="button button-danger" data-destroy>{{ ctx.t("result-destroy") }}</button>
+    <a class="button button-quiet" href="{{ ctx.href("") }}">{{ ctx.t("result-another") }}</a>
+  </div>
+  <p class="status" role="status" data-result-status></p>
+</section>
 {% endblock %}

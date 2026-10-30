@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use askama::Template;
 use axum::{
@@ -25,6 +25,7 @@ const MIB: u64 = 1024 * 1024;
 
 struct Shared {
     i18n: I18n,
+    asset_version: String,
     content: Content,
     api_url: String,
     max_blob_bytes: u64,
@@ -41,6 +42,7 @@ struct PageState {
 pub fn router(config: &Config) -> Router {
     let shared = Arc::new(Shared {
         i18n: I18n::load(),
+        asset_version: asset_version(),
         content: Content::load(),
         api_url: config.api_url.clone(),
         max_blob_bytes: config.storage.max_blob_bytes(),
@@ -49,7 +51,9 @@ pub fn router(config: &Config) -> Router {
 
     let mut router = Router::new()
         .route("/static/app.css", get(css))
-        .route("/static/app.js", get(js));
+        .route("/static/app.js", get(app_js))
+        .route("/static/shh.js", get(shh_js))
+        .route("/static/argon2.wasm", get(argon2_wasm));
     for &locale in LOCALES {
         let state = PageState {
             shared: shared.clone(),
@@ -72,6 +76,7 @@ fn pages(state: PageState) -> Router {
         // The secret is identified only by the URL fragment, which never reaches the server,
         // so this page is static and identical for every secret (SPEC §2.2, §11).
         .route("/s", get(view_secret))
+        .route("/burn", get(burn))
         .route("/how-it-works", get(how_it_works))
         .route("/about", get(about))
         .route("/contact", get(contact))
@@ -128,14 +133,55 @@ impl Ctx<'_> {
     fn href(&self, path: &str) -> String {
         format!("/{}{path}", self.locale)
     }
+
+    fn api_url(&self) -> &str {
+        &self.shared.api_url
+    }
+
+    fn asset_version(&self) -> &str {
+        &self.shared.asset_version
+    }
+
+    // The strings the page script needs, as a JSON object. `<` is escaped so a translation can
+    // never close the `<script>` block it is embedded in.
+    fn ui_json(&self) -> String {
+        let map: BTreeMap<&str, String> = UI_KEYS.iter().map(|key| (*key, self.t(key))).collect();
+        serde_json::to_string(&map)
+            .unwrap_or_default()
+            .replace('<', "\\u003c")
+    }
 }
+
+// Every translation the page script can show. Keep in step with `client/src/ui/i18n.ts`.
+const UI_KEYS: &[&str] = &[
+    "form-files-remove",
+    "form-not-ready",
+    "result-copied",
+    "result-copy",
+    "result-destroyed",
+    "create-encrypting",
+    "create-uploading",
+    "create-error-empty",
+    "create-error-too-large",
+    "create-error-network",
+    "create-error-failed",
+    "reveal-fetching",
+    "reveal-decrypting",
+    "reveal-wrong-passphrase",
+    "reveal-single-view",
+    "reveal-expires-one",
+    "reveal-expires-many",
+    "reveal-download",
+    "reveal-error-network",
+    "reveal-error-corrupt",
+    "burn-working",
+];
 
 #[derive(Template)]
 #[template(path = "home.html")]
 struct HomePage<'a> {
     ctx: Ctx<'a>,
     upload_hint: String,
-    api_url: &'a str,
 }
 
 async fn home(State(state): State<PageState>) -> Response {
@@ -146,21 +192,32 @@ async fn home(State(state): State<PageState>) -> Response {
         format_size(state.shared.max_blob_bytes, state.locale),
     );
     let upload_hint = ctx.t_args("form-files-hint", &args);
-    render(
-        &state,
-        HomePage {
-            ctx,
-            upload_hint,
-            api_url: &state.shared.api_url,
-        },
-    )
+    render(&state, HomePage { ctx, upload_hint })
 }
 
 #[derive(Template)]
 #[template(path = "secret.html")]
 struct SecretPage<'a> {
     ctx: Ctx<'a>,
-    api_url: &'a str,
+}
+
+#[derive(Template)]
+#[template(path = "burn.html")]
+struct BurnPage<'a> {
+    ctx: Ctx<'a>,
+}
+
+async fn burn(State(state): State<PageState>) -> Response {
+    let mut response = render(
+        &state,
+        BurnPage {
+            ctx: state.ctx("/burn"),
+        },
+    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 async fn view_secret(State(state): State<PageState>) -> Response {
@@ -168,7 +225,6 @@ async fn view_secret(State(state): State<PageState>) -> Response {
         &state,
         SecretPage {
             ctx: state.ctx("/s"),
-            api_url: &state.shared.api_url,
         },
     );
     // Once the script reveals a secret, nothing on this page may be cached anywhere.
@@ -366,23 +422,46 @@ async fn security_headers(State(shared): State<Arc<Shared>>, mut response: Respo
     response
 }
 
-async fn css() -> impl IntoResponse {
-    (
-        [
-            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
-            (header::CACHE_CONTROL, "public, max-age=3600"),
-        ],
-        include_str!("../static/app.css"),
-    )
+const APP_CSS: &str = include_str!("../static/app.css");
+const APP_JS: &[u8] = include_bytes!("../static/app.js");
+const SHH_JS: &[u8] = include_bytes!("../static/shh.js");
+const ARGON2_WASM: &[u8] = include_bytes!("../static/argon2.wasm");
+
+// Short hash of everything embedded; it goes into asset URLs so a browser never runs a stale copy.
+fn asset_version() -> String {
+    let mut all = Vec::new();
+    for part in [APP_CSS.as_bytes(), APP_JS, SHH_JS, ARGON2_WASM] {
+        all.extend_from_slice(part);
+    }
+    let digest = shhnote_core::kdf::sha256(&all);
+    digest[..6].iter().map(|b| format!("{b:02x}")).collect()
 }
 
-async fn js() -> impl IntoResponse {
+async fn css() -> impl IntoResponse {
+    static_asset("text/css; charset=utf-8", APP_CSS.as_bytes())
+}
+
+// Generated by scripts/build-client.sh and embedded, so the binary is self-contained.
+async fn app_js() -> impl IntoResponse {
+    static_asset("text/javascript; charset=utf-8", APP_JS)
+}
+
+async fn shh_js() -> impl IntoResponse {
+    static_asset("text/javascript; charset=utf-8", SHH_JS)
+}
+
+async fn argon2_wasm() -> impl IntoResponse {
+    static_asset("application/wasm", ARGON2_WASM)
+}
+
+// The URL carries the content hash, so a long immutable cache is safe.
+fn static_asset(content_type: &'static str, bytes: &'static [u8]) -> impl IntoResponse {
     (
         [
-            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
-            (header::CACHE_CONTROL, "public, max-age=3600"),
+            (header::CONTENT_TYPE, content_type),
+            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
         ],
-        include_str!("../static/app.js"),
+        bytes,
     )
 }
 

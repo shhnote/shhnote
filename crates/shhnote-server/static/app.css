@@ -433,3 +433,89 @@ textarea {
     transition: none !important;
   }
 }
+
+/* Result and reveal states */
+
+.readout {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.readout code {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.75rem;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.button-small {
+  padding: 0.5rem 0.9rem;
+  font-size: 0.9rem;
+}
+
+.button-danger {
+  background: transparent;
+  color: var(--danger, #c25a4e);
+  border: 2px solid var(--danger, #c25a4e);
+}
+
+.button-danger:hover {
+  background: var(--danger, #c25a4e);
+  color: #fff;
+  filter: none;
+}
+
+.button-quiet {
+  background: transparent;
+  color: var(--muted);
+}
+
+.button[disabled] {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.badge {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--accent);
+  border: 1px dashed var(--accent);
+  border-radius: var(--radius);
+  padding: 0.3rem 0.6rem;
+}
+
+.secret-output {
+  margin-bottom: 1.25rem;
+}
+
+.secret-output pre {
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0 0 0.75rem;
+}
+
+.file-list a {
+  font-weight: 600;
+}
