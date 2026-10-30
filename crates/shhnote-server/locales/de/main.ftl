@@ -25,6 +25,8 @@ footer-source = Quellcode
 footer-notice = Keine Cookies · Kein Tracking · Keine externen Anfragen
 page-terms = Nutzungsbedingungen
 page-privacy = Datenschutzerklärung
+page-acceptable-use = Nutzungsrichtlinie
+page-api = API-Dokumentation
 page-security = Sicherheit
 page-how-technical = Technische Details
 

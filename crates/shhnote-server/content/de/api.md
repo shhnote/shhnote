@@ -1,0 +1,103 @@
+Alles, was die Website tut, läuft über diese API, und alles andere kann sie genauso nutzen: Skripte, Bots, Passwortmanager, ein eigener Client. Der Server verarbeitet ausschließlich verschlüsselte Blobs, also muss ein Client die Kryptografie selbst erledigen. Das Protokoll ist klein und durch Testvektoren festgenagelt; die Seite [Technische Details]({{site_url}}/how-it-works#technical) beschreibt es, und die Bibliothek `shh.js` sowie `vectors/v1.json` im Quell-Repository implementieren und prüfen es.
+
+Basis-URL: `{{api_url}}/v1`. Anfragen und Antworten sind JSON, sofern nicht anders angegeben. Kennungen von Geheimnissen reisen nur in Anfragekörpern, nie in Pfaden oder Query-Strings.
+
+## Fehler
+
+Jeder Fehler ist ein JSON-Objekt:
+
+```json
+{"error": {"code": "invalid_ttl", "message": "The request is not valid."}}
+```
+
+Jede Operation, die ein Geheimnis-Credential entgegennimmt, antwortet bei jedem Fehlschlag mit **404 `not_found`** und identischem Körper, egal ob das Geheimnis nie existierte, abgelaufen ist, bereits geöffnet oder gebrannt wurde oder das Credential ungültig ist. Nichts unterscheidet diese Fälle, mit Absicht.
+
+Ratenlimits antworten mit **429 `rate_limited`** und einem `Retry-After`-Header in Sekunden. Limits gelten pro Endpunkt und pro Client; die Schwelle wird nicht verraten.
+
+## `GET /config`
+
+Richtlinie der Instanz, ohne Authentifizierung. Vor dem Erstellen eines Geheimnisses lesen: Die Auffüllrichtlinie bestimmt, welche Blob-Längen der Server akzeptiert.
+
+```json
+{
+  "fragment_version": 1,
+  "padding": {"mode": "padme", "min": 65536},
+  "inline_max": 2097152,
+  "max_blob_bytes": 67108864,
+  "claim_window_secs": 900,
+  "min_ttl_secs": 60,
+  "max_ttl_secs": 1209600,
+  "default_ttl_secs": 86400,
+  "ttl_presets": [900, 1800, 3600, 21600, 43200, 86400, 259200, 604800, 1209600],
+  "text_max_bytes": 65536,
+  "files_enabled": true,
+  "regions": []
+}
+```
+
+`padding.mode` ist `padme` (mit Minimum) oder `buckets` (mit einer `ladder` erlaubter Größen). `max_blob_bytes` ist die größte aufgefüllte Größe, die diese Instanz speichert. `text_max_bytes` und `files_enabled` sind Hinweise für Benutzeroberflächen; der Server prüft nur Größen.
+
+## `POST /secrets`
+
+Speichert ein Geheimnis. Der Körper ist `multipart/form-data` mit zwei Teilen in dieser Reihenfolge:
+
+1. `meta`, JSON:
+
+   ```json
+   {
+     "lookup_key": "<base64url des Lookup-Werts>",
+     "burn_key": "<base64url des Brenn-Tokens>",
+     "lifetime": "single_view",
+     "ttl_seconds": 86400
+   }
+   ```
+
+   `lifetime` ist `single_view` oder `ttl`. `ttl_seconds` muss zwischen `min_ttl_secs` und `max_ttl_secs` liegen; auch ein einmaliges Geheimnis läuft danach ab, wenn niemand es öffnet. Beide Schlüssel sind 32 Bytes, base64url ohne Padding. Der Server speichert nur ihren SHA-256.
+
+2. `blob`, der verschlüsselte Blob als Bytes. Seine Länge muss genau einer aufgefüllten Größe entsprechen, die die Instanz akzeptiert.
+
+Antwortet mit **201** und leerem Körper. Fehler: `invalid_meta`, `invalid_lookup_key`, `invalid_burn_key`, `invalid_lifetime`, `invalid_ttl`, `invalid_blob_length`, `duplicate_key` (400); `files_disabled` (400, die Instanz nimmt nur textgroße Geheimnisse an); `too_large` (413); `storage_full` (507, die Instanz hat gerade keinen Platz für große Geheimnisse); `api_key_required` (401, siehe unten).
+
+## `POST /secrets/reveal`
+
+```json
+{"lookup": "<base64url des Lookup-Werts>"}
+```
+
+Liefert den Blob als `application/octet-stream` mit `Cache-Control: no-store`.
+
+Bei einem **einmaligen** Geheimnis verbraucht der erste erfolgreiche Aufruf es und liefert den Header `X-Shh-Claim-Token`. Innerhalb von `claim_window_secs` darf derselbe Client den Blob erneut laden, indem er `{"lookup": …, "claim_token": "<dieser Header>"}` sendet; ein abgebrochener Download lässt sich so wiederholen. Niemand sonst kann das.
+
+Bei einem **TTL**-Geheimnis trägt die Antwort `X-Shh-Expires-In-Hours`, volle Stunden aufgerundet, nie eine absolute Zeit.
+
+## `POST /secrets/confirm`
+
+```json
+{"lookup": "<base64url>", "claim_token": "<Token aus reveal>"}
+```
+
+Teilt dem Server mit, dass der Client ein einmaliges Geheimnis entschlüsselt hat, wodurch es vor Ablauf des Abruffensters zerstört wird. **204** bei Erfolg. Optional, aber höflich.
+
+## `POST /secrets/burn`
+
+```json
+{"burn_token": "<base64url des Brenn-Tokens>"}
+```
+
+Zerstört ein aktives Geheimnis. Nur wer es erstellt hat, besitzt das Brenn-Token; der Teilen-Link enthält keine Brenn-Berechtigung. **204** bei Erfolg.
+
+## `POST /reports`
+
+```json
+{"lookup": "<base64url des Lookup-Werts>"}
+```
+
+Wer einen Link hat, darf ihn melden. Ist das Geheimnis aktiv, wird es sofort entfernt. Immer **200** mit `{"status": "received"}`, was auch immer geschah; vermerkt wird nur, dass eine Meldung eingegangen ist.
+
+## API-Schlüssel
+
+Anfragen können `Authorization: Bearer <Schlüssel>` tragen. Ein Schlüssel mit dem Bereich `user` verlagert das Ratenlimit von der Netzwerkadresse auf den Schlüssel, mit höheren Limits, und ist auf entsprechend konfigurierten Instanzen zum Erstellen von Geheimnissen erforderlich. Schlüssel vergibt der Betreiber im Admin-Bereich; sie werden nie mit einem Geheimnis verknüpft.
+
+## Einen Client bauen
+
+Leite die Werte, die die API erwartet, aus dem 32-Byte-Seed im Teilen-Link ab: `lookup = HKDF-SHA-256(seed, info "shhnote/lookup/v1")`, base64url-kodiert gesendet. Das Brenn-Token sind separate zufällige 32 Bytes, die der Ersteller behält. Blob-Aufbau, Schlüsselumhüllung, Chunking und Auffüllung sind auf der Seite [Technische Details]({{site_url}}/how-it-works#technical) spezifiziert und durch die Konformitätsvektoren byteweise festgelegt; ein Client, der sie reproduziert, ist mit jeder Instanz kompatibel.

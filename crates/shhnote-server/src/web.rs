@@ -113,6 +113,8 @@ fn pages(state: PageState) -> Router {
         .route("/terms", get(terms))
         .route("/privacy", get(privacy))
         .route("/security", get(security))
+        .route("/acceptable-use", get(acceptable_use))
+        .route("/api", get(api_docs))
         .route("/report", get(report))
         .nest("/admin", admin::routes())
         .fallback(not_found)
@@ -395,7 +397,7 @@ async fn contact(State(state): State<PageState>) -> Response {
 struct DocPage<'a> {
     ctx: Ctx<'a>,
     title: String,
-    body: &'a str,
+    body: String,
 }
 
 async fn terms(State(state): State<PageState>) -> Response {
@@ -410,17 +412,38 @@ async fn security(State(state): State<PageState>) -> Response {
     doc_page(&state, Doc::Security, "/security", "page-security")
 }
 
+async fn acceptable_use(State(state): State<PageState>) -> Response {
+    doc_page(
+        &state,
+        Doc::AcceptableUse,
+        "/acceptable-use",
+        "page-acceptable-use",
+    )
+}
+
+async fn api_docs(State(state): State<PageState>) -> Response {
+    doc_page(&state, Doc::Api, "/api", "page-api")
+}
+
 fn doc_page(state: &PageState, doc: Doc, path: &str, title_key: &str) -> Response {
     let ctx = state.ctx(path);
     let title = ctx.t(title_key);
-    render(
-        state,
-        DocPage {
-            ctx,
-            title,
-            body: state.shared.content.get(state.locale, doc),
-        },
-    )
+    // Markdown pages may link to this instance by placeholder, since the URLs are deployment
+    // settings. Inside link targets the Markdown renderer has percent-encoded the braces.
+    let site = format!(
+        "{}/{}",
+        state.shared.site_url.trim_end_matches('/'),
+        state.locale
+    );
+    let body = state
+        .shared
+        .content
+        .get(state.locale, doc)
+        .replace("{{site_url}}", &site)
+        .replace("%7B%7Bsite_url%7D%7D", &site)
+        .replace("{{api_url}}", &state.shared.api_url)
+        .replace("%7B%7Bapi_url%7D%7D", &state.shared.api_url);
+    render(state, DocPage { ctx, title, body })
 }
 
 #[derive(Template)]

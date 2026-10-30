@@ -1132,3 +1132,25 @@ async fn settings_page_groups_every_setting_into_tabs() {
         assert!(html.contains(&format!(r#"name="{key}""#)), "{key} missing");
     }
 }
+
+#[tokio::test]
+async fn markdown_pages_render_with_instance_urls() {
+    let app = server("web-docs").await;
+    for path in [
+        "/en/acceptable-use",
+        "/de/acceptable-use",
+        "/en/api",
+        "/de/api",
+    ] {
+        let page = get_page(&app, path, "").await;
+        assert_eq!(page.status, StatusCode::OK, "{path}");
+        let html = text(&page);
+        assert!(
+            !html.contains("{{") && !html.contains("%7B%7B"),
+            "{path} has an unreplaced placeholder"
+        );
+    }
+    let api = text(&get_page(&app, "/en/api", "").await);
+    assert!(api.contains("http://localhost:3000/api/v1"), "{api}");
+    assert!(api.contains(r#"href="http://localhost:3000/en/how-it-works#technical""#));
+}
