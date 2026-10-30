@@ -1,7 +1,7 @@
 use axum::{
     Router,
-    extract::Request,
-    http::header,
+    extract::{Request, State},
+    http::{HeaderValue, Method, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
 };
@@ -19,7 +19,15 @@ pub fn router(config: &Config, state: ApiState) -> Router {
 
     let app = match &config.api_routing {
         ApiRouting::Path => web.nest("/api", api),
-        ApiRouting::Subdomain { host } => route_by_host(host.clone(), api, web),
+        ApiRouting::Subdomain { host } => {
+            // The page and the API are different origins here, so browsers need CORS.
+            let api = api.layer(middleware::from_fn_with_state(
+                HeaderValue::from_str(config.url.trim_end_matches('/'))
+                    .expect("SHH_URL is validated"),
+                cors,
+            ));
+            route_by_host(host.clone(), api, web)
+        }
     };
     app.layer(middleware::from_fn(redirect_trailing_slash))
 }
@@ -39,6 +47,38 @@ async fn redirect_trailing_slash(req: Request, next: Next) -> Response {
     };
     // 308 keeps the request method, so a POST is not silently turned into a GET.
     Redirect::permanent(&location).into_response()
+}
+
+// CORS for the subdomain variant: the site origin only, nothing else. Preflights are answered
+// here; real responses get the allow-origin header and expose the headers the client reads.
+async fn cors(State(site): State<HeaderValue>, req: Request, next: Next) -> Response {
+    let mut response = if req.method() == Method::OPTIONS {
+        let mut response = StatusCode::NO_CONTENT.into_response();
+        let headers = response.headers_mut();
+        headers.insert(
+            header::ACCESS_CONTROL_ALLOW_METHODS,
+            HeaderValue::from_static("GET, POST, PATCH, OPTIONS"),
+        );
+        headers.insert(
+            header::ACCESS_CONTROL_ALLOW_HEADERS,
+            HeaderValue::from_static("content-type, authorization"),
+        );
+        headers.insert(
+            header::ACCESS_CONTROL_MAX_AGE,
+            HeaderValue::from_static("86400"),
+        );
+        response
+    } else {
+        next.run(req).await
+    };
+    let headers = response.headers_mut();
+    headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, site);
+    headers.insert(
+        header::ACCESS_CONTROL_EXPOSE_HEADERS,
+        HeaderValue::from_static("x-shh-claim-token, x-shh-expires-in-hours, retry-after"),
+    );
+    headers.append(header::VARY, HeaderValue::from_static("Origin"));
+    response
 }
 
 // Sends requests for the API subdomain to the API router, and everything else to the website.
@@ -266,5 +306,73 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
         let (status, _) = get(&app, "api.example.com", "/").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn subdomain_api_sends_cors_for_the_site_origin_only() {
+        let app = build(&[
+            ("SHH_ENV", "production"),
+            ("SHH_URL", "https://example.com"),
+            ("SHH_API_ROUTING", "subdomain"),
+        ])
+        .await;
+        let send = |method: &str, host: &str, path: &str| {
+            let req = axum::http::Request::builder()
+                .method(method)
+                .uri(path)
+                .header(header::HOST, host)
+                .header(header::ORIGIN, "https://example.com")
+                .body(Body::empty())
+                .unwrap();
+            app.clone().oneshot(req)
+        };
+
+        let preflight = send("OPTIONS", "api.example.com", "/v1/secrets/reveal")
+            .await
+            .unwrap();
+        assert_eq!(preflight.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            preflight.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN],
+            "https://example.com"
+        );
+        assert!(
+            preflight.headers()[header::ACCESS_CONTROL_ALLOW_HEADERS]
+                .to_str()
+                .unwrap()
+                .contains("content-type")
+        );
+
+        let response = send("GET", "api.example.com", "/v1/config").await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN],
+            "https://example.com"
+        );
+        assert!(
+            response.headers()[header::ACCESS_CONTROL_EXPOSE_HEADERS]
+                .to_str()
+                .unwrap()
+                .contains("x-shh-claim-token")
+        );
+
+        // Pages never carry CORS headers, and neither does the path-routed API.
+        let page = send("GET", "example.com", "/en").await.unwrap();
+        assert!(
+            page.headers()
+                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .is_none()
+        );
+        let path_app = build(&[("SHH_URL", "http://localhost:3000")]).await;
+        let req = axum::http::Request::get("/api/v1/config")
+            .header(header::HOST, "localhost")
+            .body(Body::empty())
+            .unwrap();
+        let response = path_app.oneshot(req).await.unwrap();
+        assert!(
+            response
+                .headers()
+                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .is_none()
+        );
     }
 }
