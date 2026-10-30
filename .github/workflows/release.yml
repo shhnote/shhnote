@@ -63,6 +63,8 @@ jobs:
             shhnote-*.tar.gz
             SHA256SUMS
           generate_release_notes: true
+          # A dash in the tag (v1.2.0-rc1) marks a pre-release.
+          prerelease: ${{ contains(github.ref_name, '-') }}
 
   image:
     runs-on: ubuntu-latest
@@ -77,12 +79,14 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/metadata-action@v5
         id: meta
+        # Pre-releases (a dash in the tag) get only their exact version; `latest` and the
+        # major.minor tag move on real releases alone.
         with:
           images: ${{ env.IMAGE }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
       - uses: docker/build-push-action@v6
         with:
           context: .
