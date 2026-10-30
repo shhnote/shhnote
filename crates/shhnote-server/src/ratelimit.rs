@@ -16,6 +16,7 @@ use hmac::{Hmac, KeyInit, Mac};
 use serde::Serialize;
 use sha2::Sha256;
 use shhnote_core::{
+    config::Cidr,
     secret::credential_hash,
     settings::{RateLimits, SettingsCell},
 };
@@ -55,7 +56,7 @@ struct Table {
 
 pub struct RateLimiter {
     settings: Arc<SettingsCell>,
-    trusted_proxies: Vec<IpAddr>,
+    trusted_proxies: Vec<Cidr>,
     table: Mutex<Table>,
 }
 
@@ -64,7 +65,7 @@ pub struct RateLimiter {
 const MAX_BUCKETS: usize = 200_000;
 
 impl RateLimiter {
-    pub fn new(settings: Arc<SettingsCell>, trusted_proxies: Vec<IpAddr>) -> Self {
+    pub fn new(settings: Arc<SettingsCell>, trusted_proxies: Vec<Cidr>) -> Self {
         Self {
             settings,
             trusted_proxies,
@@ -79,7 +80,7 @@ impl RateLimiter {
     // The address rate limiting sees: the socket peer, unless that peer is a trusted proxy,
     // in which case the nearest untrusted hop in X-Forwarded-For.
     pub fn client_ip(&self, peer: IpAddr, headers: &HeaderMap) -> IpAddr {
-        if !self.trusted_proxies.contains(&peer) {
+        if !self.is_proxy(peer) {
             return peer;
         }
         let forwarded = headers
@@ -90,8 +91,12 @@ impl RateLimiter {
             .split(',')
             .rev()
             .filter_map(|hop| hop.trim().parse::<IpAddr>().ok())
-            .find(|ip| !self.trusted_proxies.contains(ip))
+            .find(|&ip| !self.is_proxy(ip))
             .unwrap_or(peer)
+    }
+
+    fn is_proxy(&self, ip: IpAddr) -> bool {
+        self.trusted_proxies.iter().any(|range| range.contains(ip))
     }
 
     // Returns `Ok(())` to proceed, or the number of seconds until a token is available.

@@ -1,0 +1,11 @@
+# For a reverse proxy that already runs on the host. Set COMPOSE_PROFILES= (empty) in
+# .env so Caddy stays off, then:
+#
+#   docker compose -f docker-compose.yml -f compose.own-proxy.yml up -d
+#
+# and point the proxy at 127.0.0.1:3000. Keep SHH_TRUSTED_PROXIES=172.28.0.0/16: the host
+# reaches the container from the network's gateway address.
+services:
+  shhnote:
+    ports:
+      - "127.0.0.1:3000:3000"

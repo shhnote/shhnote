@@ -1,0 +1,96 @@
+# Deploying with Docker
+
+The image `ghcr.io/zbcdo/shhnote` is built from `scratch`: one static binary, no shell, running as an unprivileged user, with all state under `/data`. The compose file in `deploy/docker/` runs it together with Caddy for TLS; Postgres is an optional profile.
+
+## One command, with Caddy
+
+Prerequisites: Docker with Compose v2, a domain whose DNS points at the host, ports 80 and 443 reachable.
+
+```sh
+mkdir shhnote && cd shhnote
+curl -fsSLO https://raw.githubusercontent.com/zbcdo/shhnote/main/deploy/docker/docker-compose.yml
+curl -fsSLO https://raw.githubusercontent.com/zbcdo/shhnote/main/deploy/docker/Caddyfile
+curl -fsSL https://raw.githubusercontent.com/zbcdo/shhnote/main/deploy/docker/.env.example -o .env
+```
+
+Edit `.env`:
+
+| Variable | Value |
+|---|---|
+| `DOMAIN` | the site's domain, for Caddy's certificate |
+| `SHH_URL` | `https://` plus the same domain |
+| `SHH_SECRET_KEY` | `openssl rand -base64 48` |
+| `SHH_ADMIN_TOKEN` | another random string of at least 32 characters |
+
+Then:
+
+```sh
+docker compose up -d
+docker compose logs -f shhnote      # "listening on http://0.0.0.0:3000"
+```
+
+Open `https://<domain>/en/admin`, sign in with the bootstrap token, create an admin API key under "API keys", and delete the `SHH_ADMIN_TOKEN` line from `.env` (the token stops working anyway once an admin key exists). Settings such as the site name, lifetimes and rate limits live in the admin panel, not in `.env`.
+
+## With your own reverse proxy
+
+If nginx, Traefik or another Caddy already runs on the host, leave Caddy out and publish the port locally:
+
+```sh
+# in .env
+COMPOSE_PROFILES=
+```
+
+```sh
+docker compose -f docker-compose.yml -f compose.own-proxy.yml up -d
+```
+
+The app listens on `127.0.0.1:3000`; point the proxy there and keep `SHH_TRUSTED_PROXIES=172.28.0.0/16` (the host reaches the container from the compose network's gateway, so that range covers it). See [reverse proxies](reverse-proxies.md) for what the proxy must and must not do.
+
+## With Postgres
+
+```sh
+# in .env
+SHH_DB=postgres
+SHH_PG_HOST=postgres
+SHH_PG_DATABASE=shhnote
+SHH_PG_USERNAME=shhnote
+SHH_PG_PASSWORD=<random>
+```
+
+```sh
+docker compose --profile postgres up -d
+```
+
+Add `postgres` to `COMPOSE_PROFILES` in `.env` (`COMPOSE_PROFILES=caddy,postgres`) so plain `docker compose up -d` keeps starting it. For a Postgres elsewhere, set `SHH_PG_HOST` to it and skip the profile. Migrations run at startup.
+
+## Files and blobs
+
+Everything the app writes is under the `shhnote-data` volume at `/data`: the SQLite database (`storage/shhnote.db` plus its `-wal`/`-shm` files), local blobs (`storage/blobs`) and the upload spool. To store large secrets on disk instead of refusing them:
+
+```sh
+SHH_STORAGE=local
+SHH_LOCAL_MAX_TOTAL_BYTES=10737418240     # hard ceiling for the blobs directory
+```
+
+For S3, see [operations](operations.md#storage-tiers).
+
+## Everyday commands
+
+```sh
+docker compose pull && docker compose up -d       # upgrade (back up first, see operations.md)
+docker compose exec shhnote /shhnote check        # config and database reachable
+docker compose exec shhnote /shhnote health       # what the container's health check runs
+docker compose exec shhnote /shhnote reset-admin  # locked out: delete admin keys, bootstrap token works again
+docker compose stop                               # waits up to 35 s for uploads in flight
+```
+
+The container has no shell; run the binary directly as above.
+
+## Building the image yourself
+
+```sh
+docker build -t shhnote .                         # from a checkout
+docker compose build                              # or through the compose file
+```
+
+The multi-stage build compiles the Argon2 WASM module, the client bundles and a static musl binary; it needs no toolchain on the host.

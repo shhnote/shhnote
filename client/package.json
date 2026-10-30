@@ -5,6 +5,9 @@
   "type": "module",
   "description": "shhnote client: encrypts and decrypts secrets in the browser against the shhnote API",
   "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "test": "node --test test/*.test.ts",
     "typecheck": "tsc --noEmit",

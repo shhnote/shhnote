@@ -1,0 +1,10 @@
+# Bare-metal Caddy site block: shhnote listens on 127.0.0.1:3000 (see systemd/env.example).
+secrets.example.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:3000
+}
+
+# For SHH_API_ROUTING=subdomain, add the API host (it needs its own DNS record):
+# api.secrets.example.com {
+# 	reverse_proxy 127.0.0.1:3000
+# }

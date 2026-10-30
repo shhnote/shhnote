@@ -105,6 +105,7 @@ fn v1(state: ApiState) -> Router {
     Router::new()
         .route("/", get(info))
         .route("/config", get(config))
+        .route("/health", get(health))
         .route(
             "/secrets",
             post(create)
@@ -182,6 +183,22 @@ async fn config(State(state): State<ApiState>) -> Json<ConfigResponse<'static>> 
         files_enabled: settings.files_enabled,
         regions: &settings.regions,
     })
+}
+
+// Readiness for orchestrators: the process is up and the database answers. Says nothing else.
+async fn health(State(state): State<ApiState>) -> Response {
+    let (status, text) = match state.store.ping().await {
+        Ok(()) => (StatusCode::OK, "ok"),
+        Err(e) => {
+            crate::log_error!("health: database error: {e}");
+            (StatusCode::SERVICE_UNAVAILABLE, "degraded")
+        }
+    };
+    let mut response = (status, Json(serde_json::json!({ "status": text }))).into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 #[derive(Deserialize)]

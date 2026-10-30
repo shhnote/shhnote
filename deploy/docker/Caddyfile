@@ -1,0 +1,10 @@
+# TLS is automatic: point the domain's DNS at this host before starting.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy shhnote:3000
+}
+
+# For SHH_API_ROUTING=subdomain, serve the API host too (both names need DNS records):
+# api.{$DOMAIN} {
+# 	reverse_proxy shhnote:3000
+# }

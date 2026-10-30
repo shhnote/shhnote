@@ -47,6 +47,7 @@ const KNOWN: &[&str] = &[
     "SHH_S3_ACCESS_KEY_ID",
     "SHH_S3_SECRET_ACCESS_KEY",
     "SHH_S3_MAX_TOTAL_BYTES",
+    "SHH_SPOOL_PATH",
     "SHH_ADMIN_TOKEN",
 ];
 const LOCAL_VARS: &[&str] = &["SHH_LOCAL_PATH", "SHH_LOCAL_MAX_TOTAL_BYTES"];
@@ -57,6 +58,7 @@ const S3_VARS: &[&str] = &[
     "SHH_S3_ACCESS_KEY_ID",
     "SHH_S3_SECRET_ACCESS_KEY",
     "SHH_S3_MAX_TOTAL_BYTES",
+    "SHH_SPOOL_PATH",
 ];
 
 #[derive(Debug)]
@@ -73,7 +75,7 @@ pub struct Config {
     pub locales: Vec<String>,
     // Where visitors land whose browser asks for none of them; `None` means the first offered.
     pub default_locale: Option<String>,
-    pub trusted_proxies: Vec<IpAddr>,
+    pub trusted_proxies: Vec<Cidr>,
     pub database: Database,
     pub storage: Storage,
     // Only valid until the first admin API key exists (SPEC §8).
@@ -140,6 +142,8 @@ pub enum ExternalStorage {
         access_key_id: String,
         secret_access_key: Secret,
         max_total_bytes: u64,
+        // Where uploads wait before going to the bucket; same machine, must be writable.
+        spool_path: PathBuf,
     },
 }
 
@@ -150,6 +154,63 @@ impl Storage {
         } else {
             self.inline_max
         }
+    }
+}
+
+// An address or a range like `10.0.0.0/8`, for `SHH_TRUSTED_PROXIES`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cidr {
+    addr: IpAddr,
+    prefix: u8,
+}
+
+impl Cidr {
+    pub fn contains(&self, ip: IpAddr) -> bool {
+        match (self.addr, ip) {
+            (IpAddr::V4(a), IpAddr::V4(b)) => {
+                let mask = u32::MAX
+                    .checked_shl(32 - u32::from(self.prefix))
+                    .unwrap_or(0);
+                u32::from(a) & mask == u32::from(b) & mask
+            }
+            (IpAddr::V6(a), IpAddr::V6(b)) => {
+                let mask = u128::MAX
+                    .checked_shl(128 - u32::from(self.prefix))
+                    .unwrap_or(0);
+                u128::from(a) & mask == u128::from(b) & mask
+            }
+            _ => false,
+        }
+    }
+}
+
+impl std::str::FromStr for Cidr {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let (addr, prefix) = match text.split_once('/') {
+            Some((addr, prefix)) => (addr, Some(prefix)),
+            None => (text, None),
+        };
+        let addr: IpAddr = addr
+            .parse()
+            .map_err(|_| format!("{text:?} is not an IP address or CIDR range"))?;
+        let bits = if addr.is_ipv4() { 32 } else { 128 };
+        let prefix = match prefix {
+            Some(p) => p
+                .parse::<u8>()
+                .ok()
+                .filter(|p| *p <= bits)
+                .ok_or_else(|| format!("{text:?} has an invalid prefix length"))?,
+            None => bits,
+        };
+        // Trusting every address would let any client fake its IP and dodge rate limits.
+        if prefix == 0 || addr.is_unspecified() {
+            return Err(format!(
+                "{text:?} would trust everyone; list specific proxy addresses or ranges"
+            ));
+        }
+        Ok(Self { addr, prefix })
     }
 }
 
@@ -256,7 +317,7 @@ impl Config {
         let host = vars.parse_or("SHH_HOST", IpAddr::V4(Ipv4Addr::LOCALHOST))?;
         let port = vars.parse_or("SHH_PORT", 3000)?;
 
-        let trusted_proxies: Vec<IpAddr> = match vars.get("SHH_TRUSTED_PROXIES") {
+        let trusted_proxies: Vec<Cidr> = match vars.get("SHH_TRUSTED_PROXIES") {
             None => Vec::new(),
             Some(list) => list
                 .split(',')
@@ -264,13 +325,6 @@ impl Config {
                 .collect::<Result<_, _>>()
                 .map_err(|e| invalid("SHH_TRUSTED_PROXIES", e))?,
         };
-        // Trusting every address would let any client fake its IP and dodge rate limits.
-        if trusted_proxies.iter().any(IpAddr::is_unspecified) {
-            return Err(invalid(
-                "SHH_TRUSTED_PROXIES",
-                "must list specific proxy addresses, never 0.0.0.0 or ::",
-            ));
-        }
 
         let mut locales: Vec<String> = Vec::new();
         for code in vars.get("SHH_LOCALES").unwrap_or_default().split(',') {
@@ -375,6 +429,7 @@ impl Storage {
                         vars.required("SHH_S3_SECRET_ACCESS_KEY")?.to_string(),
                     ),
                     max_total_bytes: vars.positive("SHH_S3_MAX_TOTAL_BYTES")?,
+                    spool_path: vars.get("SHH_SPOOL_PATH").unwrap_or("storage/spool").into(),
                 })
             }
             _ => return Err(invalid("SHH_STORAGE", "must be inline, local or s3")),
@@ -545,6 +600,31 @@ mod tests {
         .into_iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect()
+    }
+
+    #[test]
+    fn trusted_proxies_accept_addresses_and_ranges() {
+        let config = Config::from_vars(&with(&[(
+            "SHH_TRUSTED_PROXIES",
+            "10.0.0.1, 172.16.0.0/12,fd00::/8",
+        )]))
+        .unwrap();
+        let [single, range4, range6] = config.trusted_proxies[..] else {
+            panic!("three entries");
+        };
+        assert!(single.contains("10.0.0.1".parse().unwrap()));
+        assert!(!single.contains("10.0.0.2".parse().unwrap()));
+        assert!(range4.contains("172.31.255.254".parse().unwrap()));
+        assert!(!range4.contains("172.32.0.1".parse().unwrap()));
+        assert!(!range4.contains("fd00::1".parse().unwrap()));
+        assert!(range6.contains("fd12::1".parse().unwrap()));
+        for bad in ["0.0.0.0", "::", "10.0.0.0/0", "10.0.0.0/33", "proxy"] {
+            assert_eq!(
+                invalid_name(Config::from_vars(&with(&[("SHH_TRUSTED_PROXIES", bad)]))),
+                "SHH_TRUSTED_PROXIES",
+                "{bad}"
+            );
+        }
     }
 
     #[test]

@@ -48,6 +48,7 @@ impl Blobs {
                 access_key_id,
                 secret_access_key,
                 max_total_bytes,
+                spool_path,
             } => S3::open(
                 bucket,
                 region,
@@ -55,6 +56,7 @@ impl Blobs {
                 access_key_id,
                 secret_access_key.expose(),
                 *max_total_bytes,
+                spool_path,
             )
             .await
             .map(Self::S3),
@@ -286,6 +288,7 @@ impl S3 {
         access_key_id: &str,
         secret_access_key: &str,
         max_total_bytes: u64,
+        spool_dir: &Path,
     ) -> Result<Self, String> {
         let (tls, host, port, prefix) = match endpoint {
             None => (
@@ -319,9 +322,13 @@ impl S3 {
             access_key_id: access_key_id.to_string(),
             secret_access_key: secret_access_key.to_string(),
             max_total_bytes,
-            spool_dir: std::env::temp_dir().join("shhnote-spool"),
+            spool_dir: spool_dir.to_path_buf(),
         };
+        // Spool files from an earlier run are partial uploads nobody will finish.
         let _ = tokio::fs::remove_dir_all(&s3.spool_dir).await;
+        tokio::fs::create_dir_all(&s3.spool_dir)
+            .await
+            .map_err(|e| format!("SHH_SPOOL_PATH {}: {e}", s3.spool_dir.display()))?;
         s3.check_versioning().await?;
         Ok(s3)
     }

@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: shhnote_test
+          POSTGRES_USER: shhnote
+          POSTGRES_PASSWORD: shhnote
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U shhnote -d shhnote_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: client/.nvmrc
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Client bundles and Argon2 module
+        run: scripts/build-client.sh
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Tests (SQLite and Postgres)
+        env:
+          SHH_TEST_PG_URL: postgres://shhnote:shhnote@localhost:5432/shhnote_test
+        run: cargo test --workspace
+
+      - name: Client tests
+        working-directory: client
+        run: npm test
+
+  image:
+    # Proves the Dockerfile still builds; the real image is published by release.yml.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

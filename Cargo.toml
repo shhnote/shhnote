@@ -30,6 +30,11 @@ tokio = { version = "1.54.1", features = ["full"] }
 tower = { version = "0.5.3", default-features = false, features = ["util"] }
 
 # Argon2id module for the browser, built with `scripts/build-wasm.sh`.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
 [profile.wasm]
 inherits = "release"
 opt-level = 3

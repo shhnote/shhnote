@@ -1418,3 +1418,19 @@ async fn only_offered_locales_exist_and_old_links_redirect() {
     assert_eq!(reply.status, StatusCode::TEMPORARY_REDIRECT);
     assert_eq!(location(&reply), "/de/terms");
 }
+
+#[tokio::test]
+async fn health_reports_the_database() {
+    let app = server("api-health").await;
+    let reply = send(
+        &app,
+        Request::get("/api/v1/health")
+            .header(header::HOST, "localhost")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::OK);
+    assert_eq!(reply.json(), json!({"status": "ok"}));
+    assert_eq!(reply.headers[header::CACHE_CONTROL], "no-store");
+}

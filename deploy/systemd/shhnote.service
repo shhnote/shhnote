@@ -1,0 +1,53 @@
+# Install: copy the binary to /usr/local/bin/shhnote, the environment file to
+# /etc/shhnote/env (mode 0640, root:shhnote is not needed thanks to DynamicUser), then
+#   systemctl enable --now shhnote
+# State lives in /var/lib/shhnote; relative paths in the environment file resolve there.
+[Unit]
+Description=shhnote zero-knowledge secret sharing
+Documentation=https://github.com/zbcdo/shhnote
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=/usr/local/bin/shhnote check
+ExecStart=/usr/local/bin/shhnote
+EnvironmentFile=/etc/shhnote/env
+WorkingDirectory=/var/lib/shhnote
+StateDirectory=shhnote
+StateDirectoryMode=0700
+DynamicUser=yes
+Restart=on-failure
+RestartSec=5s
+# Longer than the server's own 30 s drain, so an upload in progress can finish.
+KillSignal=SIGTERM
+TimeoutStopSec=35s
+
+# Hardening: the process needs the network, its state directory and nothing else.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

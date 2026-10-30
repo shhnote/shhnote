@@ -14,6 +14,10 @@ Jede Operation, die ein Geheimnis-Credential entgegennimmt, antwortet bei jedem 
 
 Ratenlimits antworten mit **429 `rate_limited`** und einem `Retry-After`-Header in Sekunden. Limits gelten pro Endpunkt und pro Client; die Schwelle wird nicht verraten.
 
+## `GET /health`
+
+Bereitschaft für Monitoring, ohne Authentifizierung: `{"status": "ok"}`, wenn die Datenbank antwortet, sonst **503** `{"status": "degraded"}`. `GET /` (die API-Wurzel) sagt nur, dass der Prozess lebt.
+
 ## `GET /config`
 
 Richtlinie der Instanz, ohne Authentifizierung. Vor dem Erstellen eines Geheimnisses lesen: Die Auffüllrichtlinie bestimmt, welche Blob-Längen der Server akzeptiert.

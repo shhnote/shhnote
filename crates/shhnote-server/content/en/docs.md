@@ -14,6 +14,10 @@ Every operation that takes a secret credential answers **404 `not_found`** with 
 
 Rate limits answer **429 `rate_limited`** with a `Retry-After` header in seconds. Limits are per endpoint and per client; nothing about the threshold is revealed.
 
+## `GET /health`
+
+Readiness for monitoring, no authentication: `{"status": "ok"}` when the database answers, otherwise **503** `{"status": "degraded"}`. `GET /` (the API root) only says the process is alive.
+
 ## `GET /config`
 
 Instance policy, no authentication. Read it before creating a secret: the padding policy decides which blob lengths the server accepts.

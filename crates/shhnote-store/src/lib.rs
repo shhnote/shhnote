@@ -61,6 +61,12 @@ impl Store {
     }
 
     // Takes a `sqlite://` or `postgres://` URL. Runs the engine's migrations before returning.
+    // Is the database there and answering? Used by the health endpoint and `shhnote check`.
+    pub async fn ping(&self) -> Result<(), Error> {
+        sqlx::query("SELECT 1").execute(&self.pool).await?;
+        Ok(())
+    }
+
     pub async fn connect_url(url: &str) -> Result<Self, Error> {
         sqlx::any::install_default_drivers();
         let backend = if url.starts_with("sqlite:") {

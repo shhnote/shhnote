@@ -1,7 +1,7 @@
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use shhnote_core::{config::Config, settings::Settings};
-use shhnote_server::{api::ApiState, app, log, scheduler, storage::Blobs};
+use shhnote_server::{api::ApiState, app, drain::Drain, health, log, scheduler, storage::Blobs};
 use shhnote_store::Store;
 
 #[tokio::main]
@@ -16,8 +16,21 @@ async fn main() {
     log::init(config.log_level);
     if let Err(e) = shhnote_server::i18n::offered(&config.locales, config.default_locale.as_deref())
     {
-        eprintln!("configuration error: {e}");
+        shhnote_server::log_error!("configuration error: {e}");
         std::process::exit(1);
+    }
+
+    let command = std::env::args().nth(1);
+    // `health` asks a running server; it must not need the database itself.
+    if command.as_deref() == Some("health") {
+        match health::probe(&config).await {
+            Ok(()) => println!("ok"),
+            Err(e) => {
+                eprintln!("unhealthy: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
     }
 
     let store = match Store::connect(&config.database).await {
@@ -27,6 +40,35 @@ async fn main() {
             std::process::exit(1);
         }
     };
+
+    match command.as_deref() {
+        // Everything a start needs, without starting: config parsed, database reachable.
+        Some("check") => {
+            if let Err(e) = store.ping().await {
+                shhnote_server::log_error!("database error: {e}");
+                std::process::exit(1);
+            }
+            println!("ok");
+            return;
+        }
+        Some("reset-admin") => {
+            match store.delete_admin_keys().await {
+                Ok(n) => println!(
+                    "deleted {n} admin key(s); SHH_ADMIN_TOKEN works again until a new one is created"
+                ),
+                Err(e) => {
+                    shhnote_server::log_error!("database error: {e}");
+                    std::process::exit(1);
+                }
+            }
+            return;
+        }
+        Some(other) => {
+            eprintln!("unknown command {other:?}; commands: check, health, reset-admin");
+            std::process::exit(2);
+        }
+        None => {}
+    }
 
     let overrides = match store.setting_overrides().await {
         Ok(overrides) => overrides,
@@ -39,22 +81,9 @@ async fn main() {
     for warning in warnings {
         shhnote_server::log_warn!("{warning}");
     }
-
-    if std::env::args().nth(1).as_deref() == Some("reset-admin") {
-        match store.delete_admin_keys().await {
-            Ok(n) => println!(
-                "deleted {n} admin key(s); SHH_ADMIN_TOKEN works again until a new one is created"
-            ),
-            Err(e) => {
-                shhnote_server::log_error!("database error: {e}");
-                std::process::exit(1);
-            }
-        }
-        return;
-    }
     if config.admin_token.is_some() && matches!(store.admin_key_count().await, Ok(n) if n > 0) {
-        shhnote_server::log_error!(
-            "warning: SHH_ADMIN_TOKEN is set but an admin API key exists, so the token is ignored; unset it"
+        shhnote_server::log_warn!(
+            "SHH_ADMIN_TOKEN is set but an admin API key exists, so the token is ignored; unset it"
         );
     }
 
@@ -70,8 +99,8 @@ async fn main() {
     };
 
     if !settings.inline_enabled && storage.is_none() {
-        shhnote_server::log_error!(
-            "warning: inline_enabled is off but SHH_STORAGE is inline, so blobs stay in the database"
+        shhnote_server::log_warn!(
+            "inline_enabled is off but SHH_STORAGE is inline, so blobs stay in the database"
         );
     }
 
@@ -82,7 +111,11 @@ async fn main() {
         state.settings.clone(),
         storage,
     );
-    let app = app::router(&config, state);
+    let drain = Arc::new(Drain::default());
+    let app = app::router(&config, state).layer(axum::middleware::from_fn_with_state(
+        drain.clone(),
+        shhnote_server::drain::track,
+    ));
 
     let listener = tokio::net::TcpListener::bind(config.bind_addr)
         .await
@@ -94,6 +127,32 @@ async fn main() {
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
+    .with_graceful_shutdown(drain.wait_for(shutdown_signal(), Duration::from_secs(30)))
     .await
     .unwrap();
+    shhnote_server::log_info!("stopped");
+}
+
+// SIGTERM (what `docker stop` and systemd send) or Ctrl-C: stop accepting connections and
+// let in-flight requests finish, so an upload in progress is not cut off.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        _ = ctrl_c => {}
+        _ = terminate => {}
+    }
+    shhnote_server::log_info!("shutting down, finishing in-flight requests");
 }
