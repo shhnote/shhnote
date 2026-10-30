@@ -3,11 +3,9 @@
 .idea
 .vscode
 .claude
-.internal
 .env
 .env.*
 !.env.example
-design
 deploy
 docs
 storage
