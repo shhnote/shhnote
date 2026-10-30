@@ -64,14 +64,13 @@ fn request_host(req: &Request) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Arc};
+    use std::collections::HashMap;
 
     use axum::{body::Body, http::StatusCode};
     use shhnote_core::settings::Settings;
     use shhnote_store::{Store, sqlite_path_for_tests};
 
     use super::*;
-    use crate::api::Limits;
 
     // Each test gets its own database file; the helper deletes any existing file with that name.
     static NEXT_DB: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
@@ -82,11 +81,7 @@ mod tests {
         let store = Store::connect_url(&format!("sqlite://{}?mode=rwc", path.display()))
             .await
             .unwrap();
-        ApiState {
-            store,
-            settings: Arc::new(Settings::default()),
-            limits: Limits::from_config(config),
-        }
+        ApiState::new(store, Settings::default(), config)
     }
 
     async fn build(changes: &[(&str, &str)]) -> Router {

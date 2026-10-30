@@ -8,6 +8,7 @@ use axum::{
     body::Body,
     extract::{DefaultBodyLimit, Multipart, State},
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
+    middleware,
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -22,6 +23,8 @@ use shhnote_core::{
 };
 use shhnote_store::{Lifetime, NewSecret, Served, Store};
 
+use crate::ratelimit::{Endpoint, RateLimiter, limit};
+
 pub const CLAIM_TOKEN_HEADER: HeaderName = HeaderName::from_static("x-shh-claim-token");
 pub const EXPIRES_IN_HEADER: HeaderName = HeaderName::from_static("x-shh-expires-in-hours");
 
@@ -30,6 +33,23 @@ pub struct ApiState {
     pub store: Store,
     pub settings: Arc<Settings>,
     pub limits: Limits,
+    pub limiter: Arc<RateLimiter>,
+}
+
+impl ApiState {
+    pub fn new(store: Store, settings: Settings, config: &Config) -> Self {
+        let limiter = RateLimiter::new(
+            settings.rate_limits,
+            settings.salt_rotation_secs,
+            config.trusted_proxies.clone(),
+        );
+        Self {
+            store,
+            settings: Arc::new(settings),
+            limits: Limits::from_config(config),
+            limiter: Arc::new(limiter),
+        }
+    }
 }
 
 // Deployment limits from the environment, as opposed to runtime settings from the database.
@@ -68,17 +88,28 @@ pub fn router(state: ApiState) -> Router {
 fn v1(state: ApiState) -> Router {
     // Room for the multipart framing around the largest blob we accept.
     let body_limit = (state.limits.max_blob_bytes() + 16 * 1024) as usize;
+    let limited = |endpoint: Endpoint| {
+        middleware::from_fn_with_state((state.limiter.clone(), endpoint), limit)
+    };
     Router::new()
         .route("/", get(info))
         .route("/config", get(config))
         .route(
             "/secrets",
-            post(create).layer(DefaultBodyLimit::max(body_limit)),
+            post(create)
+                .layer(DefaultBodyLimit::max(body_limit))
+                .layer(limited(Endpoint::Create)),
         )
-        .route("/secrets/reveal", post(reveal))
-        .route("/secrets/confirm", post(confirm))
-        .route("/secrets/burn", post(burn))
-        .route("/reports", post(report))
+        .route(
+            "/secrets/reveal",
+            post(reveal).layer(limited(Endpoint::Reveal)),
+        )
+        .route(
+            "/secrets/confirm",
+            post(confirm).layer(limited(Endpoint::Confirm)),
+        )
+        .route("/secrets/burn", post(burn).layer(limited(Endpoint::Burn)))
+        .route("/reports", post(report).layer(limited(Endpoint::Report)))
         .with_state(state)
 }
 

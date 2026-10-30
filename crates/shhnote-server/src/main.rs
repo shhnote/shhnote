@@ -1,10 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{net::SocketAddr, time::Duration};
 
 use shhnote_core::{config::Config, settings::Settings};
-use shhnote_server::{
-    api::{ApiState, Limits},
-    app, scheduler,
-};
+use shhnote_server::{api::ApiState, app, scheduler};
 use shhnote_store::Store;
 
 #[tokio::main]
@@ -43,11 +40,7 @@ async fn main() {
         settings.daily_retention_days,
     );
 
-    let state = ApiState {
-        store,
-        settings: Arc::new(settings),
-        limits: Limits::from_config(&config),
-    };
+    let state = ApiState::new(store, settings, &config);
     let app = app::router(&config, state);
 
     let listener = tokio::net::TcpListener::bind(config.bind_addr)
@@ -55,5 +48,11 @@ async fn main() {
         .unwrap();
     println!("listening on http://{}", listener.local_addr().unwrap());
     println!("site at {}, API at {}/v1", config.url, config.api_url);
-    axum::serve(listener, app).await.unwrap();
+    // The socket address is what rate limiting keys on (behind SHH_TRUSTED_PROXIES, the forwarded one).
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .unwrap();
 }

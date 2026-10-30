@@ -1,8 +1,9 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr};
 
 use axum::{
     Router,
     body::Body,
+    extract::ConnectInfo,
     http::{Request, StatusCode, header},
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -16,7 +17,7 @@ use shhnote_core::{
     settings::Settings,
 };
 use shhnote_server::{
-    api::{ApiState, CLAIM_TOKEN_HEADER, EXPIRES_IN_HEADER, Limits},
+    api::{ApiState, CLAIM_TOKEN_HEADER, EXPIRES_IN_HEADER},
     app,
 };
 use shhnote_store::{Store, sqlite_path_for_tests};
@@ -25,6 +26,10 @@ use tower::ServiceExt;
 const BOUNDARY: &str = "----shhnote-test-boundary";
 
 async fn server(name: &str) -> Router {
+    server_with(name, &[]).await
+}
+
+async fn server_with(name: &str, overrides: &[(&str, &str)]) -> Router {
     let vars: HashMap<String, String> = [
         ("SHH_ENV", "local"),
         ("SHH_URL", "http://localhost:3000"),
@@ -39,12 +44,24 @@ async fn server(name: &str) -> Router {
     let store = Store::connect_url(&format!("sqlite://{}?mode=rwc", path.display()))
         .await
         .unwrap();
-    let state = ApiState {
-        store,
-        settings: Arc::new(Settings::default()),
-        limits: Limits::from_config(&config),
-    };
-    app::router(&config, state)
+    let overrides: HashMap<String, String> = overrides
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    let (settings, warnings) = Settings::with_overrides(&overrides);
+    assert!(warnings.is_empty(), "{warnings:?}");
+    app::router(&config, ApiState::new(store, settings, &config))
+}
+
+async fn post_json_from(app: &Router, path: &str, body: Value, ip: &str) -> Reply {
+    let mut req = Request::post(path)
+        .header(header::HOST, "localhost")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let addr: SocketAddr = format!("{ip}:40000").parse().unwrap();
+    req.extensions_mut().insert(ConnectInfo(addr));
+    send(app, req).await
 }
 
 struct Reply {
@@ -468,4 +485,60 @@ async fn encrypted_secret_round_trips_through_the_api() {
     // and the fragment shapes are what the pages will put after `#`.
     assert_eq!(encrypted.fragment.len(), 44);
     assert_eq!(encrypted.burn_fragment.len(), 44);
+}
+
+#[tokio::test]
+async fn rate_limits_are_per_client_and_per_endpoint() {
+    let app = server_with(
+        "api-ratelimit",
+        &[("rate_reveal_per_hour", "2"), ("rate_burn_per_hour", "1")],
+    )
+    .await;
+    let body = json!({"lookup": b64(&random32())});
+
+    // Two reveals pass, the third is refused, with a wait hint but no threshold.
+    for _ in 0..2 {
+        assert_uniform_negative(
+            &post_json_from(&app, "/api/v1/secrets/reveal", body.clone(), "203.0.113.1").await,
+        );
+    }
+    let limited = post_json_from(&app, "/api/v1/secrets/reveal", body.clone(), "203.0.113.1").await;
+    assert_eq!(limited.status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(limited.json()["error"]["code"], "rate_limited");
+    assert!(limited.headers.contains_key(header::RETRY_AFTER));
+
+    // Another client, and another endpoint for the same client, still work.
+    assert_uniform_negative(
+        &post_json_from(&app, "/api/v1/secrets/reveal", body.clone(), "203.0.113.2").await,
+    );
+    assert_uniform_negative(
+        &post_json_from(
+            &app,
+            "/api/v1/secrets/burn",
+            json!({"burn_token": b64(&random32())}),
+            "203.0.113.1",
+        )
+        .await,
+    );
+    assert_eq!(
+        post_json_from(
+            &app,
+            "/api/v1/secrets/burn",
+            json!({"burn_token": b64(&random32())}),
+            "203.0.113.1"
+        )
+        .await
+        .status,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    // Config is never limited.
+    let config = send(
+        &app,
+        Request::get("/api/v1/config")
+            .header(header::HOST, "localhost")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(config.status, StatusCode::OK);
 }

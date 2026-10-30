@@ -10,6 +10,31 @@ pub const MAX_TTL_CEILING: i64 = 14 * DAY;
 
 // Runtime settings (SPEC §7.2). Every field has a code default; the database stores only
 // values an admin changed, as strings keyed by the field name.
+// Requests per hour per client for each API operation; 0 disables that limit. `user_multiplier`
+// scales them for requests carrying a `user` API key. Best-effort by principle 7.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RateLimits {
+    pub create_per_hour: u32,
+    pub reveal_per_hour: u32,
+    pub confirm_per_hour: u32,
+    pub burn_per_hour: u32,
+    pub report_per_hour: u32,
+    pub user_multiplier: u32,
+}
+
+impl Default for RateLimits {
+    fn default() -> Self {
+        Self {
+            create_per_hour: 30,
+            reveal_per_hour: 60,
+            confirm_per_hour: 60,
+            burn_per_hour: 30,
+            report_per_hour: 10,
+            user_multiplier: 10,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Settings {
     pub site_name: String,
@@ -25,6 +50,8 @@ pub struct Settings {
     pub files_enabled: bool,
     pub regions: Vec<Region>,
     pub daily_retention_days: i64,
+    pub rate_limits: RateLimits,
+    pub salt_rotation_secs: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -62,6 +89,8 @@ impl Default for Settings {
             files_enabled: true,
             regions: Vec::new(),
             daily_retention_days: 365,
+            rate_limits: RateLimits::default(),
+            salt_rotation_secs: 3600,
         }
     }
 }
@@ -110,6 +139,13 @@ impl Settings {
                 "text_max_bytes" => parse(value).map(|v| s.text_max_bytes = v),
                 "files_enabled" => parse(value).map(|v| s.files_enabled = v),
                 "daily_retention_days" => parse(value).map(|v| s.daily_retention_days = v),
+                "rate_create_per_hour" => parse(value).map(|v| s.rate_limits.create_per_hour = v),
+                "rate_reveal_per_hour" => parse(value).map(|v| s.rate_limits.reveal_per_hour = v),
+                "rate_confirm_per_hour" => parse(value).map(|v| s.rate_limits.confirm_per_hour = v),
+                "rate_burn_per_hour" => parse(value).map(|v| s.rate_limits.burn_per_hour = v),
+                "rate_report_per_hour" => parse(value).map(|v| s.rate_limits.report_per_hour = v),
+                "rate_user_multiplier" => parse(value).map(|v| s.rate_limits.user_multiplier = v),
+                "salt_rotation_secs" => parse(value).map(|v| s.salt_rotation_secs = v),
                 "regions" => serde_json::from_str(value)
                     .map(|v| s.regions = v)
                     .map_err(|e| e.to_string()),
