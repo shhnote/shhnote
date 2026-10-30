@@ -37,6 +37,8 @@ pub struct ApiState {
     pub limiter: Arc<RateLimiter>,
     // The external tier, if `SHH_STORAGE` enables one.
     pub storage: Option<Arc<Blobs>>,
+    // SHA-256 of SHH_ADMIN_TOKEN; honoured only while no admin key exists (SPEC §8).
+    pub admin_token_hash: Option<[u8; 32]>,
 }
 
 impl ApiState {
@@ -54,6 +56,10 @@ impl ApiState {
             limits: Limits::from_config(config),
             limiter: Arc::new(limiter),
             storage,
+            admin_token_hash: config
+                .admin_token
+                .as_ref()
+                .map(|t| credential_hash(t.expose().as_bytes())),
         }
     }
 }
@@ -115,6 +121,7 @@ fn v1(state: ApiState) -> Router {
         )
         .route("/secrets/burn", post(burn).layer(limited(Endpoint::Burn)))
         .route("/reports", post(report).layer(limited(Endpoint::Report)))
+        .nest("/admin", crate::admin_api::routes(state.clone()))
         .with_state(state)
 }
 
@@ -548,7 +555,11 @@ struct ErrorDetail {
     message: &'static str,
 }
 
-fn error_response(status: StatusCode, code: &'static str, message: &'static str) -> Response {
+pub(crate) fn error_response(
+    status: StatusCode,
+    code: &'static str,
+    message: &'static str,
+) -> Response {
     let body = ErrorBody {
         error: ErrorDetail { code, message },
     };

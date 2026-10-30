@@ -1,4 +1,5 @@
 pub mod admin;
+pub mod admin_api;
 pub mod api;
 pub mod app;
 pub mod clock;

@@ -12,7 +12,6 @@ use axum::{
 use fluent_bundle::FluentArgs;
 use shhnote_core::{
     config::{ApiRouting, AppEnv, Config},
-    secret::credential_hash,
     settings::SettingsCell,
 };
 use shhnote_store::Store;
@@ -64,10 +63,7 @@ pub fn router(config: &Config, api: &ApiState) -> Router {
         limiter: api.limiter.clone(),
         secret_key: config.secret_key.expose().as_bytes().to_vec(),
         secure_cookies: config.env == AppEnv::Production,
-        admin_token_hash: config
-            .admin_token
-            .as_ref()
-            .map(|t| credential_hash(t.expose().as_bytes())),
+        admin_token_hash: api.admin_token_hash,
         asset_version: asset_version(),
         css: APP_CSS.replace("__V__", &asset_version()),
         content: Content::load(),

@@ -1154,3 +1154,206 @@ async fn markdown_pages_render_with_instance_urls() {
     assert!(api.contains("http://localhost:3000/api/v1"), "{api}");
     assert!(api.contains(r#"href="http://localhost:3000/en/how-it-works#technical""#));
 }
+
+// --- admin API
+
+async fn admin_api(
+    app: &Router,
+    method: &str,
+    path: &str,
+    token: &str,
+    body: Option<Value>,
+) -> Reply {
+    let mut req = Request::builder()
+        .method(method)
+        .uri(path)
+        .header(header::HOST, "localhost")
+        .header(header::AUTHORIZATION, format!("Bearer {token}"));
+    if body.is_some() {
+        req = req.header(header::CONTENT_TYPE, "application/json");
+    }
+    let req = req
+        .body(Body::from(body.map(|b| b.to_string()).unwrap_or_default()))
+        .unwrap();
+    send(app, req).await
+}
+
+#[tokio::test]
+async fn admin_api_bootstraps_keys_settings_and_stats() {
+    let (app, store) = admin_server("admin-api").await;
+
+    // No key, wrong key: 401 and nothing else.
+    let reply = send(
+        &app,
+        Request::get("/api/v1/admin/stats")
+            .header(header::HOST, "localhost")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(reply.json()["error"]["code"], "unauthorized");
+    assert_eq!(
+        admin_api(&app, "GET", "/api/v1/admin/stats", "nope", None)
+            .await
+            .status,
+        StatusCode::UNAUTHORIZED
+    );
+
+    // The bootstrap token works on a fresh install and can mint the first admin key.
+    let stats = admin_api(&app, "GET", "/api/v1/admin/stats?days=7", BOOTSTRAP, None).await;
+    assert_eq!(stats.status, StatusCode::OK, "{}", text(&stats));
+    assert_eq!(stats.headers[header::CACHE_CONTROL], "no-store");
+    assert_eq!(stats.json()["active"], 0);
+    let created = admin_api(
+        &app,
+        "POST",
+        "/api/v1/admin/keys",
+        BOOTSTRAP,
+        Some(json!({"name": "automation", "scope": "admin"})),
+    )
+    .await;
+    assert_eq!(created.status, StatusCode::CREATED, "{}", text(&created));
+    let admin_key = created.json()["key"].as_str().unwrap().to_string();
+    let admin_id = created.json()["id"].as_str().unwrap().to_string();
+    assert_eq!(admin_key.len(), 43);
+
+    // From now on the bootstrap token is dead; the key is live.
+    assert_eq!(
+        admin_api(&app, "GET", "/api/v1/admin/stats", BOOTSTRAP, None)
+            .await
+            .status,
+        StatusCode::UNAUTHORIZED
+    );
+    let keys = admin_api(&app, "GET", "/api/v1/admin/keys", &admin_key, None).await;
+    assert_eq!(keys.status, StatusCode::OK);
+    assert_eq!(keys.json()["keys"][0]["id"], admin_id);
+    assert!(keys.json()["keys"][0]["last_used_at"].is_number());
+    assert!(
+        !text(&keys).contains(&admin_key),
+        "keys are never listed in clear"
+    );
+
+    // A user key cannot administer.
+    let user = admin_api(
+        &app,
+        "POST",
+        "/api/v1/admin/keys",
+        &admin_key,
+        Some(json!({"name": "ci", "scope": "user"})),
+    )
+    .await;
+    let user_key = user.json()["key"].as_str().unwrap().to_string();
+    assert_eq!(
+        admin_api(&app, "GET", "/api/v1/admin/keys", &user_key, None)
+            .await
+            .status,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        admin_api(
+            &app,
+            "POST",
+            "/api/v1/admin/keys",
+            &admin_key,
+            Some(json!({"name": "", "scope": "admin"}))
+        )
+        .await
+        .status,
+        StatusCode::BAD_REQUEST
+    );
+
+    // Settings: partial patch, typed JSON values, live effect, overrides only.
+    let before = admin_api(&app, "GET", "/api/v1/admin/settings", &admin_key, None).await;
+    assert_eq!(before.json()["overridden"], json!([]));
+    let patched = admin_api(
+        &app,
+        "PATCH",
+        "/api/v1/admin/settings",
+        &admin_key,
+        Some(json!({"site_name": "Vault", "rate_reveal_per_hour": 1, "ttl_presets": [900, 3600], "files_enabled": false})),
+    )
+    .await;
+    assert_eq!(patched.status, StatusCode::OK, "{}", text(&patched));
+    assert_eq!(patched.json()["values"]["ttl_presets"], "900,3600");
+    assert_eq!(patched.json()["overridden"].as_array().unwrap().len(), 4);
+    assert_eq!(store.setting_overrides().await.unwrap().len(), 4);
+    let body = json!({"lookup": b64(&random32())});
+    assert_uniform_negative(
+        &post_json_from(&app, "/api/v1/secrets/reveal", body.clone(), "203.0.113.77").await,
+    );
+    assert_eq!(
+        post_json_from(&app, "/api/v1/secrets/reveal", body, "203.0.113.77")
+            .await
+            .status,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    // null resets a key; a bad value or unknown key changes nothing.
+    let reset = admin_api(
+        &app,
+        "PATCH",
+        "/api/v1/admin/settings",
+        &admin_key,
+        Some(json!({"site_name": null})),
+    )
+    .await;
+    assert_eq!(reset.json()["values"]["site_name"], "shhnote");
+    let bad = admin_api(
+        &app,
+        "PATCH",
+        "/api/v1/admin/settings",
+        &admin_key,
+        Some(json!({"max_ttl_secs": "soon", "nonsense": 1})),
+    )
+    .await;
+    assert_eq!(bad.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(bad.json()["error"]["code"], "invalid_settings");
+    assert_eq!(bad.json()["details"].as_array().unwrap().len(), 1);
+    assert_eq!(store.setting_overrides().await.unwrap().len(), 3);
+
+    // Reports ledger, then deleting the key in use ends access.
+    let reports = admin_api(&app, "GET", "/api/v1/admin/reports", &admin_key, None).await;
+    assert_eq!(reports.json()["reports"], json!([]));
+    let gone = admin_api(
+        &app,
+        "POST",
+        "/api/v1/admin/keys/delete",
+        &admin_key,
+        Some(json!({"id": admin_id})),
+    )
+    .await;
+    assert_eq!(gone.status, StatusCode::NO_CONTENT);
+    assert_eq!(
+        admin_api(&app, "GET", "/api/v1/admin/keys", &admin_key, None)
+            .await
+            .status,
+        StatusCode::UNAUTHORIZED
+    );
+    // With no admin key left, the bootstrap token works again.
+    assert_eq!(
+        admin_api(&app, "GET", "/api/v1/admin/keys", BOOTSTRAP, None)
+            .await
+            .status,
+        StatusCode::OK
+    );
+}
+
+#[tokio::test]
+async fn admin_api_guessing_is_rate_limited() {
+    let (app, _store) = admin_server("admin-api-guess").await;
+    let limit = Settings::default().rate_limits.login_per_hour;
+    for _ in 0..limit {
+        assert_eq!(
+            admin_api(&app, "GET", "/api/v1/admin/stats", "guess", None)
+                .await
+                .status,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    assert_eq!(
+        admin_api(&app, "GET", "/api/v1/admin/stats", "guess", None)
+            .await
+            .status,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+}

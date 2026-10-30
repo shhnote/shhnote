@@ -213,7 +213,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Peer {
     }
 }
 
-fn peer_of(extensions: &axum::http::Extensions) -> IpAddr {
+pub(crate) fn peer_of(extensions: &axum::http::Extensions) -> IpAddr {
     extensions
         .get::<ConnectInfo<SocketAddr>>()
         .map_or(IpAddr::from([127, 0, 0, 1]), |info| info.0.ip())

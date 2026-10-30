@@ -11,8 +11,11 @@ use axum::{
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
-use shhnote_core::{secret::credential_hash, settings::Settings};
-use shhnote_store::{ApiKey, Scope};
+use shhnote_core::{
+    secret::credential_hash,
+    settings::{Settings, SettingsCell},
+};
+use shhnote_store::{ApiKey, Scope, Store};
 
 use crate::{
     clock::{format_date, format_time, now},
@@ -468,34 +471,26 @@ async fn settings_save(
             .unwrap_or_else(|| "false".to_string());
         submitted.insert(key.to_string(), value);
     }
-    let (new_settings, errors) = Settings::with_overrides(&submitted);
-    if !errors.is_empty() {
-        let mut response = render(
-            &state,
-            SettingsPage {
-                ctx: state.ctx("/admin/settings"),
-                admin: admin_ctx(&state, &session),
-                groups: groups(&new_settings, Some(&submitted)),
-                errors,
-                saved: false,
-            },
-        );
-        *response.status_mut() = StatusCode::UNPROCESSABLE_ENTITY;
-        return response;
-    }
-
-    let store = &state.shared.store;
-    for (key, value) in new_settings.as_strings() {
-        let result = if defaults.get(key) == Some(&value) {
-            store.clear_setting(key).await
-        } else {
-            store.set_setting(key, &value).await
+    let new_settings =
+        match save_settings(&state.shared.store, &state.shared.settings, &submitted).await {
+            Ok(settings) => settings,
+            Err(SaveError::Invalid(errors)) => {
+                let current = state.shared.settings.load();
+                let mut response = render(
+                    &state,
+                    SettingsPage {
+                        ctx: state.ctx("/admin/settings"),
+                        admin: admin_ctx(&state, &session),
+                        groups: groups(&current, Some(&submitted)),
+                        errors,
+                        saved: false,
+                    },
+                );
+                *response.status_mut() = StatusCode::UNPROCESSABLE_ENTITY;
+                return response;
+            }
+            Err(SaveError::Db(e)) => return db_error(&state, e),
         };
-        if let Err(e) = result {
-            return db_error(&state, e);
-        }
-    }
-    state.shared.settings.store(new_settings.clone());
     render(
         &state,
         SettingsPage {
@@ -632,20 +627,10 @@ async fn keys_create(
         let error = state.ctx("/admin/keys").t("admin-keys-invalid");
         return render_keys(&state, &session, None, Some(error)).await;
     };
-    let mut key = [0u8; 32];
-    if getrandom::fill(&mut key).is_err() {
-        return error_page(&state, StatusCode::INTERNAL_SERVER_ERROR);
+    match mint_key(&state.shared.store, name, scope, now()).await {
+        Ok(text) => render_keys(&state, &session, Some(text), None).await,
+        Err(e) => db_error(&state, e),
     }
-    let text = URL_SAFE_NO_PAD.encode(key);
-    if let Err(e) = state
-        .shared
-        .store
-        .create_api_key(&credential_hash(text.as_bytes()), name, scope, now())
-        .await
-    {
-        return db_error(&state, e);
-    }
-    render_keys(&state, &session, Some(text), None).await
 }
 
 async fn keys_delete(
@@ -667,6 +652,51 @@ async fn keys_delete(
         return db_error(&state, e);
     }
     Redirect::to(&state.href("/admin/keys")).into_response()
+}
+
+pub(crate) enum SaveError {
+    Invalid(Vec<String>),
+    Db(shhnote_store::Error),
+}
+
+// Validates a complete set of settings, stores only what differs from the defaults and
+// swaps the live settings. Shared by the panel and the admin API.
+pub(crate) async fn save_settings(
+    store: &Store,
+    cell: &SettingsCell,
+    submitted: &HashMap<String, String>,
+) -> Result<Settings, SaveError> {
+    let (settings, errors) = Settings::with_overrides(submitted);
+    if !errors.is_empty() {
+        return Err(SaveError::Invalid(errors));
+    }
+    let defaults = Settings::default().as_strings();
+    for (key, value) in settings.as_strings() {
+        let result = if defaults.get(key) == Some(&value) {
+            store.clear_setting(key).await
+        } else {
+            store.set_setting(key, &value).await
+        };
+        result.map_err(SaveError::Db)?;
+    }
+    cell.store(settings.clone());
+    Ok(settings)
+}
+
+// A new API key: 32 random bytes, returned once, stored only as a hash.
+pub(crate) async fn mint_key(
+    store: &Store,
+    name: &str,
+    scope: Scope,
+    now: i64,
+) -> Result<String, shhnote_store::Error> {
+    let mut key = [0u8; 32];
+    getrandom::fill(&mut key).map_err(|e| shhnote_store::Error::Protocol(e.to_string()))?;
+    let text = URL_SAFE_NO_PAD.encode(key);
+    store
+        .create_api_key(&credential_hash(text.as_bytes()), name, scope, now)
+        .await?;
+    Ok(text)
 }
 
 fn db_error(state: &PageState, error: shhnote_store::Error) -> Response {

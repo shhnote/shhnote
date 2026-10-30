@@ -98,6 +98,22 @@ Anyone holding a link may report it. If the secret is active it is removed immed
 
 Requests may carry `Authorization: Bearer <key>`. A key with the `user` scope moves rate limiting from your network address to the key, with higher limits, and is required to create secrets on instances that are configured that way. Keys are issued by the operator in the admin panel and are never associated with any secret.
 
+## Admin API
+
+The admin panel's operations are available as JSON under `/admin`, for operators who script their instance. Every request needs `Authorization: Bearer <key>` with an **admin**-scoped key; on a fresh install the bootstrap token from `SHH_ADMIN_TOKEN` is accepted instead, until the first admin key exists. Anything else gets **401 `unauthorized`**, and repeated failures from one client are rate-limited like panel logins. Responses carry `Cache-Control: no-store`.
+
+| Request | Body | Response |
+|---|---|---|
+| `GET /admin/stats?days=30` | – | lifetime totals, the live `active` count and the last `days` days (1–400) |
+| `GET /admin/settings` | – | `values`, `defaults` and the list of `overridden` keys, all values as strings |
+| `PATCH /admin/settings` | `{key: value, …}` | the same shape after saving; strings, numbers, booleans and lists of scalars are accepted, `null` resets a key to its default |
+| `GET /admin/reports` | – | the reports ledger |
+| `GET /admin/keys` | – | keys with `id` (hex of the key's hash), `name`, `scope`, `created_at`, `last_used_at` |
+| `POST /admin/keys` | `{"name": …, "scope": "admin" \| "user"}` | **201** with the key itself, shown this once |
+| `POST /admin/keys/delete` | `{"id": …}` | **204**; deleting the key you are using ends your access |
+
+A settings patch is merged over the current values and validated as a whole; on any problem nothing changes and the answer is **422 `invalid_settings`** with a `details` list. Changes apply immediately, without a restart.
+
 ## Building a client
 
 Derive the values the API expects from the 32-byte seed in the share link: `lookup = HKDF-SHA-256(seed, info "shhnote/lookup/v1")`, send it base64url-encoded. The burn token is a separate random 32 bytes the creator keeps. Blob layout, key wrapping, chunking and padding are specified on the [technical details]({{site_url}}/how-it-works#technical) page and pinned byte for byte by the conformance vectors; a client that reproduces them is compatible with every instance.
