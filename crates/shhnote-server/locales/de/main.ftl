@@ -30,11 +30,15 @@ form-files-drop = Dateien hierher ziehen oder klicken, um sie auszuwählen
 form-files-hint = Insgesamt bis zu { $size }.
 form-files-remove = Entfernen
 form-expiry-label = Läuft ab nach
-expiry-5m = 5 Minuten
+expiry-15m = 15 Minuten
+expiry-30m = 30 Minuten
 expiry-1h = 1 Stunde
+expiry-6h = 6 Stunden
+expiry-12h = 12 Stunden
 expiry-1d = 1 Tag
+expiry-3d = 3 Tagen
 expiry-7d = 7 Tagen
-expiry-30d = 30 Tagen
+expiry-14d = 14 Tagen
 form-burn-label = Nach dem Lesen löschen
 form-burn-hint = Das Geheimnis wird gelöscht, sobald es einmal geöffnet wurde.
 form-passphrase-label = Passphrase (optional)
@@ -47,8 +51,7 @@ secret-title = Jemand hat ein Geheimnis mit dir geteilt
 secret-intro = Dieses Geheimnis wird möglicherweise gelöscht, sobald du es öffnest. Sei bereit und sichere alles, was du brauchst, bevor du die Seite verlässt.
 noscript-view = Zum Entschlüsseln in deinem Browser wird JavaScript benötigt. Bitte aktiviere es, um das Geheimnis anzusehen.
 secret-not-ready = Das Ansehen von Geheimnissen ist noch nicht verfügbar.
-secret-passphrase-label = Passphrase
-secret-passphrase-hint = Nur nötig, wenn die sendende Person eine festgelegt hat.
+secret-passphrase-note = Wenn die sendende Person eine Passphrase festgelegt hat, wirst du nach dem Klick danach gefragt.
 secret-reveal = Geheimnis anzeigen
 
 ## How it works

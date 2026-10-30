@@ -11,10 +11,10 @@ Wir können deine Geheimnisse nicht lesen. Sie werden auf deinem Gerät verschl�
 Wenn du ein Geheimnis erstellst, speichern wir:
 
 - **Das verschlüsselte Geheimnis.** Ohne den Schlüssel in deinem Link ist es unlesbar, auch für uns.
-- **Seine Einstellungen:** wann es abläuft, ob es nach dem Lesen gelöscht wird und ob eine Passphrase nötig ist.
-- **Grundlegende Angaben:** seine Größe und wann es erstellt wurde.
+- **Seine Einstellungen:** wann es abläuft und ob es nach einmaligem Ansehen gelöscht wird.
+- **Gehashte Zugangsdaten:** Einweg-Hashes der Werte, mit denen dein Browser es findet oder brennt; daraus lässt sich nichts Brauchbares zurückgewinnen.
 
-Deine Passphrase und den Schlüssel aus deinem Link speichern wir nicht.
+Deine Passphrase, den Schlüssel aus deinem Link, den Erstellungszeitpunkt und ob eine Passphrase gesetzt wurde, speichern wir nicht. Die verschlüsselten Daten sind aufgefüllt, daher kennen wir nur ihre grobe Größenklasse.
 
 ## Wann wir es löschen
 

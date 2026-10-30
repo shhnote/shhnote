@@ -6,12 +6,56 @@ use std::{
     str::FromStr,
 };
 
+const PREFIX: &str = "SHH_";
 const MIN_SECRET_LEN: usize = 32;
-const MIB: u64 = 1024 * 1024;
-// Bigger files in the database slow it down, so this limit can be lowered but never raised.
-const MAX_INLINE_BYTES: u64 = 3 * MIB / 2;
-const DEFAULT_LOCAL_MAX_BYTES: u64 = 10 * MIB;
-const DEFAULT_S3_MAX_BYTES: u64 = 25 * MIB;
+const KIB: u64 = 1024;
+const MIB: u64 = 1024 * KIB;
+// Nothing smaller than the padding minimum can ever be stored, so inline must hold at least that.
+const MIN_INLINE_MAX: u64 = 64 * KIB;
+const DEFAULT_INLINE_MAX: u64 = 2 * MIB;
+const DEFAULT_EXTERNAL_MAX_OBJECT: u64 = 64 * MIB;
+
+// Every variable the server understands. Anything else with the prefix fails startup,
+// so a typo never silently falls back to a default.
+const KNOWN: &[&str] = &[
+    "SHH_ENV",
+    "SHH_DEBUG",
+    "SHH_URL",
+    "SHH_API_ROUTING",
+    "SHH_SECRET_KEY",
+    "SHH_HOST",
+    "SHH_PORT",
+    "SHH_LOG_LEVEL",
+    "SHH_TRUSTED_PROXIES",
+    "SHH_DB",
+    "SHH_SQLITE_PATH",
+    "SHH_PG_HOST",
+    "SHH_PG_PORT",
+    "SHH_PG_DATABASE",
+    "SHH_PG_USERNAME",
+    "SHH_PG_PASSWORD",
+    "SHH_STORAGE",
+    "SHH_INLINE_MAX",
+    "SHH_EXTERNAL_MAX_OBJECT",
+    "SHH_LOCAL_PATH",
+    "SHH_LOCAL_MAX_TOTAL_BYTES",
+    "SHH_S3_BUCKET",
+    "SHH_S3_REGION",
+    "SHH_S3_ENDPOINT",
+    "SHH_S3_ACCESS_KEY_ID",
+    "SHH_S3_SECRET_ACCESS_KEY",
+    "SHH_S3_MAX_TOTAL_BYTES",
+    "SHH_ADMIN_TOKEN",
+];
+const LOCAL_VARS: &[&str] = &["SHH_LOCAL_PATH", "SHH_LOCAL_MAX_TOTAL_BYTES"];
+const S3_VARS: &[&str] = &[
+    "SHH_S3_BUCKET",
+    "SHH_S3_REGION",
+    "SHH_S3_ENDPOINT",
+    "SHH_S3_ACCESS_KEY_ID",
+    "SHH_S3_SECRET_ACCESS_KEY",
+    "SHH_S3_MAX_TOTAL_BYTES",
+];
 
 #[derive(Debug)]
 pub struct Config {
@@ -21,12 +65,13 @@ pub struct Config {
     pub api_routing: ApiRouting,
     pub api_url: String,
     pub secret_key: Secret,
-    pub encryption_key: Secret,
     pub bind_addr: SocketAddr,
     pub log_level: LogLevel,
     pub trusted_proxies: Vec<IpAddr>,
     pub database: Database,
     pub storage: Storage,
+    // Only valid until the first admin API key exists (SPEC §8).
+    pub admin_token: Option<Secret>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,17 +113,19 @@ pub enum Database {
 
 #[derive(Debug)]
 pub struct Storage {
-    // Files up to this size are stored in the database itself.
-    pub inline_max_bytes: u64,
-    // Where larger files go. `None` means only inline files are allowed.
+    // Padded blobs up to this size live in the database.
+    pub inline_max: u64,
+    // Where larger blobs go. `None` means they are refused.
     pub external: Option<ExternalStorage>,
+    // Largest padded blob the external tier accepts.
+    pub external_max_object: u64,
 }
 
 #[derive(Debug)]
 pub enum ExternalStorage {
     Local {
         path: PathBuf,
-        max_bytes: u64,
+        max_total_bytes: u64,
     },
     S3 {
         bucket: String,
@@ -86,22 +133,16 @@ pub enum ExternalStorage {
         endpoint: Option<String>,
         access_key_id: String,
         secret_access_key: Secret,
-        max_bytes: u64,
+        max_total_bytes: u64,
     },
 }
 
 impl Storage {
-    pub fn max_upload_bytes(&self) -> u64 {
-        self.external
-            .as_ref()
-            .map_or(self.inline_max_bytes, ExternalStorage::max_bytes)
-    }
-}
-
-impl ExternalStorage {
-    pub fn max_bytes(&self) -> u64 {
-        match self {
-            Self::Local { max_bytes, .. } | Self::S3 { max_bytes, .. } => *max_bytes,
+    pub fn max_blob_bytes(&self) -> u64 {
+        if self.external.is_some() {
+            self.external_max_object
+        } else {
+            self.inline_max
         }
     }
 }
@@ -125,7 +166,7 @@ impl fmt::Debug for Secret {
 pub enum ConfigError {
     DotEnv(String),
     Missing(&'static str),
-    Invalid { name: &'static str, reason: String },
+    Invalid { name: String, reason: String },
 }
 
 impl fmt::Display for ConfigError {
@@ -153,32 +194,33 @@ impl Config {
 
     pub fn from_vars(vars: &HashMap<String, String>) -> Result<Self, ConfigError> {
         let vars = Vars(vars);
+        vars.reject_unknown()?;
 
         // Defaults to production so a missing value never turns on development behaviour.
-        let env = vars.parse_or("APP_ENV", AppEnv::Production)?;
-        let debug = vars.parse_or("APP_DEBUG", false)?;
+        let env = vars.parse_or("SHH_ENV", AppEnv::Production)?;
+        let debug = vars.parse_or("SHH_DEBUG", false)?;
         if env == AppEnv::Production && debug {
             return Err(invalid(
-                "APP_DEBUG",
-                "must be false when APP_ENV is production",
+                "SHH_DEBUG",
+                "must be false when SHH_ENV is production",
             ));
         }
 
-        let url = vars.required("APP_URL")?.trim_end_matches('/').to_string();
+        let url = vars.required("SHH_URL")?.trim_end_matches('/').to_string();
         let Some((scheme, authority)) = url.split_once("://") else {
-            return Err(invalid("APP_URL", "must start with http:// or https://"));
+            return Err(invalid("SHH_URL", "must start with http:// or https://"));
         };
         if !matches!(scheme, "http" | "https") {
-            return Err(invalid("APP_URL", "must start with http:// or https://"));
+            return Err(invalid("SHH_URL", "must start with http:// or https://"));
         }
         if authority.is_empty() || authority.contains(['/', '@', '?', '#']) {
             return Err(invalid(
-                "APP_URL",
+                "SHH_URL",
                 "must be just a scheme and host, like https://example.com",
             ));
         }
 
-        let (api_routing, api_url) = match vars.get("API_ROUTING").unwrap_or("path") {
+        let (api_routing, api_url) = match vars.get("SHH_API_ROUTING").unwrap_or("path") {
             // Local development always uses path routing, so no extra DNS setup is needed.
             "path" | "subdomain" if env == AppEnv::Local => {
                 (ApiRouting::Path, format!("{url}/api"))
@@ -190,8 +232,8 @@ impl Config {
                     .map_or(authority, |(host, _port)| host);
                 if host.parse::<IpAddr>().is_ok() || host.starts_with('[') {
                     return Err(invalid(
-                        "API_ROUTING",
-                        "subdomain needs APP_URL to use a domain name, not an IP address",
+                        "SHH_API_ROUTING",
+                        "subdomain needs SHH_URL to use a domain name, not an IP address",
                     ));
                 }
                 let api_url = format!("{scheme}://api.{}", authority.to_ascii_lowercase());
@@ -202,19 +244,31 @@ impl Config {
                     api_url,
                 )
             }
-            _ => return Err(invalid("API_ROUTING", "must be path or subdomain")),
+            _ => return Err(invalid("SHH_API_ROUTING", "must be path or subdomain")),
         };
 
-        let host = vars.parse_or("SERVER_HOST", IpAddr::V4(Ipv4Addr::LOCALHOST))?;
-        let port = vars.parse_or("SERVER_PORT", 3000)?;
+        let host = vars.parse_or("SHH_HOST", IpAddr::V4(Ipv4Addr::LOCALHOST))?;
+        let port = vars.parse_or("SHH_PORT", 3000)?;
 
-        let trusted_proxies = match vars.get("TRUSTED_PROXIES") {
+        let trusted_proxies: Vec<IpAddr> = match vars.get("SHH_TRUSTED_PROXIES") {
             None => Vec::new(),
             Some(list) => list
                 .split(',')
                 .map(|ip| ip.trim().parse())
                 .collect::<Result<_, _>>()
-                .map_err(|e| invalid("TRUSTED_PROXIES", e))?,
+                .map_err(|e| invalid("SHH_TRUSTED_PROXIES", e))?,
+        };
+        // Trusting every address would let any client fake its IP and dodge rate limits.
+        if trusted_proxies.iter().any(IpAddr::is_unspecified) {
+            return Err(invalid(
+                "SHH_TRUSTED_PROXIES",
+                "must list specific proxy addresses, never 0.0.0.0 or ::",
+            ));
+        }
+
+        let admin_token = match vars.get("SHH_ADMIN_TOKEN") {
+            None => None,
+            Some(_) => Some(vars.key("SHH_ADMIN_TOKEN")?),
         };
 
         Ok(Self {
@@ -223,98 +277,105 @@ impl Config {
             url,
             api_routing,
             api_url,
-            secret_key: vars.key("APP_SECRET_KEY")?,
-            encryption_key: vars.key("APP_ENCRYPTION_KEY")?,
+            secret_key: vars.key("SHH_SECRET_KEY")?,
             bind_addr: SocketAddr::new(host, port),
-            log_level: vars.parse_or("LOG_LEVEL", LogLevel::Info)?,
+            log_level: vars.parse_or("SHH_LOG_LEVEL", LogLevel::Error)?,
             trusted_proxies,
             database: Database::from_vars(&vars)?,
             storage: Storage::from_vars(&vars)?,
+            admin_token,
         })
     }
 }
 
 impl Database {
     fn from_vars(vars: &Vars) -> Result<Self, ConfigError> {
-        match vars.required("DB_CONNECTION")? {
+        match vars.required("SHH_DB")? {
             "sqlite" => Ok(Self::Sqlite {
                 path: vars
-                    .get("SQLITE_PATH")
+                    .get("SHH_SQLITE_PATH")
                     .unwrap_or("storage/shhnote.db")
                     .into(),
             }),
             "postgres" => Ok(Self::Postgres {
-                host: vars.required("PG_HOST")?.to_string(),
-                port: vars.parse_or("PG_PORT", 5432)?,
-                database: vars.required("PG_DATABASE")?.to_string(),
-                username: vars.required("PG_USERNAME")?.to_string(),
+                host: vars.required("SHH_PG_HOST")?.to_string(),
+                port: vars.parse_or("SHH_PG_PORT", 5432)?,
+                database: vars.required("SHH_PG_DATABASE")?.to_string(),
+                username: vars.required("SHH_PG_USERNAME")?.to_string(),
                 // Local setups often have no password, so an empty one is allowed.
-                password: Secret(vars.get("PG_PASSWORD").unwrap_or_default().to_string()),
+                password: Secret(vars.get("SHH_PG_PASSWORD").unwrap_or_default().to_string()),
             }),
-            _ => Err(invalid("DB_CONNECTION", "must be sqlite or postgres")),
+            _ => Err(invalid("SHH_DB", "must be sqlite or postgres")),
         }
     }
 }
 
 impl Storage {
     fn from_vars(vars: &Vars) -> Result<Self, ConfigError> {
-        let inline_max_bytes = vars.parse_or("UPLOAD_MAX_INLINE_BYTES", MAX_INLINE_BYTES)?;
-        if inline_max_bytes == 0 || inline_max_bytes > MAX_INLINE_BYTES {
+        let inline_max = vars.parse_or("SHH_INLINE_MAX", DEFAULT_INLINE_MAX)?;
+        if inline_max < MIN_INLINE_MAX {
             return Err(invalid(
-                "UPLOAD_MAX_INLINE_BYTES",
-                format!("must be between 1 and {MAX_INLINE_BYTES}"),
+                "SHH_INLINE_MAX",
+                format!("must be at least {MIN_INLINE_MAX} bytes"),
             ));
         }
 
-        let external = match vars.get("STORAGE_DRIVER").unwrap_or("inline") {
-            "inline" => None,
-            "local" => Some(ExternalStorage::Local {
-                path: vars
-                    .get("STORAGE_LOCAL_PATH")
-                    .unwrap_or("storage/uploads")
-                    .into(),
-                max_bytes: external_max_bytes(
-                    vars,
-                    "UPLOAD_MAX_LOCAL_BYTES",
-                    DEFAULT_LOCAL_MAX_BYTES,
-                    inline_max_bytes,
-                )?,
-            }),
-            "s3" => Some(ExternalStorage::S3 {
-                bucket: vars.required("S3_BUCKET")?.to_string(),
-                region: vars.required("S3_REGION")?.to_string(),
-                endpoint: vars.get("S3_ENDPOINT").map(str::to_string),
-                access_key_id: vars.required("S3_ACCESS_KEY_ID")?.to_string(),
-                secret_access_key: Secret(vars.required("S3_SECRET_ACCESS_KEY")?.to_string()),
-                max_bytes: external_max_bytes(
-                    vars,
-                    "UPLOAD_MAX_S3_BYTES",
-                    DEFAULT_S3_MAX_BYTES,
-                    inline_max_bytes,
-                )?,
-            }),
-            _ => return Err(invalid("STORAGE_DRIVER", "must be inline, local or s3")),
+        let driver = vars.get("SHH_STORAGE").unwrap_or("inline");
+        let external = match driver {
+            "inline" => {
+                vars.reject_tier("SHH_STORAGE", LOCAL_VARS)?;
+                vars.reject_tier("SHH_STORAGE", S3_VARS)?;
+                None
+            }
+            "local" => {
+                vars.reject_tier("SHH_STORAGE", S3_VARS)?;
+                Some(ExternalStorage::Local {
+                    path: vars.get("SHH_LOCAL_PATH").unwrap_or("storage/blobs").into(),
+                    max_total_bytes: vars.positive("SHH_LOCAL_MAX_TOTAL_BYTES")?,
+                })
+            }
+            "s3" => {
+                vars.reject_tier("SHH_STORAGE", LOCAL_VARS)?;
+                Some(ExternalStorage::S3 {
+                    bucket: vars.required("SHH_S3_BUCKET")?.to_string(),
+                    region: vars.required("SHH_S3_REGION")?.to_string(),
+                    endpoint: vars.get("SHH_S3_ENDPOINT").map(str::to_string),
+                    access_key_id: vars.required("SHH_S3_ACCESS_KEY_ID")?.to_string(),
+                    secret_access_key: Secret(
+                        vars.required("SHH_S3_SECRET_ACCESS_KEY")?.to_string(),
+                    ),
+                    max_total_bytes: vars.positive("SHH_S3_MAX_TOTAL_BYTES")?,
+                })
+            }
+            _ => return Err(invalid("SHH_STORAGE", "must be inline, local or s3")),
+        };
+
+        let external_max_object = match (&external, vars.get("SHH_EXTERNAL_MAX_OBJECT")) {
+            (None, Some(_)) => {
+                return Err(invalid(
+                    "SHH_EXTERNAL_MAX_OBJECT",
+                    "only applies when SHH_STORAGE is local or s3",
+                ));
+            }
+            (None, None) => inline_max,
+            (Some(_), _) => {
+                let max = vars.parse_or("SHH_EXTERNAL_MAX_OBJECT", DEFAULT_EXTERNAL_MAX_OBJECT)?;
+                if max < inline_max {
+                    return Err(invalid(
+                        "SHH_EXTERNAL_MAX_OBJECT",
+                        "must be at least SHH_INLINE_MAX",
+                    ));
+                }
+                max
+            }
         };
 
         Ok(Self {
-            inline_max_bytes,
+            inline_max,
             external,
+            external_max_object,
         })
     }
-}
-
-fn external_max_bytes(
-    vars: &Vars,
-    name: &'static str,
-    default: u64,
-    inline_max_bytes: u64,
-) -> Result<u64, ConfigError> {
-    let max_bytes = vars.parse_or(name, default)?;
-    // Files up to the inline limit always go in the database, so a lower limit here makes no sense.
-    if max_bytes < inline_max_bytes {
-        return Err(invalid(name, "must be at least UPLOAD_MAX_INLINE_BYTES"));
-    }
-    Ok(max_bytes)
 }
 
 impl FromStr for AppEnv {
@@ -364,9 +425,9 @@ fn dotenv_error(e: dotenvy::Error) -> ConfigError {
     }
 }
 
-fn invalid(name: &'static str, reason: impl fmt::Display) -> ConfigError {
+fn invalid(name: impl Into<String>, reason: impl fmt::Display) -> ConfigError {
     ConfigError::Invalid {
-        name,
+        name: name.into(),
         reason: reason.to_string(),
     }
 }
@@ -394,6 +455,14 @@ impl Vars<'_> {
         }
     }
 
+    fn positive(&self, name: &'static str) -> Result<u64, ConfigError> {
+        let value: u64 = self.required(name)?.parse().map_err(|e| invalid(name, e))?;
+        if value == 0 {
+            return Err(invalid(name, "must be greater than 0"));
+        }
+        Ok(value)
+    }
+
     // The length check catches placeholders like "changeme" before they reach production.
     fn key(&self, name: &'static str) -> Result<Secret, ConfigError> {
         let value = self.required(name)?;
@@ -405,6 +474,31 @@ impl Vars<'_> {
         }
         Ok(Secret(value.to_string()))
     }
+
+    fn reject_unknown(&self) -> Result<(), ConfigError> {
+        let mut unknown: Vec<&str> = self
+            .0
+            .keys()
+            .map(String::as_str)
+            .filter(|k| k.starts_with(PREFIX) && !KNOWN.contains(k))
+            .collect();
+        unknown.sort_unstable();
+        match unknown.first() {
+            None => Ok(()),
+            Some(name) => Err(invalid(*name, "unknown variable (check for a typo)")),
+        }
+    }
+
+    // A variable for a tier that isn't enabled is almost always a mistake in the deployment.
+    fn reject_tier(&self, driver: &str, names: &[&'static str]) -> Result<(), ConfigError> {
+        match names.iter().find(|name| self.get(name).is_some()) {
+            None => Ok(()),
+            Some(name) => Err(invalid(
+                *name,
+                format!("set, but {driver} does not enable that tier"),
+            )),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -413,11 +507,10 @@ mod tests {
 
     fn valid_vars() -> HashMap<String, String> {
         [
-            ("APP_ENV", "local"),
-            ("APP_URL", "http://localhost:3000/"),
-            ("APP_SECRET_KEY", "s".repeat(44).as_str()),
-            ("APP_ENCRYPTION_KEY", "e".repeat(44).as_str()),
-            ("DB_CONNECTION", "sqlite"),
+            ("SHH_ENV", "local"),
+            ("SHH_URL", "http://localhost:3000/"),
+            ("SHH_SECRET_KEY", "s".repeat(44).as_str()),
+            ("SHH_DB", "sqlite"),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -432,16 +525,35 @@ mod tests {
         vars
     }
 
+    fn s3_vars() -> Vec<(&'static str, &'static str)> {
+        vec![
+            ("SHH_STORAGE", "s3"),
+            ("SHH_S3_BUCKET", "shhnote"),
+            ("SHH_S3_REGION", "us-east-1"),
+            ("SHH_S3_ACCESS_KEY_ID", "id"),
+            ("SHH_S3_SECRET_ACCESS_KEY", "secret"),
+            ("SHH_S3_MAX_TOTAL_BYTES", "10000000000"),
+        ]
+    }
+
+    fn invalid_name(result: Result<Config, ConfigError>) -> String {
+        match result {
+            Err(ConfigError::Invalid { name, .. }) => name,
+            other => panic!("expected an invalid-value error, got {other:?}"),
+        }
+    }
+
     #[test]
     fn applies_defaults() {
         let config = Config::from_vars(&valid_vars()).unwrap();
         assert_eq!(config.url, "http://localhost:3000");
         assert_eq!(config.bind_addr, "127.0.0.1:3000".parse().unwrap());
-        assert_eq!(config.log_level, LogLevel::Info);
+        assert_eq!(config.log_level, LogLevel::Error);
         assert!(config.trusted_proxies.is_empty());
-        assert_eq!(config.storage.inline_max_bytes, MAX_INLINE_BYTES);
+        assert_eq!(config.storage.inline_max, DEFAULT_INLINE_MAX);
         assert!(config.storage.external.is_none());
-        assert_eq!(config.storage.max_upload_bytes(), MAX_INLINE_BYTES);
+        assert_eq!(config.storage.max_blob_bytes(), DEFAULT_INLINE_MAX);
+        assert!(config.admin_token.is_none());
     }
 
     #[test]
@@ -454,9 +566,9 @@ mod tests {
     #[test]
     fn api_subdomain_routing() {
         let vars = with(&[
-            ("APP_ENV", "production"),
-            ("APP_URL", "https://Example.com:8443"),
-            ("API_ROUTING", "subdomain"),
+            ("SHH_ENV", "production"),
+            ("SHH_URL", "https://Example.com:8443"),
+            ("SHH_API_ROUTING", "subdomain"),
         ]);
         let config = Config::from_vars(&vars).unwrap();
         assert_eq!(
@@ -470,7 +582,7 @@ mod tests {
 
     #[test]
     fn local_always_uses_api_path_routing() {
-        let vars = with(&[("API_ROUTING", "subdomain")]);
+        let vars = with(&[("SHH_API_ROUTING", "subdomain")]);
         assert_eq!(
             Config::from_vars(&vars).unwrap().api_routing,
             ApiRouting::Path
@@ -480,140 +592,120 @@ mod tests {
     #[test]
     fn api_subdomain_needs_a_domain_name() {
         let vars = with(&[
-            ("APP_ENV", "production"),
-            ("APP_URL", "http://127.0.0.1:3000"),
-            ("API_ROUTING", "subdomain"),
+            ("SHH_ENV", "production"),
+            ("SHH_URL", "http://127.0.0.1:3000"),
+            ("SHH_API_ROUTING", "subdomain"),
         ]);
-        assert!(matches!(
-            Config::from_vars(&vars),
-            Err(ConfigError::Invalid {
-                name: "API_ROUTING",
-                ..
-            })
-        ));
+        assert_eq!(invalid_name(Config::from_vars(&vars)), "SHH_API_ROUTING");
     }
 
     #[test]
     fn rejects_app_url_with_path() {
-        let vars = with(&[("APP_URL", "https://example.com/app")]);
-        assert!(matches!(
-            Config::from_vars(&vars),
-            Err(ConfigError::Invalid {
-                name: "APP_URL",
-                ..
-            })
-        ));
+        let vars = with(&[("SHH_URL", "https://example.com/app")]);
+        assert_eq!(invalid_name(Config::from_vars(&vars)), "SHH_URL");
     }
 
     #[test]
     fn defaults_to_production() {
         let mut vars = valid_vars();
-        vars.remove("APP_ENV");
+        vars.remove("SHH_ENV");
         assert_eq!(Config::from_vars(&vars).unwrap().env, AppEnv::Production);
     }
 
     #[test]
     fn rejects_debug_in_production() {
-        let vars = with(&[("APP_ENV", "production"), ("APP_DEBUG", "true")]);
-        assert!(matches!(
-            Config::from_vars(&vars),
-            Err(ConfigError::Invalid {
-                name: "APP_DEBUG",
-                ..
-            })
-        ));
+        let vars = with(&[("SHH_ENV", "production"), ("SHH_DEBUG", "true")]);
+        assert_eq!(invalid_name(Config::from_vars(&vars)), "SHH_DEBUG");
     }
 
     #[test]
     fn rejects_missing_or_short_secrets() {
-        let vars = with(&[("APP_SECRET_KEY", "")]);
+        let vars = with(&[("SHH_SECRET_KEY", "")]);
         assert!(matches!(
             Config::from_vars(&vars),
-            Err(ConfigError::Missing("APP_SECRET_KEY"))
+            Err(ConfigError::Missing("SHH_SECRET_KEY"))
         ));
 
-        let vars = with(&[("APP_ENCRYPTION_KEY", "changeme")]);
-        assert!(matches!(
-            Config::from_vars(&vars),
-            Err(ConfigError::Invalid {
-                name: "APP_ENCRYPTION_KEY",
-                ..
-            })
-        ));
+        let vars = with(&[("SHH_ADMIN_TOKEN", "changeme")]);
+        assert_eq!(invalid_name(Config::from_vars(&vars)), "SHH_ADMIN_TOKEN");
+    }
+
+    #[test]
+    fn rejects_unknown_prefixed_variables() {
+        let vars = with(&[("SHH_PROT", "3000")]);
+        assert_eq!(invalid_name(Config::from_vars(&vars)), "SHH_PROT");
+
+        // Other programs' variables are none of our business.
+        let vars = with(&[("PATH", "/usr/bin")]);
+        assert!(Config::from_vars(&vars).is_ok());
+    }
+
+    #[test]
+    fn rejects_variables_for_a_disabled_tier() {
+        let vars = with(&[("SHH_S3_BUCKET", "shhnote")]);
+        assert_eq!(invalid_name(Config::from_vars(&vars)), "SHH_S3_BUCKET");
+
+        let vars = with(&[("SHH_EXTERNAL_MAX_OBJECT", "1000000")]);
+        assert_eq!(
+            invalid_name(Config::from_vars(&vars)),
+            "SHH_EXTERNAL_MAX_OBJECT"
+        );
+
+        let mut changes = s3_vars();
+        changes.push(("SHH_LOCAL_PATH", "/tmp"));
+        assert_eq!(
+            invalid_name(Config::from_vars(&with(&changes))),
+            "SHH_LOCAL_PATH"
+        );
+    }
+
+    #[test]
+    fn rejects_trust_all_proxies() {
+        let vars = with(&[("SHH_TRUSTED_PROXIES", "10.0.0.1, 0.0.0.0")]);
+        assert_eq!(
+            invalid_name(Config::from_vars(&vars)),
+            "SHH_TRUSTED_PROXIES"
+        );
+
+        let vars = with(&[("SHH_TRUSTED_PROXIES", "10.0.0.1, ::1")]);
+        assert_eq!(Config::from_vars(&vars).unwrap().trusted_proxies.len(), 2);
     }
 
     #[test]
     fn postgres_requires_connection_details() {
-        let vars = with(&[("DB_CONNECTION", "postgres"), ("PG_HOST", "127.0.0.1")]);
+        let vars = with(&[("SHH_DB", "postgres"), ("SHH_PG_HOST", "127.0.0.1")]);
         assert!(matches!(
             Config::from_vars(&vars),
-            Err(ConfigError::Missing("PG_DATABASE"))
+            Err(ConfigError::Missing("SHH_PG_DATABASE"))
         ));
     }
 
     #[test]
-    fn inline_limit_can_only_be_lowered() {
-        let vars = with(&[("UPLOAD_MAX_INLINE_BYTES", "1000000")]);
-        let config = Config::from_vars(&vars).unwrap();
-        assert_eq!(config.storage.inline_max_bytes, 1_000_000);
-
-        let vars = with(&[("UPLOAD_MAX_INLINE_BYTES", "2000000")]);
+    fn external_tiers_need_a_total_ceiling() {
+        let vars = with(&[("SHH_STORAGE", "local")]);
         assert!(matches!(
             Config::from_vars(&vars),
-            Err(ConfigError::Invalid {
-                name: "UPLOAD_MAX_INLINE_BYTES",
-                ..
-            })
+            Err(ConfigError::Missing("SHH_LOCAL_MAX_TOTAL_BYTES"))
         ));
+
+        let config = Config::from_vars(&with(&s3_vars())).unwrap();
+        assert_eq!(config.storage.max_blob_bytes(), DEFAULT_EXTERNAL_MAX_OBJECT);
     }
 
     #[test]
-    fn external_storage_defaults() {
-        let config = Config::from_vars(&with(&[("STORAGE_DRIVER", "local")])).unwrap();
-        assert_eq!(config.storage.max_upload_bytes(), DEFAULT_LOCAL_MAX_BYTES);
-
-        let vars = with(&[
-            ("STORAGE_DRIVER", "s3"),
-            ("S3_BUCKET", "shhnote"),
-            ("S3_REGION", "us-east-1"),
-            ("S3_ACCESS_KEY_ID", "id"),
-            ("S3_SECRET_ACCESS_KEY", "secret"),
-        ]);
-        let config = Config::from_vars(&vars).unwrap();
-        assert_eq!(config.storage.max_upload_bytes(), DEFAULT_S3_MAX_BYTES);
+    fn external_max_object_must_cover_inline_max() {
+        let mut changes = s3_vars();
+        changes.push(("SHH_EXTERNAL_MAX_OBJECT", "1000000"));
+        assert_eq!(
+            invalid_name(Config::from_vars(&with(&changes))),
+            "SHH_EXTERNAL_MAX_OBJECT"
+        );
     }
 
     #[test]
-    fn external_limit_must_cover_inline_limit() {
-        let vars = with(&[
-            ("STORAGE_DRIVER", "local"),
-            ("UPLOAD_MAX_LOCAL_BYTES", "1000"),
-        ]);
-        assert!(matches!(
-            Config::from_vars(&vars),
-            Err(ConfigError::Invalid {
-                name: "UPLOAD_MAX_LOCAL_BYTES",
-                ..
-            })
-        ));
-    }
-
-    #[test]
-    fn s3_requires_bucket() {
-        let vars = with(&[("STORAGE_DRIVER", "s3")]);
-        assert!(matches!(
-            Config::from_vars(&vars),
-            Err(ConfigError::Missing("S3_BUCKET"))
-        ));
-    }
-
-    #[test]
-    fn parses_trusted_proxies() {
-        let vars = with(&[("TRUSTED_PROXIES", "10.0.0.1, ::1")]);
-        assert_eq!(Config::from_vars(&vars).unwrap().trusted_proxies.len(), 2);
-
-        let vars = with(&[("TRUSTED_PROXIES", "10.0.0.1,nope")]);
-        assert!(Config::from_vars(&vars).is_err());
+    fn inline_max_has_a_floor() {
+        let vars = with(&[("SHH_INLINE_MAX", "1000")]);
+        assert_eq!(invalid_name(Config::from_vars(&vars)), "SHH_INLINE_MAX");
     }
 
     #[test]

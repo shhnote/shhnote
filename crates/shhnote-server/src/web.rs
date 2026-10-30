@@ -3,7 +3,7 @@ use std::sync::Arc;
 use askama::Template;
 use axum::{
     Router,
-    extract::{Path, Request, State},
+    extract::{Request, State},
     http::{HeaderValue, StatusCode, header},
     middleware,
     response::{Html, IntoResponse, Redirect, Response},
@@ -27,7 +27,7 @@ struct Shared {
     i18n: I18n,
     content: Content,
     api_url: String,
-    max_upload_bytes: u64,
+    max_blob_bytes: u64,
     csp: HeaderValue,
 }
 
@@ -43,7 +43,7 @@ pub fn router(config: &Config) -> Router {
         i18n: I18n::load(),
         content: Content::load(),
         api_url: config.api_url.clone(),
-        max_upload_bytes: config.storage.max_upload_bytes(),
+        max_blob_bytes: config.storage.max_blob_bytes(),
         csp: content_security_policy(config),
     });
 
@@ -69,7 +69,9 @@ pub fn router(config: &Config) -> Router {
 fn pages(state: PageState) -> Router {
     Router::new()
         .route("/", get(home))
-        .route("/s/{id}", get(view_secret))
+        // The secret is identified only by the URL fragment, which never reaches the server,
+        // so this page is static and identical for every secret (SPEC §2.2, §11).
+        .route("/s", get(view_secret))
         .route("/how-it-works", get(how_it_works))
         .route("/about", get(about))
         .route("/contact", get(contact))
@@ -141,7 +143,7 @@ async fn home(State(state): State<PageState>) -> Response {
     let mut args = FluentArgs::new();
     args.set(
         "size",
-        format_size(state.shared.max_upload_bytes, state.locale),
+        format_size(state.shared.max_blob_bytes, state.locale),
     );
     let upload_hint = ctx.t_args("form-files-hint", &args);
     render(
@@ -158,35 +160,22 @@ async fn home(State(state): State<PageState>) -> Response {
 #[template(path = "secret.html")]
 struct SecretPage<'a> {
     ctx: Ctx<'a>,
-    id: &'a str,
     api_url: &'a str,
 }
 
-async fn view_secret(State(state): State<PageState>, Path(id): Path<String>) -> Response {
-    if !is_valid_secret_id(&id) {
-        return error_page(&state, StatusCode::NOT_FOUND);
-    }
+async fn view_secret(State(state): State<PageState>) -> Response {
     let mut response = render(
         &state,
         SecretPage {
-            ctx: state.ctx(&format!("/s/{id}")),
-            id: &id,
+            ctx: state.ctx("/s"),
             api_url: &state.shared.api_url,
         },
     );
-    // Secret pages must never be kept by the browser or any cache along the way.
+    // Once the script reveals a secret, nothing on this page may be cached anywhere.
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     response
-}
-
-// Only letters, digits, `-` and `_`, so the ID is safe to put back into links and HTML.
-fn is_valid_secret_id(id: &str) -> bool {
-    (1..=64).contains(&id.len())
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 #[derive(Template)]
@@ -320,8 +309,8 @@ fn render(state: &PageState, page: impl Template) -> Response {
     }
 }
 
-// Paths without a locale, like `/` or `/s/abc`, are sent to the same page in the browser's language.
-// Browsers keep the `#` part of the link across the redirect, so secret keys survive it.
+// Paths without a locale, like `/` or `/s`, are sent to the same page in the browser's language.
+// Browsers keep the `#` part of the link across the redirect, so secret fragments survive it.
 async fn redirect_to_locale(req: Request) -> Response {
     let path = req.uri().path();
     if path.starts_with("/static/") {
@@ -352,9 +341,11 @@ fn content_security_policy(config: &Config) -> HeaderValue {
         ApiRouting::Path => "'self'".to_string(),
         ApiRouting::Subdomain { .. } => format!("'self' {}", config.api_url),
     };
+    // 'wasm-unsafe-eval' is for the Argon2id module; it allows WebAssembly only, not eval().
     let policy = format!(
-        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; \
-         connect-src {connect}; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+        "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; \
+         img-src 'self' data: blob:; connect-src {connect}; form-action 'self'; \
+         base-uri 'none'; frame-ancestors 'none'"
     );
     HeaderValue::from_str(&policy).expect("policy is valid header text")
 }
@@ -362,7 +353,7 @@ fn content_security_policy(config: &Config) -> HeaderValue {
 async fn security_headers(State(shared): State<Arc<Shared>>, mut response: Response) -> Response {
     let headers = response.headers_mut();
     headers.insert(header::CONTENT_SECURITY_POLICY, shared.csp.clone());
-    // Secret links carry an ID in the path, so never tell other sites where a visitor came from.
+    // Never tell other sites which page a visitor came from.
     headers.insert(
         header::REFERRER_POLICY,
         HeaderValue::from_static("no-referrer"),
@@ -416,16 +407,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn validates_secret_ids() {
-        assert!(is_valid_secret_id("aB3_-x"));
-        assert!(!is_valid_secret_id(""));
-        assert!(!is_valid_secret_id("a\"><script>"));
-        assert!(!is_valid_secret_id(&"a".repeat(65)));
-    }
-
-    #[test]
     fn formats_sizes() {
-        assert_eq!(format_size(25 * MIB, "en"), "25 MB");
+        assert_eq!(format_size(64 * MIB, "en"), "64 MB");
         assert_eq!(format_size(3 * MIB / 2, "en"), "1.5 MB");
         assert_eq!(format_size(3 * MIB / 2, "de"), "1,5 MB");
     }

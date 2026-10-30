@@ -11,10 +11,10 @@ We can't read your secrets. They are encrypted on your device, and the key never
 When you create a secret, we store:
 
 - **The encrypted secret.** Without the key in your link, it is unreadable, including to us.
-- **Its settings:** when it expires, whether it should be deleted after reading, and whether a passphrase is needed.
-- **Basic facts about it:** its size and when it was created.
+- **Its settings:** when it expires and whether it is deleted after one view.
+- **Hashed credentials:** one-way hashes of the values your browser uses to find or burn it, which can't be turned back into anything useful.
 
-We don't store your passphrase or the key from your link.
+We don't store your passphrase, the key from your link, when the secret was created, or whether a passphrase was set. The encrypted data is padded, so we only know its rough size class.
 
 ## When we delete it
 

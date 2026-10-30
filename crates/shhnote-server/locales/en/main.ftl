@@ -30,11 +30,15 @@ form-files-drop = Drag and drop files here, or click to choose
 form-files-hint = Up to { $size } in total.
 form-files-remove = Remove
 form-expiry-label = Expires after
-expiry-5m = 5 minutes
+expiry-15m = 15 minutes
+expiry-30m = 30 minutes
 expiry-1h = 1 hour
+expiry-6h = 6 hours
+expiry-12h = 12 hours
 expiry-1d = 1 day
+expiry-3d = 3 days
 expiry-7d = 7 days
-expiry-30d = 30 days
+expiry-14d = 14 days
 form-burn-label = Burn after reading
 form-burn-hint = Delete the secret as soon as it has been opened once.
 form-passphrase-label = Passphrase (optional)
@@ -47,8 +51,7 @@ secret-title = Someone shared a secret with you
 secret-intro = This secret may be deleted as soon as you open it. Make sure you're ready, and keep anything you need before you leave the page.
 noscript-view = JavaScript is needed to decrypt this secret in your browser. Please turn it on to view the secret.
 secret-not-ready = Viewing secrets isn't available yet.
-secret-passphrase-label = Passphrase
-secret-passphrase-hint = Only needed if the sender set one.
+secret-passphrase-note = If the sender set a passphrase, you'll be asked for it after you press the button.
 secret-reveal = Reveal secret
 
 ## How it works

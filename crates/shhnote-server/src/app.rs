@@ -69,11 +69,10 @@ mod tests {
 
     fn config(changes: &[(&str, &str)]) -> Config {
         let mut vars: HashMap<String, String> = [
-            ("APP_ENV", "local"),
-            ("APP_URL", "http://localhost:3000"),
-            ("APP_SECRET_KEY", &"s".repeat(44)),
-            ("APP_ENCRYPTION_KEY", &"e".repeat(44)),
-            ("DB_CONNECTION", "sqlite"),
+            ("SHH_ENV", "local"),
+            ("SHH_URL", "http://localhost:3000"),
+            ("SHH_SECRET_KEY", &"s".repeat(44)),
+            ("SHH_DB", "sqlite"),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -124,7 +123,7 @@ mod tests {
 
         for path in [
             "/en",
-            "/en/s/abc123",
+            "/en/s",
             "/en/how-it-works",
             "/en/about",
             "/en/contact",
@@ -144,23 +143,20 @@ mod tests {
         let (status, body) = get(&app, "localhost", "/de/nope").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert!(body.contains("Seite nicht gefunden"));
-
-        let (status, _) = get(&app, "localhost", "/en/s/bad%22id").await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
     async fn redirects_to_browser_language() {
         let app = router(&config(&[]));
         let req = Request::builder()
-            .uri("/s/abc?x=1")
+            .uri("/s?x=1")
             .header(header::HOST, "localhost")
             .header(header::ACCEPT_LANGUAGE, "de-DE,de;q=0.9")
             .body(Body::empty())
             .unwrap();
         let res = app.oneshot(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::TEMPORARY_REDIRECT);
-        assert_eq!(res.headers()[header::LOCATION], "/de/s/abc?x=1");
+        assert_eq!(res.headers()[header::LOCATION], "/de/s?x=1");
         assert_eq!(res.headers()[header::VARY], "Accept-Language");
     }
 
@@ -168,7 +164,7 @@ mod tests {
     async fn sets_security_headers() {
         let app = router(&config(&[]));
         let req = Request::builder()
-            .uri("/en/s/abc")
+            .uri("/en/s")
             .header(header::HOST, "localhost")
             .body(Body::empty())
             .unwrap();
@@ -216,9 +212,9 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
 
         let api_app = router(&config(&[
-            ("APP_ENV", "production"),
-            ("APP_URL", "https://example.com"),
-            ("API_ROUTING", "subdomain"),
+            ("SHH_ENV", "production"),
+            ("SHH_URL", "https://example.com"),
+            ("SHH_API_ROUTING", "subdomain"),
         ]));
         assert_eq!(location(&api_app, "api.example.com", "/v1/").await, "/v1");
     }
@@ -226,9 +222,9 @@ mod tests {
     #[tokio::test]
     async fn subdomain_routing() {
         let app = router(&config(&[
-            ("APP_ENV", "production"),
-            ("APP_URL", "https://example.com"),
-            ("API_ROUTING", "subdomain"),
+            ("SHH_ENV", "production"),
+            ("SHH_URL", "https://example.com"),
+            ("SHH_API_ROUTING", "subdomain"),
         ]));
 
         let (status, body) = get(&app, "api.example.com", "/v1").await;

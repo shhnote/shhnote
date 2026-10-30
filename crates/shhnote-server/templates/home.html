@@ -33,11 +33,15 @@
     <div class="field">
       <label for="expiry">{{ ctx.t("form-expiry-label") }}</label>
       <select id="expiry" name="expiry">
-        <option value="300">{{ ctx.t("expiry-5m") }}</option>
+        <option value="900">{{ ctx.t("expiry-15m") }}</option>
+        <option value="1800">{{ ctx.t("expiry-30m") }}</option>
         <option value="3600">{{ ctx.t("expiry-1h") }}</option>
+        <option value="21600">{{ ctx.t("expiry-6h") }}</option>
+        <option value="43200">{{ ctx.t("expiry-12h") }}</option>
         <option value="86400" selected>{{ ctx.t("expiry-1d") }}</option>
+        <option value="259200">{{ ctx.t("expiry-3d") }}</option>
         <option value="604800">{{ ctx.t("expiry-7d") }}</option>
-        <option value="2592000">{{ ctx.t("expiry-30d") }}</option>
+        <option value="1209600">{{ ctx.t("expiry-14d") }}</option>
       </select>
     </div>
 
