@@ -114,7 +114,7 @@ fn pages(state: PageState) -> Router {
         .route("/privacy", get(privacy))
         .route("/security", get(security))
         .route("/acceptable-use", get(acceptable_use))
-        .route("/api", get(api_docs))
+        .route("/docs", get(docs))
         .route("/report", get(report))
         .nest("/admin", admin::routes())
         .fallback(not_found)
@@ -421,8 +421,8 @@ async fn acceptable_use(State(state): State<PageState>) -> Response {
     )
 }
 
-async fn api_docs(State(state): State<PageState>) -> Response {
-    doc_page(&state, Doc::Api, "/api", "page-api")
+async fn docs(State(state): State<PageState>) -> Response {
+    doc_page(&state, Doc::Docs, "/docs", "page-docs")
 }
 
 fn doc_page(state: &PageState, doc: Doc, path: &str, title_key: &str) -> Response {

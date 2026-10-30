@@ -1139,8 +1139,8 @@ async fn markdown_pages_render_with_instance_urls() {
     for path in [
         "/en/acceptable-use",
         "/de/acceptable-use",
-        "/en/api",
-        "/de/api",
+        "/en/docs",
+        "/de/docs",
     ] {
         let page = get_page(&app, path, "").await;
         assert_eq!(page.status, StatusCode::OK, "{path}");
@@ -1150,7 +1150,7 @@ async fn markdown_pages_render_with_instance_urls() {
             "{path} has an unreplaced placeholder"
         );
     }
-    let api = text(&get_page(&app, "/en/api", "").await);
+    let api = text(&get_page(&app, "/en/docs", "").await);
     assert!(api.contains("http://localhost:3000/api/v1"), "{api}");
     assert!(api.contains(r#"href="http://localhost:3000/en/how-it-works#technical""#));
 }

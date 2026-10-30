@@ -10,7 +10,7 @@ pub enum Doc {
     Privacy,
     Security,
     AcceptableUse,
-    Api,
+    Docs,
 }
 
 // Compiled into the binary. Only our own files go here: Markdown can contain raw HTML,
@@ -28,7 +28,7 @@ const SOURCES: &[(&str, Doc, &str)] = &[
         Doc::AcceptableUse,
         include_str!("../content/en/acceptable-use.md"),
     ),
-    ("en", Doc::Api, include_str!("../content/en/api.md")),
+    ("en", Doc::Docs, include_str!("../content/en/docs.md")),
     ("de", Doc::Terms, include_str!("../content/de/terms.md")),
     ("de", Doc::Privacy, include_str!("../content/de/privacy.md")),
     (
@@ -41,7 +41,7 @@ const SOURCES: &[(&str, Doc, &str)] = &[
         Doc::AcceptableUse,
         include_str!("../content/de/acceptable-use.md"),
     ),
-    ("de", Doc::Api, include_str!("../content/de/api.md")),
+    ("de", Doc::Docs, include_str!("../content/de/docs.md")),
 ];
 
 // Markdown is turned into HTML once at startup rather than on every request.
@@ -88,7 +88,7 @@ mod tests {
             Doc::Privacy,
             Doc::Security,
             Doc::AcceptableUse,
-            Doc::Api,
+            Doc::Docs,
         ];
         let content = Content::load();
         for locale in LOCALES {

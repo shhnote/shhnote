@@ -27,7 +27,7 @@ page-terms = Terms of service
 page-privacy = Privacy policy
 page-security = Security
 page-acceptable-use = Acceptable use
-page-api = API documentation
+page-docs = API documentation
 page-how-technical = Technical details
 
 ## Home
