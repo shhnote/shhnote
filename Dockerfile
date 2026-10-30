@@ -6,7 +6,7 @@
 ARG RUST_VERSION=1.99
 
 FROM rust:${RUST_VERSION}-alpine AS builder
-RUN apk add --no-cache build-base
+RUN apk add --no-cache build-base bash
 # Node 24 for the TypeScript build; taken from the official image rather than Alpine's
 # packages so the version is pinned.
 COPY --from=node:24-alpine /usr/local/bin/node /usr/local/bin/node
