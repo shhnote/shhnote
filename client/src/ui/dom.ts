@@ -29,11 +29,6 @@ export function setStatus(el: HTMLElement, text: string): void {
   el.textContent = text;
 }
 
-export function localePrefix(): string {
-  const lang = document.documentElement.lang || "en";
-  return `/${lang}`;
-}
-
 // Copies with a short "copied" confirmation on the button. Falls back silently where the
 // clipboard API is unavailable (some privacy browsers), leaving the text selectable.
 export function wireCopy(button: HTMLButtonElement, getText: () => string, copiedLabel: string): void {

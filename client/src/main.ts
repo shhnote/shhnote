@@ -1,9 +1,14 @@
 import { wireBurn } from "./ui/burn.ts";
+import { wireMenus, wirePasswordToggles, wireTheme } from "./ui/chrome.ts";
 import { wireCreate } from "./ui/create.ts";
 import { $$ } from "./ui/dom.ts";
 import { Dropzone } from "./ui/dropzone.ts";
 import { wireReveal } from "./ui/reveal.ts";
 import { wireTabs } from "./ui/tabs.ts";
+
+wireTheme();
+wireMenus();
+wirePasswordToggles();
 
 // Language links keep the #fragment of secret links, otherwise switching language would lose it.
 for (const link of $$<HTMLAnchorElement>("a[data-keep-hash]")) {

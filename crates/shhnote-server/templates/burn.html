@@ -1,38 +1,54 @@
 {% extends "base.html" %}
+{%- import "partials/icons.html" as icons -%}
 
 {% block title %}{{ ctx.t("burn-title") }}{% endblock %}
 
 {% block content %}
 {# Opening this page destroys nothing; only the button does. #}
-<article data-burn-page>
-  <section data-state="armed">
-    <div class="intro">
-      <h1>{{ ctx.t("burn-title") }}</h1>
-      <p class="lead">{{ ctx.t("burn-intro") }}</p>
-    </div>
-    <noscript>
-      <p class="notice">{{ ctx.t("noscript-view") }}</p>
-    </noscript>
-    <form class="card" data-burn-form hidden>
-      <button type="submit" class="button button-danger">{{ ctx.t("burn-confirm") }}</button>
-      <p class="status" role="status" data-form-status></p>
-    </form>
-  </section>
+<section class="section">
+  <div class="container">
+    <article class="vault" data-burn-page>
+      <div class="panel panel--center stack" data-state="armed">
+        <span class="badge badge--danger"><span class="dot"></span>{{ ctx.t("burn-badge") }}</span>
+        <div class="lock-badge lock-badge--danger">{% call icons::icon("flame", 28) %}{% endcall %}</div>
+        <div class="stack--sm">
+          <h1 class="panel__heading">{{ ctx.t("burn-title") }}</h1>
+          <p>{{ ctx.t("burn-intro") }}</p>
+        </div>
+        <noscript><p class="callout callout--notice">{{ ctx.t("noscript-view") }}</p></noscript>
+        <form class="stack" data-burn-form hidden>
+          <button type="submit" class="btn btn--danger btn--lg w-full">{% call icons::icon("trash", 16) %}{% endcall %}<span>{{ ctx.t("burn-confirm") }}</span></button>
+          <p class="status" role="status" aria-live="polite" data-form-status></p>
+        </form>
+      </div>
 
-  <section data-state="done" hidden>
-    <div class="intro">
-      <h1>{{ ctx.t("burn-done-title") }}</h1>
-      <p class="lead">{{ ctx.t("burn-done-body") }}</p>
-      <p><a class="button" href="{{ ctx.href("") }}">{{ ctx.t("error-home-link") }}</a></p>
-    </div>
-  </section>
+      <div class="panel panel--center stack" data-state="done" hidden>
+        <span class="badge badge--danger"><span class="dot"></span>{{ ctx.t("burn-done-badge") }}</span>
+        <div class="lock-badge lock-badge--danger">{% call icons::icon("flame", 28) %}{% endcall %}</div>
+        <div class="stack--sm">
+          <h1 class="panel__heading">{{ ctx.t("burn-done-title") }}</h1>
+          <p>{{ ctx.t("burn-done-body") }}</p>
+        </div>
+        <div class="callout">
+          {% call icons::icon("shield", 18) %}{% endcall %}
+          <span>{{ ctx.t("burn-done-callout") }}</span>
+        </div>
+        <div class="btn-row btn-row--center">
+          <a class="btn btn--primary btn--lg" href="{{ ctx.href("") }}">{{ ctx.t("reveal-create-own") }}</a>
+          <a class="btn btn--quiet" href="{{ ctx.href("/how-it-works") }}">{{ ctx.t("nav-how-it-works") }}</a>
+        </div>
+      </div>
 
-  <section data-state="notfound" hidden>
-    <div class="intro error">
-      <h1>{{ ctx.t("burn-not-found-title") }}</h1>
-      <p class="lead">{{ ctx.t("burn-not-found-body") }}</p>
-      <p><a class="button" href="{{ ctx.href("") }}">{{ ctx.t("error-home-link") }}</a></p>
-    </div>
-  </section>
-</article>
+      <div class="panel panel--center stack" data-state="notfound" hidden>
+        <span class="badge badge--muted"><span class="dot"></span>{{ ctx.t("burn-not-found-badge") }}</span>
+        <div class="lock-badge lock-badge--muted">{% call icons::icon("lock-open", 28) %}{% endcall %}</div>
+        <div class="stack--sm">
+          <h1 class="panel__heading">{{ ctx.t("burn-not-found-title") }}</h1>
+          <p>{{ ctx.t("burn-not-found-body") }}</p>
+        </div>
+        <p class="btn-row btn-row--center"><a class="btn btn--primary" href="{{ ctx.href("") }}">{{ ctx.t("error-home-link") }}</a></p>
+      </div>
+    </article>
+  </div>
+</section>
 {% endblock %}

@@ -2,10 +2,11 @@
 // Keep the key list in step with `UI_KEYS` in the server's web.rs.
 export type UiKey =
   | "form-files-remove"
-  | "form-not-ready"
   | "result-copied"
-  | "result-copy"
   | "result-destroyed"
+  | "result-chip-single"
+  | "result-chip-multi"
+  | "result-chip-expires"
   | "create-encrypting"
   | "create-uploading"
   | "create-error-empty"

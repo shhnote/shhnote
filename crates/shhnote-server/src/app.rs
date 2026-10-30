@@ -200,6 +200,7 @@ mod tests {
         let headers = res.headers();
         let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
         assert!(csp.contains("script-src 'self'"));
+        assert!(csp.contains("font-src 'self'"));
         assert!(csp.contains("frame-ancestors 'none'"));
         assert_eq!(headers[header::REFERRER_POLICY], "no-referrer");
         assert_eq!(headers[header::CACHE_CONTROL], "no-store");

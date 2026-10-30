@@ -3,7 +3,7 @@ import { ShhError } from "../crypto/error.ts";
 import { encrypt, generateRandomness } from "../crypto/secret.ts";
 import { Api, ApiError, type Lifetime } from "./api.ts";
 import { loadArgon2 } from "./argon2-loader.ts";
-import { $, hide, localePrefix, setStatus, show, wireCopy } from "./dom.ts";
+import { $, hide, setStatus, show, wireCopy } from "./dom.ts";
 import type { Dropzone } from "./dropzone.ts";
 import { t } from "./i18n.ts";
 
@@ -13,7 +13,8 @@ export function wireCreate(form: HTMLFormElement, dropzone: Dropzone | undefined
   const status = $("[data-form-status]", form);
   const submit = $<HTMLButtonElement>("button[type=submit]", form);
   const result = $("[data-create-result]");
-  show(form);
+  const wrapper = $("[data-create-wrapper]");
+  show(wrapper);
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -56,10 +57,15 @@ export function wireCreate(form: HTMLFormElement, dropzone: Dropzone | undefined
         encrypted.blob,
       );
 
-      showResult(api, result, encrypted.fragment, encrypted.burnFragment, passphrase.length > 0);
+      const expiryLabel = $<HTMLSelectElement>("select[name=expiry]", form).selectedOptions[0]?.textContent ?? "";
+      showResult(api, result, encrypted.fragment, encrypted.burnFragment, {
+        hasPassphrase: passphrase.length > 0,
+        singleView: lifetime === "single_view",
+        expiryLabel,
+      });
       form.reset();
       dropzone?.reset();
-      hide(form);
+      hide(wrapper);
       setStatus(status, "");
     } catch (e) {
       setStatus(status, messageFor(e));
@@ -69,13 +75,23 @@ export function wireCreate(form: HTMLFormElement, dropzone: Dropzone | undefined
   });
 }
 
-function showResult(api: Api, result: HTMLElement, fragment: string, burnFragment: string, hasPassphrase: boolean): void {
-  const origin = location.origin + localePrefix();
-  const shareLink = `${origin}/s#${fragment}`;
-  const burnLink = `${origin}/burn#${burnFragment}`;
+interface ResultInfo {
+  hasPassphrase: boolean;
+  singleView: boolean;
+  expiryLabel: string;
+}
+
+function showResult(api: Api, result: HTMLElement, fragment: string, burnFragment: string, info: ResultInfo): void {
+  // No locale in the links: the server redirects `/s` and `/burn` to the visitor's own language,
+  // and browsers keep the fragment across that redirect.
+  const shareLink = `${location.origin}/s#${fragment}`;
+  const burnLink = `${location.origin}/burn#${burnFragment}`;
   $("[data-share-link]", result).textContent = shareLink;
   $("[data-burn-link]", result).textContent = burnLink;
-  if (hasPassphrase) show($("[data-passphrase-reminder]", result));
+  $<HTMLAnchorElement>("[data-open-link]", result).href = shareLink;
+  $("[data-chip-lifetime]", result).textContent = t(info.singleView ? "result-chip-single" : "result-chip-multi");
+  $("[data-chip-expiry]", result).textContent = t("result-chip-expires", { period: info.expiryLabel });
+  if (info.hasPassphrase) show($("[data-passphrase-reminder]", result));
   wireCopy($<HTMLButtonElement>("[data-copy=share]", result), () => shareLink, t("result-copied"));
   wireCopy($<HTMLButtonElement>("[data-copy=burn]", result), () => burnLink, t("result-copied"));
 

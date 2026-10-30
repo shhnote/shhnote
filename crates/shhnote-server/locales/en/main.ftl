@@ -1,6 +1,6 @@
 -brand = shhnote
 
-## Shared layout
+## Layout
 
 brand-name = { -brand }
 language-name = English
@@ -11,25 +11,36 @@ nav-how-it-works = How it works
 nav-about = About
 nav-contact = Contact
 nav-language = Language
-footer-tagline = { -brand } — share secrets that disappear.
-footer-label = Legal
+nav-theme = Theme
+theme-auto = Match system
+theme-light = Light
+theme-dark = Dark
+theme-light-hc = Light, high contrast
+theme-dark-hc = Dark, high contrast
+footer-tagline = Open-source, end-to-end encrypted, zero-knowledge secret sharing. Text and files. The server never sees your data.
+footer-product = Product
+footer-legal = Legal
+footer-settings = Settings
+footer-source = Source code
+footer-notice = No cookies · No tracking · No external requests
 page-terms = Terms of service
 page-privacy = Privacy policy
 page-security = Security
+page-how-technical = Technical details
 
-## Home page
+## Home
 
-home-title = Share a secret
-home-intro = Write a note or add files. Everything is encrypted in your browser before it leaves your device, and the link stops working once it expires.
+home-title = Share secrets securely with self-destructing links
+home-intro = Keep passwords, keys and files out of chat logs, email threads and ticket histories. Everything is encrypted in your browser before it leaves your device.
 noscript-create = JavaScript is needed to encrypt your secret in your browser. Please turn it on to create a secret.
-form-not-ready = Creating secrets isn't available yet.
 form-note-label = Your secret
-form-note-placeholder = Type or paste what you want to share…
+form-note-placeholder = Enter your message here…
 form-files-label = Files
-form-files-drop = Drag and drop files here, or click to choose
-form-files-hint = Up to { $size } in total.
+form-files-drop = Drop files here
+form-files-click = or click to attach
+form-files-hint = Encrypted in your browser before upload · up to { $size } in total
 form-files-remove = Remove
-form-expiry-label = Expires after
+form-expiry-label = Expires in
 expiry-15m = 15 minutes
 expiry-30m = 30 minutes
 expiry-1h = 1 hour
@@ -40,29 +51,288 @@ expiry-3d = 3 days
 expiry-7d = 7 days
 expiry-14d = 14 days
 form-burn-label = Burn after reading
-form-burn-hint = Delete the secret as soon as it has been opened once.
-form-passphrase-label = Passphrase (optional)
-form-passphrase-hint = The recipient will need this to open the secret. Send it separately, not together with the link.
-form-submit = Create secret link
+form-burn-hint = Delete the secret as soon as it has been opened once. Otherwise it can be opened until it expires.
+form-passphrase-label = Passphrase
+form-passphrase-optional = (optional)
+form-passphrase-hint = A second lock. The recipient will need it; send it over a different channel than the link.
+form-passphrase-toggle = Show or hide the passphrase
+form-disclaimer = By creating or opening a secret you agree to our
+form-submit = Encrypt secret
+chips-label = Guarantees
+chip-e2ee = End-to-end encrypted
+chip-zero-knowledge = Zero knowledge
+chip-no-logs = No logs
+chip-open-source = Open source
+chip-no-account = No account needed
 
-## View secret page
+steps-eyebrow = How it works
+steps-title = Three steps. No account required.
+steps-intro = { -brand } encrypts your secret in the browser before anything touches the network. The key lives in the part of the link after the #, which browsers never send to a server.
+step-1-title = Encrypt
+step-1-sub = text and files
+step-1-body = Your secret is encrypted on your own device before anything is sent. The key to unlock it is never uploaded.
+step-2-title = Share
+step-2-sub = the link
+step-2-body = The key travels inside the link, after the #. Browsers keep that part local, so it never reaches our servers.
+step-3-title = Open
+step-3-sub = and it's gone
+step-3-body = The recipient's browser unlocks the secret locally. A single-view secret is deleted the moment it's served; a timed one when it expires.
+
+hood-eyebrow = Under the hood
+hood-title = The cryptography, spelled out.
+hood-intro = No hand-waving. Here is exactly what protects your secret and where each piece runs, so you can verify the claims instead of taking them on faith.
+hood-1-label = Encryption
+hood-1-val = AES-256-GCM
+hood-1-body = Authenticated encryption in 64 KiB chunks, each with its own nonce and tag, so tampering, reordering or truncation is detected rather than silently decrypted.
+hood-2-label = Key derivation
+hood-2-val = HKDF-SHA-256 + Argon2id
+hood-2-body = Every key comes from a random seed through HKDF. An optional passphrase is stretched with memory-hard Argon2id, so offline guessing is slow even on dedicated hardware.
+hood-3-label = Randomness
+hood-3-val = Web Crypto CSPRNG
+hood-3-body = Seeds, keys and nonces come from the browser's cryptographically secure generator. Never Math.random(), never predictable.
+hood-4-label = Key custody
+hood-4-val = URL fragment #
+hood-4-body = The seed rides after the # in your link. Browsers never transmit the fragment, so the one thing that can decrypt your secret never reaches our servers.
+hood-5-label = What we store
+hood-5-val = Ciphertext + expiry
+hood-5-body = A padded encrypted blob, when it expires, and one-way hashes of the values used to find or burn it. No plaintext, no keys, no timestamps, no sender or recipient.
+hood-6-label = Size privacy
+hood-6-val = Padded blobs
+hood-6-body = Every secret is padded to a size class before encryption, so the server learns only a rough size, never the exact one, and small files look like text.
+
+uses-eyebrow = Use cases
+uses-title = Create a { -brand } for anything
+uses-intro = Anything that shouldn't sit in an inbox forever.
+use-1-eyebrow = DevOps & engineering
+use-1-title = Credentials & keys
+use-1-body = Stop pasting API keys, database passwords and SSH keys into chat threads. Share them as one-time links that self-destruct after use.
+use-2-eyebrow = Privacy-conscious users
+use-2-title = Share without a trace
+use-2-body = Works over Tor without degraded functionality. No CAPTCHAs, no fingerprinting, no external requests. Every asset is served from this site.
+use-3-eyebrow = IT & onboarding
+use-3-title = Provision access securely
+use-3-body = Send new hires their first credentials, VPN configs or Wi-Fi passwords without leaving traces in email threads or ticketing systems.
+use-4-eyebrow = Legal & regulated work
+use-4-title = Sensitive documents
+use-4-body = Hand a case file or a financial statement to a client without it sitting in an inbox that's subject to discovery, audit or breach disclosure.
+use-5-eyebrow = Personal
+use-5-title = Everyday secrets
+use-5-body = Send your accountant a document password. Share streaming credentials with family. Give a contractor your alarm code. Simple enough for anyone.
+use-6-eyebrow = Just for fun
+use-6-title = Surprises and reveals
+use-6-body = A gift card code, a treasure-hunt clue, or a surprise that vanishes once they've seen it.
+
+cta-title = Stop sharing sensitive information in plain text
+cta-intro = Create an encrypted link in seconds: opened once and gone, or open until it expires. Add a passphrase for extra protection. No account needed, no data collected.
+cta-button = Create a secret
+
+## Create result
+
+result-eyebrow = Link ready
+result-title = Send it, then forget it.
+result-intro = Copy the link and share it however you like. It won't be shown again once you leave this page.
+result-share-label = Share link
+result-chips-label = Secret settings
+result-chip-single = Single view
+result-chip-multi = Open until it expires
+result-chip-expires = Expires in { "{period}" }
+result-callout = Anyone with the full link can open the secret. If you set a passphrase, send it over a different channel than the link itself.
+result-passphrase-reminder = You set a passphrase. The recipient needs it as well as the link.
+result-private-divider = private controls · keep to yourself
+result-burn-label = Burn link
+result-burn-sub = destroy it yourself, anytime
+result-burn-hint = Save this somewhere private. Opening it and confirming destroys the secret before anyone can view it. If you lose it, it can't be recovered.
+result-copy = Copy
+result-copied = Copied
+result-open = Open the link
+result-destroy = Destroy now
+result-destroyed = Destroyed. The secret is gone from the server.
+result-another = Create another secret
+create-encrypting = Encrypting in your browser…
+create-uploading = Uploading…
+create-error-empty = Add some text or at least one file.
+create-error-too-large = That's more than this site accepts. Remove some files or shorten the text.
+create-error-network = Couldn't reach the server. Check your connection and try again.
+create-error-failed = Something went wrong while creating the secret. Please try again.
+
+## Reveal
 
 secret-title = Someone shared a secret with you
-secret-intro = This secret may be deleted as soon as you open it. Make sure you're ready, and keep anything you need before you leave the page.
+secret-intro = It's decrypted in your browser. If it was sent as a single view, it's deleted the moment you open it, so reveal it only when you're ready to read and save it.
 noscript-view = JavaScript is needed to decrypt this secret in your browser. Please turn it on to view the secret.
-secret-not-ready = Viewing secrets isn't available yet.
-secret-passphrase-note = If the sender set a passphrase, you'll be asked for it after you press the button.
 secret-reveal = Reveal secret
+secret-passphrase-note = If the sender set a passphrase, you'll be asked for it after you press the button.
+reveal-armed-badge = Nothing fetched yet
+reveal-callout = Nothing has been fetched: this is all an automated scanner sees. The reveal is manual on purpose, so email security, chat previews and antivirus can't open your secret before you do.
+reveal-working-badge = Working
+reveal-fetching = Fetching the encrypted secret…
+reveal-decrypting = Decrypting in your browser…
+reveal-passphrase-badge = Locked
+reveal-passphrase-title = This secret needs a passphrase
+reveal-passphrase-intro = The sender added a second lock. Retries happen in your browser; nothing is sent to the server.
+reveal-passphrase-label = Passphrase
+reveal-passphrase-submit = Unlock
+reveal-wrong-passphrase = That passphrase didn't work. Try again.
+reveal-revealed-title = Here it is. Save what you need now.
+reveal-revealed-intro = This secret was decrypted in your browser.
+reveal-single-view = Destroyed · this was the only view
+reveal-expires-one = Open for about one more hour
+reveal-expires-many = Open for about { "{hours}" } more hours
+reveal-output-label = secret · decrypted locally
+reveal-copy-text = Copy
+reveal-download = Download
+reveal-close-warning = Handle it carefully. Once you leave this page there is no way to retrieve it again, from you or from us.
+reveal-create-own = Create your own secret
+reveal-not-found-badge = No secret found
+reveal-not-found-title = No secret found here.
+reveal-not-found-body = This link is invalid, or the secret it pointed to has already been viewed, expired, or been destroyed. For your privacy, { -brand } keeps no record of which.
+reveal-not-found-callout = If you still need the secret, ask the sender for a fresh link, and double-check you copied the whole URL, including the part after the #.
+reveal-error-network = Couldn't reach the server. Try again in a moment.
+reveal-error-corrupt = This secret couldn't be decrypted. The link may be incomplete.
+
+## Burn
+
+burn-title = Destroy this secret
+burn-badge = Armed · nothing happened yet
+burn-intro = This is a burn link. Nothing has happened yet. Confirming deletes the secret permanently, before anyone can open it.
+burn-confirm = Destroy the secret
+burn-working = Destroying…
+burn-done-badge = Burned · secret destroyed
+burn-done-title = The secret has been destroyed.
+burn-done-body = It's gone from the server. Nothing about it is kept.
+burn-done-callout = Anyone who opens the share link from now on is simply told that no secret was found, with no way to tell whether it was viewed, expired or burned.
+burn-not-found-badge = Nothing to destroy
+burn-not-found-title = Nothing to destroy
+burn-not-found-body = This burn link is invalid, or the secret was already viewed, expired, or destroyed.
 
 ## How it works
 
-how-title = How it works
-how-tab-simple = The simple version
-how-tab-technical = The technical details
+how-eyebrow = How it works
+how-title = Send a secret that opens once, then vanishes
+how-intro = No accounts, no apps, no jargon. The plain-language version takes a minute; the technical version names every primitive.
+how-tab-simple = Simple
+how-tab-technical = Detailed / technical
+how-s-1-title = You write your secret
+how-s-1-body = Type a message or attach files: a password, a private note, a document. Before it leaves your device, your browser locks it in a sealed box that only a special key can open.
+how-s-2-title = You get one link to share
+how-s-2-body = { -brand } hands you a single link with the key hidden inside it, after the #. Send that link however you like. The key travels with the link, never through our servers, so we can't peek inside the box.
+how-s-3-title = They open it, then it's gone
+how-s-3-body = The recipient presses a button, their browser unlocks the box, and the secret is deleted from our server, right away for a single-view secret, or when the timer runs out.
+how-s-callout-lead = Think of it like a note that burns after one reader.
+how-s-callout = You seal it, hand it off, and once it's been read, it's gone. Even we, the people who run { -brand }, can never read what's inside or bring it back.
+how-s-promises-eyebrow = Why it's safe
+how-s-promises-title = Three promises, one line each
+how-s-p1-eyebrow = Private
+how-s-p1-title = We can't read it
+how-s-p1-body = Your secret is scrambled on your device. We only ever store the sealed box, never the key.
+how-s-p2-eyebrow = Temporary
+how-s-p2-title = It doesn't stick around
+how-s-p2-body = One view, or a timer you choose. Whichever comes first, the secret is deleted for good.
+how-s-p3-eyebrow = Accountable
+how-s-p3-title = Anyone can check our work
+how-s-p3-body = { -brand } is open source. The protocol is written down and the code can be read by anyone.
+how-s-faq-1-q = Do I need an account?
+how-s-faq-1-a = No. There's nothing to sign up for and nothing to install. Open { -brand }, write your secret, share the link.
+how-s-faq-2-q = What if the link is seen by the wrong person?
+how-s-faq-2-a = With a single-view secret, only the first person to open it can read it; after that the intended recipient sees "no secret found", which tells you something went wrong. For extra safety add a passphrase and share it separately, and keep your burn link to destroy the secret yourself.
+how-s-faq-3-q = Can { -brand } read my secret?
+how-s-faq-3-a = No. The key never reaches us; it stays inside your link, on your side. We only hold a scrambled version we have no way to open.
+how-s-faq-4-q = What happens if nobody opens it?
+how-s-faq-4-a = You pick an expiry, from 15 minutes to 14 days. When the timer runs out, the secret is deleted automatically, whether it was opened or not.
+how-s-more = Want the real cryptography behind these promises?
+how-s-more-link = Read the technical version →
+
+how-t-intro = A precise walkthrough of what happens to your data at every step, with the primitives, parameters and trust boundaries spelled out. The full protocol is in the repository's SPEC.
+how-t-plain-lead = In plain terms:
+how-t-1-eyebrow = Step 01 · Encrypt
+how-t-1-title = Your secret is sealed on your device
+how-t-1-plain = the scrambling happens in your browser before anything is uploaded. What we receive is already unreadable.
+how-t-1-d1 = Your browser generates a random 256-bit seed and a separate random 256-bit content key. Text and files are packed into one payload with a small manifest, padded to a size class, and encrypted in 64 KiB chunks with AES-256-GCM under the content key.
+how-t-1-d2 = Each chunk has its own nonce, built from a random prefix, its index and a last-chunk flag, so chunks cannot be reordered, dropped or truncated without an authentication tag failing. The plaintext never touches the network.
+how-t-1-k1 = Cipher
+how-t-1-v1 = AES-256-GCM, 64 KiB chunks
+how-t-1-k2 = Content key
+how-t-1-v2 = 256-bit, random per secret
+how-t-1-k3 = Padding
+how-t-1-v3 = Padmé, minimum 64 KiB
+how-t-2-eyebrow = Step 02 · Key custody
+how-t-2-title = The seed hides in the link, not on our servers
+how-t-2-plain = the part of the link after the # holds the seed, and browsers never send that part to any server.
+how-t-2-d1 = The content key is wrapped with a key derived from the seed using HKDF-SHA-256. The seed is encoded into the URL fragment, which the browser strips before sending any request, so the one value that can decrypt your secret is the one value we never receive.
+how-t-2-d2 = To find the secret, the browser derives a separate lookup value from the seed, also with HKDF, and sends that. We store only its SHA-256 hash, so even a copy of our database can't be used to fetch, consume or destroy anything.
+how-t-2-k1 = Seed location
+how-t-2-v1 = URL fragment #
+how-t-2-k2 = Derivation
+how-t-2-v2 = HKDF-SHA-256
+how-t-2-k3 = Stored on the server
+how-t-2-v3 = SHA-256 of the lookup value
+how-t-3-eyebrow = Step 03 · Optional passphrase
+how-t-3-title = A second lock only humans hold
+how-t-3-plain = add a passphrase and even someone with the full link can't open the secret without it.
+how-t-3-d1 = A passphrase is stretched with Argon2id, a memory-hard key derivation function, and combined with the seed to form the wrapping key. The passphrase is never transmitted or stored.
+how-t-3-d2 = Memory-hardness makes large-scale offline guessing expensive even on GPUs. The stored blob has exactly the same layout with or without a passphrase, so the server can't tell which secrets have one.
+how-t-3-k1 = KDF
+how-t-3-v1 = Argon2id, 64 MiB, 3 passes
+how-t-3-k2 = Salt
+how-t-3-v2 = 128-bit random
+how-t-3-k3 = Server can tell?
+how-t-3-v3 = no
+how-t-4-eyebrow = Step 04 · Transit & storage
+how-t-4-title = Only ciphertext leaves your device
+how-t-4-plain = we store a locked box and an expiry time. Nothing else: no plaintext, no key, no record of you.
+how-t-4-d1 = The blob is uploaded over TLS and stored as ciphertext beside its expiry time, whether it is single-view or timed, and hashes of its credentials. We keep no creation time, no sender or recipient, no IP log and no access history.
+how-t-4-d2 = Every secret is padded to a size class before encryption, so a blob's length reveals only a rough size. Because the stored object is meaningless without the fragment, a server compromise or a subpoena yields opaque bytes.
+how-t-4-k1 = In transit
+how-t-4-v1 = TLS
+how-t-4-k2 = At rest
+how-t-4-v2 = ciphertext + expiry
+how-t-4-k3 = Logs kept
+how-t-4-v3 = none
+how-t-5-eyebrow = Step 05 · Retrieval & destruction
+how-t-5-title = Served once, then erased
+how-t-5-plain = pressing Reveal hands over the box; for a single-view secret the server deletes its copy right then. Or destroy it yourself with the burn link.
+how-t-5-d1 = Nothing is fetched until the recipient presses the button, so link scanners can't consume a one-time secret. A single-view secret counts as consumed the moment its bytes are served: only the same client can re-download it for a short window, then it's deleted. A timed secret can be opened until it expires, then it's deleted.
+how-t-5-d2 = Every secret also has a burn link built from a separate random token the server knows only by its hash. Confirming on that page destroys the secret immediately. Every failure, whether unknown, consumed, expired or burned, gets the same answer, so nothing can be learned about a link by probing it.
+how-t-5-k1 = Single view
+how-t-5-v1 = consumed when served
+how-t-5-k2 = Expiry
+how-t-5-v2 = 15 min – 14 days
+how-t-5-k3 = Owner control
+how-t-5-v3 = burn link
+how-t-threat-eyebrow = Threat model
+how-t-threat-title = What { -brand } can and cannot see
+how-t-threat-intro = The honest version. Here is exactly where the trust boundary sits.
+how-t-threat-1-eyebrow = Never leaves your device
+how-t-threat-1-title = What we can't see
+how-t-threat-1-body = Your plaintext · the seed and keys · your passphrase · whether a passphrase was set · who created or opened a secret. None of it is transmitted or retained.
+how-t-threat-2-eyebrow = Stored on our servers
+how-t-threat-2-title = What we do hold
+how-t-threat-2-body = An encrypted blob we can't open · its padded size class · its expiry time · whether it is single-view · hashes of its credentials. All of it useless without the link.
+how-t-threat-3-eyebrow = Worth knowing
+how-t-threat-3-title = The honest caveats
+how-t-threat-3-body = Anyone with the full link (and passphrase, if set) can read the secret, so treat the link as the secret. Like any web app, you trust the code served to your browser; that's why { -brand } is open source and self-hostable. The server sees requests as they happen, including the IP they came from, but keeps none of it.
+how-t-spec-eyebrow = Cryptographic specification
+how-t-spec-title = Every primitive, in one place
+how-t-faq-eyebrow = Technical FAQ
+how-t-faq-title = For the security-minded
+how-t-faq-1-q = How is the one-time guarantee enforced against races?
+how-t-faq-1-a = The reveal is a single conditional update in the database: exactly one concurrent request can move a secret from active to consumed. Every other request, at the same instant or later, receives the same generic "no secret found" response.
+how-t-faq-2-q = Why the URL fragment instead of a query parameter?
+how-t-faq-2-a = Query parameters are sent to the server and land in access logs, proxies and analytics. The fragment (after #) is defined by the URL standard to stay client-side; the browser never puts it in a request. That property is the basis of the zero-knowledge design.
+how-t-faq-3-q = What stops link scanners from burning one-time secrets early?
+how-t-faq-3-a = The reveal page is a static shell that fetches nothing. Email security, chat unfurlers and antivirus only ever load that shell; the fetch happens after a real click. If a scanner does click, the secret counts as consumed and the recipient sees that it was opened, which is the honest outcome: something else read it.
+how-t-faq-4-q = Can I verify or self-host this?
+how-t-faq-4-a = Yes. The source and the protocol specification are public under AGPL-3.0, with conformance test vectors that any implementation can check itself against. Run your own instance and the trust boundary is entirely yours.
+how-t-faq-5-q = Is anything logged for abuse prevention?
+how-t-faq-5-a = We keep no per-secret access logs or IP history. Rate limiting works on short-lived, salted hashes of client addresses that can't be reversed, and the only statistics are daily totals never linked to any secret.
+how-cta-title = Read the code, then create a secret
+how-cta-intro = Don't take our word for any of this: it's all open source. Or just try it.
+how-cta-button = Create a secret
+how-cta-source = View the source
 
 ## About
 
-about-title = About us
+about-title = About { -brand }
 about-lead = { -brand } is a simple way to send passwords, notes and files that shouldn't stay around.
 about-body-1 = Sensitive things often end up in chat histories and email inboxes, where they stay for years. { -brand } gives you a link that works for a limited time, or only once, and then the secret is gone for good.
 about-body-2 = We built { -brand } so that we can't read what you share. Your secret is encrypted on your device, and the key never reaches our servers.
@@ -81,59 +351,9 @@ contact-no-secrets = Please never email us secret links or their contents. We do
 
 ## Errors
 
+error-badge = Error
 error-404-title = Page not found
 error-404-body = This page doesn't exist. If you followed a secret link, the secret may have expired or already been opened.
 error-500-title = Something went wrong
 error-500-body = Something unexpected happened on our side. Please try again in a moment.
 error-home-link = Go to the home page
-
-## Create result
-
-result-title = Your link is ready
-result-intro = Copy the link and share it. It won't be shown again once you leave this page.
-result-share-label = Share link
-result-burn-label = Burn link
-result-burn-hint = Keep this one to yourself. Opening it lets you destroy the secret before anyone reads it. If you lose it, it can't be recovered.
-result-passphrase-reminder = You set a passphrase. Send it over a different channel than the link.
-result-copy = Copy
-result-copied = Copied
-result-destroy = Destroy now
-result-destroyed = Destroyed. The secret is gone from the server.
-result-another = Create another secret
-create-encrypting = Encrypting in your browser…
-create-uploading = Uploading…
-create-error-empty = Add some text or at least one file.
-create-error-too-large = That's more than this site accepts. Remove some files or shorten the text.
-create-error-network = Couldn't reach the server. Check your connection and try again.
-create-error-failed = Something went wrong while creating the secret. Please try again.
-
-## Reveal states
-
-reveal-fetching = Fetching the encrypted secret…
-reveal-decrypting = Decrypting in your browser…
-reveal-passphrase-title = This secret needs a passphrase
-reveal-passphrase-label = Passphrase
-reveal-passphrase-submit = Unlock
-reveal-wrong-passphrase = That passphrase didn't work. Try again.
-reveal-revealed-title = Here it is
-reveal-single-view = This was the only view. The secret has been deleted from the server.
-reveal-expires-one = This link stays open for about one more hour.
-reveal-expires-many = This link stays open for about { "{hours}" } more hours.
-reveal-copy-text = Copy text
-reveal-download = Download
-reveal-close-warning = Save what you need now. Once you leave this page, it can't be retrieved again.
-reveal-not-found-title = No secret found here
-reveal-not-found-body = This link is invalid, or the secret has already been viewed, expired, or been destroyed. We don't keep a record of which.
-reveal-error-network = Couldn't reach the server. Try again in a moment.
-reveal-error-corrupt = This secret couldn't be decrypted. The link may be incomplete.
-
-## Burn page
-
-burn-title = Destroy this secret
-burn-intro = This is a burn link. Nothing has happened yet. Confirming deletes the secret permanently, before anyone can open it.
-burn-confirm = Destroy the secret
-burn-working = Destroying…
-burn-done-title = The secret has been destroyed
-burn-done-body = It's gone from the server. Anyone opening the share link will only see that no secret was found.
-burn-not-found-title = Nothing to destroy
-burn-not-found-body = This burn link is invalid, or the secret was already viewed, expired, or destroyed.

@@ -1,0 +1,9 @@
+<div class="spec-sheet">
+  {%- for i in ["1", "2", "3", "4", "5", "6"] %}
+  <div class="spec">
+    <p class="eyebrow">{{ ctx.tn("hood-", i, "-label") }}</p>
+    <div class="spec__val">{{ ctx.tn("hood-", i, "-val") }}</div>
+    <p>{{ ctx.tn("hood-", i, "-body") }}</p>
+  </div>
+  {%- endfor %}
+</div>

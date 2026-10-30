@@ -20,12 +20,16 @@ use crate::{
 // TODO: move these to database settings once they exist, so each install can set its own.
 const CONTACT_EMAIL: &str = "hello@example.com";
 const SECURITY_EMAIL: &str = "security@example.com";
+// TODO: settings. Empty hides the source links.
+const REPO_URL: &str = "https://github.com/zbcdo/shhnote";
 
 const MIB: u64 = 1024 * 1024;
 
 struct Shared {
     i18n: I18n,
     asset_version: String,
+    // app.css with the asset hash substituted into its font URLs.
+    css: String,
     content: Content,
     api_url: String,
     max_blob_bytes: u64,
@@ -43,6 +47,7 @@ pub fn router(config: &Config) -> Router {
     let shared = Arc::new(Shared {
         i18n: I18n::load(),
         asset_version: asset_version(),
+        css: APP_CSS.replace("__V__", &asset_version()),
         content: Content::load(),
         api_url: config.api_url.clone(),
         max_blob_bytes: config.storage.max_blob_bytes(),
@@ -50,10 +55,12 @@ pub fn router(config: &Config) -> Router {
     });
 
     let mut router = Router::new()
-        .route("/static/app.css", get(css))
+        .route("/static/app.css", get(css).with_state(shared.clone()))
         .route("/static/app.js", get(app_js))
         .route("/static/shh.js", get(shh_js))
-        .route("/static/argon2.wasm", get(argon2_wasm));
+        .route("/static/argon2.wasm", get(argon2_wasm))
+        .route("/static/fonts/inter.woff2", get(font_regular))
+        .route("/static/fonts/inter-italic.woff2", get(font_italic));
     for &locale in LOCALES {
         let state = PageState {
             shared: shared.clone(),
@@ -91,6 +98,8 @@ fn pages(state: PageState) -> Router {
 struct Ctx<'a> {
     shared: &'a Shared,
     locale: &'static str,
+    // The page's path without the locale prefix, for marking the current nav item.
+    path: String,
     languages: Vec<LanguageLink>,
 }
 
@@ -116,6 +125,7 @@ impl PageState {
         Ctx {
             shared: &self.shared,
             locale: self.locale,
+            path: path.to_string(),
             languages,
         }
     }
@@ -124,6 +134,15 @@ impl PageState {
 impl Ctx<'_> {
     fn t(&self, key: &str) -> String {
         self.shared.i18n.t(self.locale, key, None)
+    }
+
+    // Builds keys like `hood-3-label` for templates that loop over numbered items.
+    fn tn(&self, prefix: &str, n: &str, suffix: &str) -> String {
+        self.t(&format!("{prefix}{n}{suffix}"))
+    }
+
+    fn tn2(&self, prefix: &str, a: &str, mid: &str, b: &str) -> String {
+        self.t(&format!("{prefix}{a}{mid}{b}"))
     }
 
     fn t_args(&self, key: &str, args: &FluentArgs) -> String {
@@ -142,6 +161,10 @@ impl Ctx<'_> {
         &self.shared.asset_version
     }
 
+    fn repo_url(&self) -> &str {
+        REPO_URL
+    }
+
     // The strings the page script needs, as a JSON object. `<` is escaped so a translation can
     // never close the `<script>` block it is embedded in.
     fn ui_json(&self) -> String {
@@ -155,10 +178,11 @@ impl Ctx<'_> {
 // Every translation the page script can show. Keep in step with `client/src/ui/i18n.ts`.
 const UI_KEYS: &[&str] = &[
     "form-files-remove",
-    "form-not-ready",
     "result-copied",
-    "result-copy",
     "result-destroyed",
+    "result-chip-single",
+    "result-chip-multi",
+    "result-chip-expires",
     "create-encrypting",
     "create-uploading",
     "create-error-empty",
@@ -238,18 +262,13 @@ async fn view_secret(State(state): State<PageState>) -> Response {
 #[template(path = "how_it_works.html")]
 struct HowItWorksPage<'a> {
     ctx: Ctx<'a>,
-    simple: &'a str,
-    technical: &'a str,
 }
 
 async fn how_it_works(State(state): State<PageState>) -> Response {
-    let content = &state.shared.content;
     render(
         &state,
         HowItWorksPage {
             ctx: state.ctx("/how-it-works"),
-            simple: content.get(state.locale, Doc::HowItWorksSimple),
-            technical: content.get(state.locale, Doc::HowItWorksTechnical),
         },
     )
 }
@@ -325,6 +344,7 @@ fn doc_page(state: &PageState, doc: Doc, path: &str, title_key: &str) -> Respons
 #[template(path = "error.html")]
 struct ErrorPage<'a> {
     ctx: Ctx<'a>,
+    badge: String,
     title: String,
     message: String,
 }
@@ -340,6 +360,7 @@ fn error_page(state: &PageState, status: StatusCode) -> Response {
     };
     let ctx = state.ctx("");
     let page = ErrorPage {
+        badge: ctx.t("error-badge"),
         title: ctx.t(&format!("{key}-title")),
         message: ctx.t(&format!("{key}-body")),
         ctx,
@@ -400,8 +421,8 @@ fn content_security_policy(config: &Config) -> HeaderValue {
     // 'wasm-unsafe-eval' is for the Argon2id module; it allows WebAssembly only, not eval().
     let policy = format!(
         "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; \
-         img-src 'self' data: blob:; connect-src {connect}; form-action 'self'; \
-         base-uri 'none'; frame-ancestors 'none'"
+         font-src 'self'; img-src 'self' data: blob:; connect-src {connect}; \
+         form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
     );
     HeaderValue::from_str(&policy).expect("policy is valid header text")
 }
@@ -426,19 +447,42 @@ const APP_CSS: &str = include_str!("../static/app.css");
 const APP_JS: &[u8] = include_bytes!("../static/app.js");
 const SHH_JS: &[u8] = include_bytes!("../static/shh.js");
 const ARGON2_WASM: &[u8] = include_bytes!("../static/argon2.wasm");
+const FONT_REGULAR: &[u8] = include_bytes!("../static/fonts/inter.woff2");
+const FONT_ITALIC: &[u8] = include_bytes!("../static/fonts/inter-italic.woff2");
 
 // Short hash of everything embedded; it goes into asset URLs so a browser never runs a stale copy.
 fn asset_version() -> String {
     let mut all = Vec::new();
-    for part in [APP_CSS.as_bytes(), APP_JS, SHH_JS, ARGON2_WASM] {
+    for part in [
+        APP_CSS.as_bytes(),
+        APP_JS,
+        SHH_JS,
+        ARGON2_WASM,
+        FONT_REGULAR,
+        FONT_ITALIC,
+    ] {
         all.extend_from_slice(part);
     }
     let digest = shhnote_core::kdf::sha256(&all);
     digest[..6].iter().map(|b| format!("{b:02x}")).collect()
 }
 
-async fn css() -> impl IntoResponse {
-    static_asset("text/css; charset=utf-8", APP_CSS.as_bytes())
+async fn css(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+        ],
+        shared.css.clone(),
+    )
+}
+
+async fn font_regular() -> impl IntoResponse {
+    static_asset("font/woff2", FONT_REGULAR)
+}
+
+async fn font_italic() -> impl IntoResponse {
+    static_asset("font/woff2", FONT_ITALIC)
 }
 
 // Generated by scripts/build-client.sh and embedded, so the binary is self-contained.

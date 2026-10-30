@@ -1,97 +1,202 @@
 {% extends "base.html" %}
+{%- import "partials/icons.html" as icons -%}
 
 {% block title %}{{ ctx.t("home-title") }}{% endblock %}
 
 {% block content %}
-<section class="intro">
-  <h1>{{ ctx.t("home-title") }}</h1>
-  <p class="lead">{{ ctx.t("home-intro") }}</p>
+<section class="section section--hero" id="create">
+  <div class="container">
+    <header class="section__header">
+      <h1>{{ ctx.t("home-title") }}</h1>
+      <p class="section__intro">{{ ctx.t("home-intro") }}</p>
+    </header>
+
+    <noscript><p class="callout callout--notice">{{ ctx.t("noscript-create") }}</p></noscript>
+
+    {# Hidden until the script runs, because encryption happens in the browser. #}
+    <div class="form-wrapper" data-create-wrapper hidden>
+      <form class="create-form" data-create-form>
+        <div class="create-form__content">
+          <div class="form-field">
+            <label class="visually-hidden" for="note">{{ ctx.t("form-note-label") }}</label>
+            <textarea class="form-textarea" id="note" name="note" rows="8" placeholder="{{ ctx.t("form-note-placeholder") }}" autocomplete="off" spellcheck="false"></textarea>
+          </div>
+          <div class="form-field">
+            <span class="visually-hidden" id="files-label">{{ ctx.t("form-files-label") }}</span>
+            <label class="dropzone" data-dropzone>
+              <input type="file" name="files" multiple aria-labelledby="files-label" aria-describedby="files-hint">
+              <span class="dropzone-icon">{% call icons::icon("upload", 24) %}{% endcall %}</span>
+              <span class="dropzone-title"><span class="color-accent">{{ ctx.t("form-files-drop") }}</span> {{ ctx.t("form-files-click") }}</span>
+              <span class="dropzone-hint" id="files-hint">{{ upload_hint }}</span>
+            </label>
+            <ul class="file-list" data-file-list></ul>
+          </div>
+        </div>
+
+        <div class="create-form__settings">
+          <div class="form-field">
+            <label class="form-label" for="expiry">{{ ctx.t("form-expiry-label") }}</label>
+            <select class="form-select" id="expiry" name="expiry">
+              <option value="900">{{ ctx.t("expiry-15m") }}</option>
+              <option value="1800">{{ ctx.t("expiry-30m") }}</option>
+              <option value="3600">{{ ctx.t("expiry-1h") }}</option>
+              <option value="21600">{{ ctx.t("expiry-6h") }}</option>
+              <option value="43200">{{ ctx.t("expiry-12h") }}</option>
+              <option value="86400" selected>{{ ctx.t("expiry-1d") }}</option>
+              <option value="259200">{{ ctx.t("expiry-3d") }}</option>
+              <option value="604800">{{ ctx.t("expiry-7d") }}</option>
+              <option value="1209600">{{ ctx.t("expiry-14d") }}</option>
+            </select>
+          </div>
+
+          <div class="form-field form-field--toggle">
+            <div>
+              <label class="form-label" for="burn">{{ ctx.t("form-burn-label") }}</label>
+              <p class="input-help" id="burn-hint">{{ ctx.t("form-burn-hint") }}</p>
+            </div>
+            <span class="toggle">
+              <input type="checkbox" id="burn" name="burn" role="switch" checked aria-describedby="burn-hint">
+              <span class="track" aria-hidden="true"></span>
+            </span>
+          </div>
+
+          <div class="form-field">
+            <label class="form-label" for="passphrase">{{ ctx.t("form-passphrase-label") }} <span class="color-faint">{{ ctx.t("form-passphrase-optional") }}</span></label>
+            <div class="pwd-input" data-pwd-input>
+              <input class="form-input" type="password" id="passphrase" name="passphrase" autocomplete="new-password" aria-describedby="passphrase-hint">
+              <button type="button" aria-label="{{ ctx.t("form-passphrase-toggle") }}" aria-pressed="false" data-pwd-toggle>
+                <span class="icon-show">{% call icons::icon("eye", 22) %}{% endcall %}</span>
+                <span class="icon-hide">{% call icons::icon("eye-off", 22) %}{% endcall %}</span>
+              </button>
+            </div>
+            <p class="input-help" id="passphrase-hint">{{ ctx.t("form-passphrase-hint") }}</p>
+          </div>
+
+          <div class="form-field">
+            <p class="disclaimer">{{ ctx.t("form-disclaimer") }} <a href="{{ ctx.href("/terms") }}">{{ ctx.t("page-terms") }}</a>.</p>
+            <button type="submit" class="btn btn--primary w-full">{{ ctx.t("form-submit") }}</button>
+            <p class="status" role="status" aria-live="polite" data-form-status></p>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    {# Shown in place of the form once the secret is stored. The links exist only in this page's memory. #}
+    <section class="vault vault--wide" data-create-result hidden aria-labelledby="result-title">
+      <div class="panel stack" style="margin-top:2rem">
+        <div class="stack--sm">
+          <p class="eyebrow">{{ ctx.t("result-eyebrow") }}</p>
+          <h2 class="panel__heading" id="result-title">{{ ctx.t("result-title") }}</h2>
+          <p>{{ ctx.t("result-intro") }}</p>
+        </div>
+
+        <div class="stack--sm">
+          <span class="form-label">{{ ctx.t("result-share-label") }}</span>
+          <div class="readout">
+            <span class="readout__val" data-share-link></span>
+            <button type="button" class="readout__copy" data-copy="share">{% call icons::icon("copy", 16) %}{% endcall %}<span>{{ ctx.t("result-copy") }}</span></button>
+          </div>
+        </div>
+
+        <ul class="info-chips" aria-label="{{ ctx.t("result-chips-label") }}">
+          <li data-chip-lifetime></li>
+          <li data-chip-expiry></li>
+        </ul>
+
+        <div class="callout" data-passphrase-reminder hidden>
+          {% call icons::icon("key", 18) %}{% endcall %}
+          <span>{{ ctx.t("result-passphrase-reminder") }}</span>
+        </div>
+        <div class="callout">
+          {% call icons::icon("warn", 18) %}{% endcall %}
+          <span>{{ ctx.t("result-callout") }}</span>
+        </div>
+
+        <div class="or-divider">{{ ctx.t("result-private-divider") }}</div>
+
+        <div class="stack--sm">
+          <span class="form-label">{{ ctx.t("result-burn-label") }} <span class="color-faint">{{ ctx.t("result-burn-sub") }}</span></span>
+          <div class="readout">
+            <span class="readout__val" data-burn-link></span>
+            <button type="button" class="readout__copy" data-copy="burn">{% call icons::icon("copy", 16) %}{% endcall %}<span>{{ ctx.t("result-copy") }}</span></button>
+          </div>
+          <p class="input-help">{{ ctx.t("result-burn-hint") }}</p>
+        </div>
+
+        <div class="btn-row btn-row--split">
+          <a class="btn btn--ghost" href="#" data-open-link>{{ ctx.t("result-open") }}</a>
+          <button type="button" class="btn btn--danger" data-destroy>{% call icons::icon("trash", 16) %}{% endcall %}<span>{{ ctx.t("result-destroy") }}</span></button>
+        </div>
+        <p class="status" role="status" aria-live="polite" data-result-status></p>
+        <p class="btn-row btn-row--center"><a class="btn btn--quiet" href="{{ ctx.href("") }}">{{ ctx.t("result-another") }}</a></p>
+      </div>
+    </section>
+
+    <ul class="feature-chips" aria-label="{{ ctx.t("chips-label") }}">
+      <li>{% call icons::icon("lock", 16) %}{% endcall %}<span>{{ ctx.t("chip-e2ee") }}</span></li>
+      <li>{% call icons::icon("eye-off", 16) %}{% endcall %}<span>{{ ctx.t("chip-zero-knowledge") }}</span></li>
+      <li>{% call icons::icon("ban", 16) %}{% endcall %}<span>{{ ctx.t("chip-no-logs") }}</span></li>
+      <li>{% call icons::icon("folder", 16) %}{% endcall %}<span>{{ ctx.t("chip-open-source") }}</span></li>
+    </ul>
+  </div>
 </section>
 
-<noscript>
-  <p class="notice">{{ ctx.t("noscript-create") }}</p>
-</noscript>
-
-{# Hidden until the script runs, because encryption happens in the browser. #}
-<form class="card create-form" data-create-form hidden>
-  <div class="field">
-    <label for="note">{{ ctx.t("form-note-label") }}</label>
-    <textarea id="note" name="note" rows="8" placeholder="{{ ctx.t("form-note-placeholder") }}" autocomplete="off" spellcheck="false"></textarea>
+<section class="section" aria-labelledby="steps-title">
+  <div class="container">
+    <header class="section__header">
+      <p class="eyebrow">{{ ctx.t("steps-eyebrow") }}</p>
+      <h2 id="steps-title">{{ ctx.t("steps-title") }}</h2>
+      <p class="section__intro">{{ ctx.t("steps-intro") }}</p>
+    </header>
+    <ol class="fenced-cells">
+      {%- for i in ["1", "2", "3"] %}
+      <li class="cell">
+        <p class="eyebrow">0{{ i }}</p>
+        <h3>{{ ctx.tn("step-", i, "-title") }} <span class="color-faint">{{ ctx.tn("step-", i, "-sub") }}</span></h3>
+        <p>{{ ctx.tn("step-", i, "-body") }}</p>
+      </li>
+      {%- endfor %}
+    </ol>
   </div>
+</section>
 
-  <div class="field">
-    <span class="label" id="files-label">{{ ctx.t("form-files-label") }}</span>
-    <label class="dropzone" data-dropzone>
-      <input type="file" name="files" multiple aria-labelledby="files-label" aria-describedby="files-hint">
-      <span class="dropzone-text">{{ ctx.t("form-files-drop") }}</span>
-      <span class="hint" id="files-hint">{{ upload_hint }}</span>
-    </label>
-    <ul class="file-list" data-file-list data-remove-label="{{ ctx.t("form-files-remove") }}"></ul>
+<section class="section section--tight" aria-labelledby="hood-title">
+  <div class="container">
+    <header class="section__header">
+      <p class="eyebrow">{{ ctx.t("hood-eyebrow") }}</p>
+      <h2 id="hood-title">{{ ctx.t("hood-title") }}</h2>
+      <p class="section__intro">{{ ctx.t("hood-intro") }}</p>
+    </header>
+    {% include "partials/spec_sheet.html" %}
   </div>
+</section>
 
-  <div class="field-row">
-    <div class="field">
-      <label for="expiry">{{ ctx.t("form-expiry-label") }}</label>
-      <select id="expiry" name="expiry">
-        <option value="900">{{ ctx.t("expiry-15m") }}</option>
-        <option value="1800">{{ ctx.t("expiry-30m") }}</option>
-        <option value="3600">{{ ctx.t("expiry-1h") }}</option>
-        <option value="21600">{{ ctx.t("expiry-6h") }}</option>
-        <option value="43200">{{ ctx.t("expiry-12h") }}</option>
-        <option value="86400" selected>{{ ctx.t("expiry-1d") }}</option>
-        <option value="259200">{{ ctx.t("expiry-3d") }}</option>
-        <option value="604800">{{ ctx.t("expiry-7d") }}</option>
-        <option value="1209600">{{ ctx.t("expiry-14d") }}</option>
-      </select>
-    </div>
-
-    <div class="field">
-      <label class="switch">
-        <input type="checkbox" name="burn" role="switch" checked aria-describedby="burn-hint">
-        <span class="switch-track" aria-hidden="true"></span>
-        <span>{{ ctx.t("form-burn-label") }}</span>
-      </label>
-      <span class="hint" id="burn-hint">{{ ctx.t("form-burn-hint") }}</span>
-    </div>
+<section class="section section--tight" aria-labelledby="uses-title">
+  <div class="container">
+    <header class="section__header">
+      <p class="eyebrow">{{ ctx.t("uses-eyebrow") }}</p>
+      <h2 id="uses-title">{{ ctx.t("uses-title") }}</h2>
+      <p class="section__intro">{{ ctx.t("uses-intro") }}</p>
+    </header>
+    <ul class="wall-cells">
+      {%- for i in ["1", "2", "3", "4", "5", "6"] %}
+      <li class="cell">
+        <p class="eyebrow">{{ ctx.tn("use-", i, "-eyebrow") }}</p>
+        <h3>{{ ctx.tn("use-", i, "-title") }}</h3>
+        <p>{{ ctx.tn("use-", i, "-body") }}</p>
+      </li>
+      {%- endfor %}
+    </ul>
   </div>
+</section>
 
-  <div class="field">
-    <label for="passphrase">{{ ctx.t("form-passphrase-label") }}</label>
-    <input type="password" id="passphrase" name="passphrase" autocomplete="new-password" aria-describedby="passphrase-hint">
-    <span class="hint" id="passphrase-hint">{{ ctx.t("form-passphrase-hint") }}</span>
+<section class="section section--cta" aria-labelledby="cta-title">
+  <div class="container">
+    <header class="section__header">
+      <h2 id="cta-title">{{ ctx.t("cta-title") }}</h2>
+      <p class="section__intro">{{ ctx.t("cta-intro") }}</p>
+      <p><a href="#create" class="btn btn--primary">{{ ctx.t("cta-button") }}</a></p>
+    </header>
   </div>
-
-  <button type="submit" class="button">{{ ctx.t("form-submit") }}</button>
-  <p class="status" role="status" data-form-status></p>
-</form>
-
-{# Shown in place of the form once the secret is stored. The links exist only in this page's memory. #}
-<section class="card result" data-create-result hidden>
-  <h2>{{ ctx.t("result-title") }}</h2>
-  <p class="lead">{{ ctx.t("result-intro") }}</p>
-
-  <div class="field">
-    <span class="label">{{ ctx.t("result-share-label") }}</span>
-    <div class="readout">
-      <code data-share-link></code>
-      <button type="button" class="button button-small" data-copy="share">{{ ctx.t("result-copy") }}</button>
-    </div>
-    <p class="notice" data-passphrase-reminder hidden>{{ ctx.t("result-passphrase-reminder") }}</p>
-  </div>
-
-  <div class="field">
-    <span class="label">{{ ctx.t("result-burn-label") }}</span>
-    <div class="readout">
-      <code data-burn-link></code>
-      <button type="button" class="button button-small" data-copy="burn">{{ ctx.t("result-copy") }}</button>
-    </div>
-    <span class="hint">{{ ctx.t("result-burn-hint") }}</span>
-  </div>
-
-  <div class="actions">
-    <button type="button" class="button button-danger" data-destroy>{{ ctx.t("result-destroy") }}</button>
-    <a class="button button-quiet" href="{{ ctx.href("") }}">{{ ctx.t("result-another") }}</a>
-  </div>
-  <p class="status" role="status" data-result-status></p>
 </section>
 {% endblock %}

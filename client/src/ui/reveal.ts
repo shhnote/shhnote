@@ -34,19 +34,22 @@ export function wireReveal(page: HTMLElement): void {
     event.preventDefault();
     if (!event.isTrusted) return;
     const button = $<HTMLButtonElement>("button", armed);
+    const working = $("[data-working-status]", page);
     button.disabled = true;
     try {
-      setStatus(armedStatus, t("reveal-fetching"));
+      setState(page, "working");
+      setStatus(working, t("reveal-fetching"));
       const revealed = await api.reveal(await lookup(seed));
       blob = revealed.blob;
       claimToken = revealed.claimToken;
       expiresInHours = revealed.expiresInHours;
-      setStatus(armedStatus, t("reveal-decrypting"));
+      setStatus(working, t("reveal-decrypting"));
       await tryDecrypt(null);
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) {
         setState(page, "notfound");
       } else {
+        setState(page, "armed");
         setStatus(armedStatus, e instanceof ApiError ? t("reveal-error-network") : t("reveal-error-corrupt"));
         button.disabled = false;
       }
@@ -97,10 +100,12 @@ export function wireReveal(page: HTMLElement): void {
 
     const revealed = $("[data-state=revealed]", page);
     const lifetime = $("[data-lifetime]", revealed);
+    const lifetimeText = $("[data-lifetime-text]", lifetime);
     if (claimToken !== null) {
-      lifetime.textContent = t("reveal-single-view");
+      lifetimeText.textContent = t("reveal-single-view");
     } else if (expiresInHours !== null) {
-      lifetime.textContent = expiresInHours <= 1 ? t("reveal-expires-one") : t("reveal-expires-many", { hours: expiresInHours });
+      lifetime.classList.remove("badge--danger");
+      lifetimeText.textContent = expiresInHours <= 1 ? t("reveal-expires-one") : t("reveal-expires-many", { hours: expiresInHours });
     }
 
     if (payload.text !== null) {
@@ -114,14 +119,28 @@ export function wireReveal(page: HTMLElement): void {
     const list = $<HTMLUListElement>("[data-files]", revealed);
     for (const file of payload.files) {
       const item = document.createElement("li");
-      const label = document.createElement("span");
-      label.textContent = `${file.name} (${formatSize(file.bytes.length)})`;
+      item.className = "file-card";
+      const icon = document.createElement("span");
+      icon.className = "file-card__icon";
+      icon.setAttribute("aria-hidden", "true");
+      icon.textContent = "▣";
+      const meta = document.createElement("div");
+      meta.className = "file-card__meta";
+      const name = document.createElement("div");
+      name.className = "file-card__name";
+      // textContent, never innerHTML: the file name came from the sender.
+      name.textContent = file.name;
+      const sub = document.createElement("div");
+      sub.className = "file-card__sub";
+      sub.textContent = `${file.type || "application/octet-stream"} · ${formatSize(file.bytes.length)}`;
+      meta.append(name, sub);
       const link = document.createElement("a");
+      link.className = "btn btn--ghost btn--sm";
       link.href = URL.createObjectURL(new Blob([file.bytes as BlobPart], { type: file.type || "application/octet-stream" }));
       // Keep the sender's name, but never let it carry a path.
       link.download = file.name.replaceAll(/[/\\]/g, "_") || "file";
       link.textContent = t("reveal-download");
-      item.append(label, link);
+      item.append(icon, meta, link);
       list.append(item);
     }
     setState(page, "revealed");

@@ -1,11 +1,22 @@
 {% extends "base.html" %}
+{%- import "partials/icons.html" as icons -%}
 
 {% block title %}{{ title }}{% endblock %}
 
 {% block content %}
-<section class="intro error">
-  <h1>{{ title }}</h1>
-  <p class="lead">{{ message }}</p>
-  <p><a class="button" href="{{ ctx.href("") }}">{{ ctx.t("error-home-link") }}</a></p>
+<section class="section">
+  <div class="container">
+    <div class="vault">
+      <div class="panel panel--center stack">
+        <span class="badge badge--muted"><span class="dot"></span>{{ badge }}</span>
+        <div class="lock-badge lock-badge--muted">{% call icons::icon("lock-open", 28) %}{% endcall %}</div>
+        <div class="stack--sm">
+          <h1 class="panel__heading">{{ title }}</h1>
+          <p>{{ message }}</p>
+        </div>
+        <p class="btn-row btn-row--center"><a class="btn btn--primary" href="{{ ctx.href("") }}">{{ ctx.t("error-home-link") }}</a></p>
+      </div>
+    </div>
+  </div>
 </section>
 {% endblock %}

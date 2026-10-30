@@ -1,6 +1,6 @@
 -brand = shhnote
 
-## Shared layout
+## Layout
 
 brand-name = { -brand }
 language-name = Deutsch
@@ -11,25 +11,36 @@ nav-how-it-works = So funktioniert's
 nav-about = Über uns
 nav-contact = Kontakt
 nav-language = Sprache
-footer-tagline = { -brand } — Geheimnisse teilen, die wieder verschwinden.
-footer-label = Rechtliches
+nav-theme = Design
+theme-auto = Wie das System
+theme-light = Hell
+theme-dark = Dunkel
+theme-light-hc = Hell, hoher Kontrast
+theme-dark-hc = Dunkel, hoher Kontrast
+footer-tagline = Quelloffen, Ende-zu-Ende verschlüsselt, Zero-Knowledge. Text und Dateien. Der Server sieht deine Daten nie.
+footer-product = Produkt
+footer-legal = Rechtliches
+footer-settings = Einstellungen
+footer-source = Quellcode
+footer-notice = Keine Cookies · Kein Tracking · Keine externen Anfragen
 page-terms = Nutzungsbedingungen
 page-privacy = Datenschutzerklärung
 page-security = Sicherheit
+page-how-technical = Technische Details
 
-## Home page
+## Home
 
-home-title = Ein Geheimnis teilen
-home-intro = Schreib eine Notiz oder füge Dateien hinzu. Alles wird in deinem Browser verschlüsselt, bevor es dein Gerät verlässt, und der Link funktioniert nur, bis er abläuft.
+home-title = Geheimnisse sicher teilen, mit Links, die sich selbst zerstören
+home-intro = Halte Passwörter, Schlüssel und Dateien aus Chatverläufen, E-Mail-Threads und Ticket-Historien heraus. Alles wird in deinem Browser verschlüsselt, bevor es dein Gerät verlässt.
 noscript-create = Zum Verschlüsseln in deinem Browser wird JavaScript benötigt. Bitte aktiviere es, um ein Geheimnis zu erstellen.
-form-not-ready = Das Erstellen von Geheimnissen ist noch nicht verfügbar.
 form-note-label = Dein Geheimnis
-form-note-placeholder = Schreib oder füge ein, was du teilen möchtest …
+form-note-placeholder = Nachricht hier eingeben …
 form-files-label = Dateien
-form-files-drop = Dateien hierher ziehen oder klicken, um sie auszuwählen
-form-files-hint = Insgesamt bis zu { $size }.
+form-files-drop = Dateien hierher ziehen
+form-files-click = oder klicken, um anzuhängen
+form-files-hint = Wird vor dem Upload in deinem Browser verschlüsselt · insgesamt bis zu { $size }
 form-files-remove = Entfernen
-form-expiry-label = Läuft ab nach
+form-expiry-label = Läuft ab in
 expiry-15m = 15 Minuten
 expiry-30m = 30 Minuten
 expiry-1h = 1 Stunde
@@ -40,29 +51,288 @@ expiry-3d = 3 Tagen
 expiry-7d = 7 Tagen
 expiry-14d = 14 Tagen
 form-burn-label = Nach dem Lesen löschen
-form-burn-hint = Das Geheimnis wird gelöscht, sobald es einmal geöffnet wurde.
-form-passphrase-label = Passphrase (optional)
-form-passphrase-hint = Die empfangende Person braucht sie, um das Geheimnis zu öffnen. Schick sie auf einem anderen Weg, nicht zusammen mit dem Link.
-form-submit = Geheimen Link erstellen
+form-burn-hint = Das Geheimnis wird gelöscht, sobald es einmal geöffnet wurde. Sonst lässt es sich bis zum Ablauf öffnen.
+form-passphrase-label = Passphrase
+form-passphrase-optional = (optional)
+form-passphrase-hint = Ein zweites Schloss. Die empfangende Person braucht sie; schick sie auf einem anderen Weg als den Link.
+form-passphrase-toggle = Passphrase anzeigen oder verbergen
+form-disclaimer = Mit dem Erstellen oder Öffnen eines Geheimnisses akzeptierst du unsere
+form-submit = Geheimnis verschlüsseln
+chips-label = Garantien
+chip-e2ee = Ende-zu-Ende verschlüsselt
+chip-zero-knowledge = Zero Knowledge
+chip-no-logs = Keine Protokolle
+chip-open-source = Open Source
+chip-no-account = Kein Konto nötig
 
-## View secret page
+steps-eyebrow = So funktioniert's
+steps-title = Drei Schritte. Kein Konto nötig.
+steps-intro = { -brand } verschlüsselt dein Geheimnis im Browser, bevor irgendetwas das Netzwerk berührt. Der Schlüssel steckt im Teil des Links nach dem #, den Browser nie an einen Server senden.
+step-1-title = Verschlüsseln
+step-1-sub = Text und Dateien
+step-1-body = Dein Geheimnis wird auf deinem eigenen Gerät verschlüsselt, bevor etwas gesendet wird. Der Schlüssel zum Öffnen wird nie hochgeladen.
+step-2-title = Teilen
+step-2-sub = den Link
+step-2-body = Der Schlüssel reist im Link mit, nach dem #. Browser behalten diesen Teil lokal, er erreicht unsere Server also nie.
+step-3-title = Öffnen
+step-3-sub = und weg ist es
+step-3-body = Der Browser der empfangenden Person entschlüsselt lokal. Ein einmaliges Geheimnis wird im Moment der Auslieferung gelöscht, ein zeitbegrenztes beim Ablauf.
+
+hood-eyebrow = Unter der Haube
+hood-title = Die Kryptografie, ausbuchstabiert.
+hood-intro = Kein Herumgerede. Hier steht genau, was dein Geheimnis schützt und wo welcher Teil läuft, damit du die Aussagen prüfen kannst, statt sie glauben zu müssen.
+hood-1-label = Verschlüsselung
+hood-1-val = AES-256-GCM
+hood-1-body = Authentifizierte Verschlüsselung in 64-KiB-Blöcken, jeder mit eigener Nonce und eigenem Tag, sodass Manipulation, Umsortieren oder Abschneiden erkannt statt stillschweigend entschlüsselt wird.
+hood-2-label = Schlüsselableitung
+hood-2-val = HKDF-SHA-256 + Argon2id
+hood-2-body = Jeder Schlüssel stammt über HKDF aus einem zufälligen Seed. Eine optionale Passphrase wird mit dem speicherharten Argon2id gestreckt, damit Offline-Raten selbst auf spezieller Hardware langsam bleibt.
+hood-3-label = Zufall
+hood-3-val = Web Crypto CSPRNG
+hood-3-body = Seeds, Schlüssel und Nonces kommen aus dem kryptografisch sicheren Generator des Browsers. Nie Math.random(), nie vorhersagbar.
+hood-4-label = Schlüsselverwahrung
+hood-4-val = URL-Fragment #
+hood-4-body = Der Seed steht nach dem # in deinem Link. Browser übertragen das Fragment nie, also erreicht das Einzige, was dein Geheimnis entschlüsseln kann, unsere Server nie.
+hood-5-label = Was wir speichern
+hood-5-val = Geheimtext + Ablauf
+hood-5-body = Einen aufgefüllten verschlüsselten Blob, seine Ablaufzeit und Einweg-Hashes der Werte, mit denen er gefunden oder gebrannt wird. Kein Klartext, keine Schlüssel, keine Zeitstempel, kein Absender, kein Empfänger.
+hood-6-label = Größen-Privatsphäre
+hood-6-val = Aufgefüllte Blobs
+hood-6-body = Jedes Geheimnis wird vor der Verschlüsselung auf eine Größenklasse aufgefüllt. Der Server erfährt nur eine grobe Größe, nie die genaue, und kleine Dateien sehen aus wie Text.
+
+uses-eyebrow = Anwendungsfälle
+uses-title = Erstelle ein { -brand } für alles
+uses-intro = Alles, was nicht für immer in einem Postfach liegen sollte.
+use-1-eyebrow = DevOps & Entwicklung
+use-1-title = Zugangsdaten & Schlüssel
+use-1-body = Schluss mit API-Keys, Datenbankpasswörtern und SSH-Schlüsseln in Chat-Threads. Teile sie als Einmal-Links, die sich nach dem Gebrauch selbst zerstören.
+use-2-eyebrow = Für Privatsphäre-Bewusste
+use-2-title = Teilen ohne Spuren
+use-2-body = Funktioniert über Tor ohne Einschränkungen. Keine CAPTCHAs, kein Fingerprinting, keine externen Anfragen. Jede Ressource kommt von dieser Seite.
+use-3-eyebrow = IT & Onboarding
+use-3-title = Zugänge sicher bereitstellen
+use-3-body = Schick neuen Mitarbeitenden Erstzugänge, VPN-Konfigurationen oder WLAN-Passwörter, ohne Spuren in E-Mail-Threads oder Ticketsystemen.
+use-4-eyebrow = Recht & regulierte Arbeit
+use-4-title = Vertrauliche Dokumente
+use-4-body = Übergib eine Akte oder einen Finanzbericht, ohne dass er in einem Postfach liegt, das Einsicht, Prüfungen oder Meldepflichten bei Datenpannen unterliegt.
+use-5-eyebrow = Privat
+use-5-title = Alltägliche Geheimnisse
+use-5-body = Schick deiner Steuerberatung ein Dokumentpasswort. Teile Streaming-Zugänge mit der Familie. Gib einer Handwerkerin den Alarmcode. Einfach genug für alle.
+use-6-eyebrow = Einfach so
+use-6-title = Überraschungen
+use-6-body = Ein Gutscheincode, ein Hinweis für die Schnitzeljagd oder eine Überraschung, die verschwindet, sobald sie gesehen wurde.
+
+cta-title = Schluss mit vertraulichen Infos im Klartext
+cta-intro = Erstelle in Sekunden einen verschlüsselten Link: einmal geöffnet und weg, oder offen bis zum Ablauf. Füge eine Passphrase für zusätzlichen Schutz hinzu. Kein Konto nötig, keine Daten erhoben.
+cta-button = Geheimnis erstellen
+
+## Create result
+
+result-eyebrow = Link bereit
+result-title = Verschicken und vergessen.
+result-intro = Kopiere den Link und teile ihn, wie du möchtest. Sobald du diese Seite verlässt, wird er nicht mehr angezeigt.
+result-share-label = Teilen-Link
+result-chips-label = Einstellungen des Geheimnisses
+result-chip-single = Einmalige Ansicht
+result-chip-multi = Offen bis zum Ablauf
+result-chip-expires = Läuft ab in { "{period}" }
+result-callout = Wer den vollständigen Link hat, kann das Geheimnis öffnen. Wenn du eine Passphrase gesetzt hast, schick sie auf einem anderen Weg als den Link.
+result-passphrase-reminder = Du hast eine Passphrase gesetzt. Die empfangende Person braucht sie zusätzlich zum Link.
+result-private-divider = private Steuerung · nur für dich
+result-burn-label = Brenn-Link
+result-burn-sub = jederzeit selbst zerstören
+result-burn-hint = Bewahre ihn privat auf. Öffnen und bestätigen zerstört das Geheimnis, bevor es jemand ansehen kann. Geht er verloren, lässt er sich nicht wiederherstellen.
+result-copy = Kopieren
+result-copied = Kopiert
+result-open = Link öffnen
+result-destroy = Jetzt zerstören
+result-destroyed = Zerstört. Das Geheimnis ist vom Server gelöscht.
+result-another = Weiteres Geheimnis erstellen
+create-encrypting = Wird in deinem Browser verschlüsselt …
+create-uploading = Wird hochgeladen …
+create-error-empty = Gib einen Text ein oder füge mindestens eine Datei hinzu.
+create-error-too-large = Das ist mehr, als diese Seite annimmt. Entferne Dateien oder kürze den Text.
+create-error-network = Der Server ist nicht erreichbar. Prüfe deine Verbindung und versuch es erneut.
+create-error-failed = Beim Erstellen des Geheimnisses ist etwas schiefgelaufen. Bitte versuch es erneut.
+
+## Reveal
 
 secret-title = Jemand hat ein Geheimnis mit dir geteilt
-secret-intro = Dieses Geheimnis wird möglicherweise gelöscht, sobald du es öffnest. Sei bereit und sichere alles, was du brauchst, bevor du die Seite verlässt.
+secret-intro = Es wird in deinem Browser entschlüsselt. Wurde es als einmalige Ansicht gesendet, wird es im Moment des Öffnens gelöscht. Öffne es also erst, wenn du bereit bist, es zu lesen und zu sichern.
 noscript-view = Zum Entschlüsseln in deinem Browser wird JavaScript benötigt. Bitte aktiviere es, um das Geheimnis anzusehen.
-secret-not-ready = Das Ansehen von Geheimnissen ist noch nicht verfügbar.
-secret-passphrase-note = Wenn die sendende Person eine Passphrase festgelegt hat, wirst du nach dem Klick danach gefragt.
 secret-reveal = Geheimnis anzeigen
+secret-passphrase-note = Wenn die sendende Person eine Passphrase festgelegt hat, wirst du nach dem Klick danach gefragt.
+reveal-armed-badge = Noch nichts geladen
+reveal-callout = Es wurde noch nichts geladen: Mehr sieht auch ein automatischer Scanner nicht. Das Anzeigen ist absichtlich manuell, damit E-Mail-Sicherheit, Chat-Vorschauen und Virenscanner dein Geheimnis nicht vor dir öffnen können.
+reveal-working-badge = In Arbeit
+reveal-fetching = Verschlüsseltes Geheimnis wird geladen …
+reveal-decrypting = Wird in deinem Browser entschlüsselt …
+reveal-passphrase-badge = Gesperrt
+reveal-passphrase-title = Dieses Geheimnis braucht eine Passphrase
+reveal-passphrase-intro = Die sendende Person hat ein zweites Schloss angebracht. Versuche passieren in deinem Browser; an den Server wird nichts gesendet.
+reveal-passphrase-label = Passphrase
+reveal-passphrase-submit = Entsperren
+reveal-wrong-passphrase = Diese Passphrase war nicht richtig. Versuch es erneut.
+reveal-revealed-title = Hier ist es. Sichere jetzt, was du brauchst.
+reveal-revealed-intro = Dieses Geheimnis wurde in deinem Browser entschlüsselt.
+reveal-single-view = Zerstört · das war die einzige Ansicht
+reveal-expires-one = Noch etwa eine Stunde offen
+reveal-expires-many = Noch etwa { "{hours}" } Stunden offen
+reveal-output-label = Geheimnis · lokal entschlüsselt
+reveal-copy-text = Kopieren
+reveal-download = Herunterladen
+reveal-close-warning = Geh sorgsam damit um. Sobald du diese Seite verlässt, lässt es sich nicht mehr abrufen, weder von dir noch von uns.
+reveal-create-own = Eigenes Geheimnis erstellen
+reveal-not-found-badge = Kein Geheimnis gefunden
+reveal-not-found-title = Hier gibt es kein Geheimnis.
+reveal-not-found-body = Dieser Link ist ungültig, oder das Geheimnis wurde bereits angesehen, ist abgelaufen oder wurde zerstört. Zu deinem Schutz speichert { -brand } nicht, was davon zutrifft.
+reveal-not-found-callout = Wenn du das Geheimnis noch brauchst, bitte um einen neuen Link, und prüfe, ob du die ganze URL kopiert hast, inklusive des Teils nach dem #.
+reveal-error-network = Der Server ist nicht erreichbar. Versuch es gleich noch einmal.
+reveal-error-corrupt = Dieses Geheimnis konnte nicht entschlüsselt werden. Der Link ist vielleicht unvollständig.
+
+## Burn
+
+burn-title = Dieses Geheimnis zerstören
+burn-badge = Scharf · noch nichts passiert
+burn-intro = Das ist ein Brenn-Link. Noch ist nichts passiert. Mit der Bestätigung wird das Geheimnis endgültig gelöscht, bevor es jemand öffnen kann.
+burn-confirm = Geheimnis zerstören
+burn-working = Wird zerstört …
+burn-done-badge = Gebrannt · Geheimnis zerstört
+burn-done-title = Das Geheimnis wurde zerstört.
+burn-done-body = Es ist vom Server gelöscht. Nichts davon wird aufbewahrt.
+burn-done-callout = Wer den Teilen-Link ab jetzt öffnet, erfährt nur, dass kein Geheimnis gefunden wurde, ohne zu erkennen, ob es angesehen, abgelaufen oder gebrannt wurde.
+burn-not-found-badge = Nichts zu zerstören
+burn-not-found-title = Nichts zu zerstören
+burn-not-found-body = Dieser Brenn-Link ist ungültig, oder das Geheimnis wurde bereits angesehen, ist abgelaufen oder wurde zerstört.
 
 ## How it works
 
-how-title = So funktioniert's
-how-tab-simple = Kurz erklärt
-how-tab-technical = Technische Details
+how-eyebrow = So funktioniert's
+how-title = Schick ein Geheimnis, das sich einmal öffnet und dann verschwindet
+how-intro = Keine Konten, keine Apps, kein Fachjargon. Die einfache Version dauert eine Minute; die technische nennt jedes Verfahren beim Namen.
+how-tab-simple = Einfach
+how-tab-technical = Ausführlich / technisch
+how-s-1-title = Du schreibst dein Geheimnis
+how-s-1-body = Tippe eine Nachricht oder hänge Dateien an: ein Passwort, eine private Notiz, ein Dokument. Bevor es dein Gerät verlässt, verschließt dein Browser es in einer versiegelten Box, die nur ein besonderer Schlüssel öffnen kann.
+how-s-2-title = Du bekommst einen Link zum Teilen
+how-s-2-body = { -brand } gibt dir einen einzigen Link, in dem der Schlüssel versteckt ist, nach dem #. Schick den Link, wie du willst. Der Schlüssel reist mit dem Link, nie über unsere Server, also können wir nicht in die Box schauen.
+how-s-3-title = Sie öffnen es, dann ist es weg
+how-s-3-body = Die empfangende Person klickt auf einen Button, ihr Browser öffnet die Box, und das Geheimnis wird von unserem Server gelöscht, bei einmaliger Ansicht sofort, sonst wenn die Zeit abläuft.
+how-s-callout-lead = Stell es dir wie eine Notiz vor, die nach einer Leserin verbrennt.
+how-s-callout = Du versiegelst sie, gibst sie weiter, und sobald sie gelesen wurde, ist sie weg. Selbst wir, die { -brand } betreiben, können nie lesen, was drinsteht, oder sie zurückholen.
+how-s-promises-eyebrow = Warum es sicher ist
+how-s-promises-title = Drei Versprechen, je eine Zeile
+how-s-p1-eyebrow = Privat
+how-s-p1-title = Wir können es nicht lesen
+how-s-p1-body = Dein Geheimnis wird auf deinem Gerät verschlüsselt. Wir speichern immer nur die versiegelte Box, nie den Schlüssel.
+how-s-p2-eyebrow = Vorübergehend
+how-s-p2-title = Es bleibt nicht liegen
+how-s-p2-body = Eine Ansicht oder eine Frist, die du wählst. Was zuerst eintritt, löscht das Geheimnis endgültig.
+how-s-p3-eyebrow = Überprüfbar
+how-s-p3-title = Jede Person kann unsere Arbeit prüfen
+how-s-p3-body = { -brand } ist quelloffen. Das Protokoll ist aufgeschrieben, und den Code kann jede Person lesen.
+how-s-faq-1-q = Brauche ich ein Konto?
+how-s-faq-1-a = Nein. Es gibt nichts zu registrieren und nichts zu installieren. { -brand } öffnen, Geheimnis schreiben, Link teilen.
+how-s-faq-2-q = Was, wenn die falsche Person den Link sieht?
+how-s-faq-2-a = Bei einmaliger Ansicht kann nur die erste Person, die den Link öffnet, lesen; danach sieht die eigentliche Empfängerin „kein Geheimnis gefunden“, und du weißt, dass etwas schiefging. Für mehr Sicherheit füge eine Passphrase hinzu und teile sie getrennt, und behalte deinen Brenn-Link, um das Geheimnis selbst zu zerstören.
+how-s-faq-3-q = Kann { -brand } mein Geheimnis lesen?
+how-s-faq-3-a = Nein. Der Schlüssel erreicht uns nie; er bleibt in deinem Link, auf deiner Seite. Wir haben nur eine verschlüsselte Version, die wir nicht öffnen können.
+how-s-faq-4-q = Was passiert, wenn niemand es öffnet?
+how-s-faq-4-a = Du wählst eine Ablaufzeit zwischen 15 Minuten und 14 Tagen. Wenn sie verstrichen ist, wird das Geheimnis automatisch gelöscht, ob es geöffnet wurde oder nicht.
+how-s-more = Willst du die echte Kryptografie hinter diesen Versprechen?
+how-s-more-link = Zur technischen Version →
+
+how-t-intro = Ein genauer Durchgang durch das, was mit deinen Daten in jedem Schritt passiert, mit allen Verfahren, Parametern und Vertrauensgrenzen. Das vollständige Protokoll steht in der SPEC im Repository.
+how-t-plain-lead = Kurz gesagt:
+how-t-1-eyebrow = Schritt 01 · Verschlüsseln
+how-t-1-title = Dein Geheimnis wird auf deinem Gerät versiegelt
+how-t-1-plain = Die Verschlüsselung passiert in deinem Browser, bevor etwas hochgeladen wird. Was wir erhalten, ist bereits unlesbar.
+how-t-1-d1 = Dein Browser erzeugt einen zufälligen 256-Bit-Seed und einen davon unabhängigen zufälligen 256-Bit-Inhaltsschlüssel. Text und Dateien werden mit einem kleinen Manifest zu einer Nutzlast gepackt, auf eine Größenklasse aufgefüllt und in 64-KiB-Blöcken mit AES-256-GCM unter dem Inhaltsschlüssel verschlüsselt.
+how-t-1-d2 = Jeder Block hat eine eigene Nonce aus einem zufälligen Präfix, seinem Index und einer Letzter-Block-Markierung. Blöcke können also nicht umsortiert, entfernt oder abgeschnitten werden, ohne dass ein Authentifizierungs-Tag fehlschlägt. Der Klartext berührt das Netzwerk nie.
+how-t-1-k1 = Verfahren
+how-t-1-v1 = AES-256-GCM, 64-KiB-Blöcke
+how-t-1-k2 = Inhaltsschlüssel
+how-t-1-v2 = 256 Bit, zufällig je Geheimnis
+how-t-1-k3 = Auffüllen
+how-t-1-v3 = Padmé, mindestens 64 KiB
+how-t-2-eyebrow = Schritt 02 · Schlüsselverwahrung
+how-t-2-title = Der Seed steckt im Link, nicht auf unseren Servern
+how-t-2-plain = Der Teil des Links nach dem # enthält den Seed, und Browser senden diesen Teil an keinen Server.
+how-t-2-d1 = Der Inhaltsschlüssel wird mit einem per HKDF-SHA-256 aus dem Seed abgeleiteten Schlüssel verpackt. Der Seed steht im URL-Fragment, das der Browser vor jeder Anfrage entfernt. Der einzige Wert, der dein Geheimnis entschlüsseln kann, ist also der einzige, den wir nie erhalten.
+how-t-2-d2 = Um das Geheimnis zu finden, leitet der Browser aus dem Seed einen separaten Suchwert ab, ebenfalls per HKDF, und sendet diesen. Wir speichern nur seinen SHA-256-Hash, sodass selbst eine Kopie unserer Datenbank nichts abrufen, verbrauchen oder zerstören kann.
+how-t-2-k1 = Ort des Seeds
+how-t-2-v1 = URL-Fragment #
+how-t-2-k2 = Ableitung
+how-t-2-v2 = HKDF-SHA-256
+how-t-2-k3 = Auf dem Server
+how-t-2-v3 = SHA-256 des Suchwerts
+how-t-3-eyebrow = Schritt 03 · Optionale Passphrase
+how-t-3-title = Ein zweites Schloss, das nur Menschen halten
+how-t-3-plain = Mit einer Passphrase kann selbst jemand mit dem vollständigen Link das Geheimnis nicht ohne sie öffnen.
+how-t-3-d1 = Eine Passphrase wird mit Argon2id gestreckt, einer speicherharten Schlüsselableitung, und mit dem Seed zum Verpackungsschlüssel kombiniert. Die Passphrase wird nie übertragen oder gespeichert.
+how-t-3-d2 = Speicherhärte macht Offline-Raten in großem Stil selbst auf GPUs teuer. Der gespeicherte Blob hat mit und ohne Passphrase exakt denselben Aufbau, sodass der Server nicht erkennen kann, welche Geheimnisse eine haben.
+how-t-3-k1 = KDF
+how-t-3-v1 = Argon2id, 64 MiB, 3 Durchläufe
+how-t-3-k2 = Salt
+how-t-3-v2 = 128 Bit zufällig
+how-t-3-k3 = Für den Server erkennbar?
+how-t-3-v3 = nein
+how-t-4-eyebrow = Schritt 04 · Übertragung & Speicherung
+how-t-4-title = Nur Geheimtext verlässt dein Gerät
+how-t-4-plain = Wir speichern eine verschlossene Box und eine Ablaufzeit. Sonst nichts: kein Klartext, kein Schlüssel, nichts über dich.
+how-t-4-d1 = Der Blob wird über TLS hochgeladen und als Geheimtext gespeichert, zusammen mit seiner Ablaufzeit, ob er einmalig oder zeitbegrenzt ist, und Hashes seiner Zugangsdaten. Wir behalten keinen Erstellungszeitpunkt, keinen Absender oder Empfänger, kein IP-Protokoll und keinen Zugriffsverlauf.
+how-t-4-d2 = Jedes Geheimnis wird vor der Verschlüsselung auf eine Größenklasse aufgefüllt, sodass die Länge eines Blobs nur eine grobe Größe verrät. Weil das gespeicherte Objekt ohne das Fragment bedeutungslos ist, liefern ein Server-Einbruch oder eine Herausgabeanordnung nur undurchsichtige Bytes.
+how-t-4-k1 = Unterwegs
+how-t-4-v1 = TLS
+how-t-4-k2 = Gespeichert
+how-t-4-v2 = Geheimtext + Ablauf
+how-t-4-k3 = Protokolle
+how-t-4-v3 = keine
+how-t-5-eyebrow = Schritt 05 · Abruf & Zerstörung
+how-t-5-title = Einmal ausgeliefert, dann gelöscht
+how-t-5-plain = Der Klick auf „Anzeigen“ übergibt die Box; bei einmaliger Ansicht löscht der Server seine Kopie genau dann. Oder du zerstörst es selbst mit dem Brenn-Link.
+how-t-5-d1 = Es wird nichts geladen, bevor die empfangende Person den Button drückt, sodass Link-Scanner ein einmaliges Geheimnis nicht verbrauchen können. Ein einmaliges Geheimnis gilt in dem Moment als verbraucht, in dem seine Bytes ausgeliefert werden: Nur derselbe Client kann es kurz erneut laden, dann wird es gelöscht. Ein zeitbegrenztes Geheimnis lässt sich bis zum Ablauf öffnen, dann wird es gelöscht.
+how-t-5-d2 = Jedes Geheimnis hat außerdem einen Brenn-Link aus einem separaten zufälligen Token, das der Server nur als Hash kennt. Bestätigen auf dieser Seite zerstört das Geheimnis sofort. Jeder Fehlschlag, ob unbekannt, verbraucht, abgelaufen oder gebrannt, erhält dieselbe Antwort, sodass sich durch Ausprobieren nichts über einen Link erfahren lässt.
+how-t-5-k1 = Einmalige Ansicht
+how-t-5-v1 = verbraucht bei Auslieferung
+how-t-5-k2 = Ablauf
+how-t-5-v2 = 15 Min – 14 Tage
+how-t-5-k3 = Kontrolle
+how-t-5-v3 = Brenn-Link
+how-t-threat-eyebrow = Bedrohungsmodell
+how-t-threat-title = Was { -brand } sehen kann und was nicht
+how-t-threat-intro = Die ehrliche Version. Hier verläuft die Vertrauensgrenze.
+how-t-threat-1-eyebrow = Verlässt dein Gerät nie
+how-t-threat-1-title = Was wir nicht sehen können
+how-t-threat-1-body = Deinen Klartext · den Seed und die Schlüssel · deine Passphrase · ob eine Passphrase gesetzt wurde · wer ein Geheimnis erstellt oder geöffnet hat. Nichts davon wird übertragen oder aufbewahrt.
+how-t-threat-2-eyebrow = Auf unseren Servern
+how-t-threat-2-title = Was wir haben
+how-t-threat-2-body = Einen verschlüsselten Blob, den wir nicht öffnen können · seine aufgefüllte Größenklasse · seine Ablaufzeit · ob er einmalig ist · Hashes seiner Zugangsdaten. Alles ohne den Link nutzlos.
+how-t-threat-3-eyebrow = Gut zu wissen
+how-t-threat-3-title = Die ehrlichen Einschränkungen
+how-t-threat-3-body = Wer den vollständigen Link (und ggf. die Passphrase) hat, kann das Geheimnis lesen; behandle den Link also wie das Geheimnis selbst. Wie bei jeder Web-App vertraust du dem Code, der an deinen Browser geliefert wird; deshalb ist { -brand } quelloffen und selbst hostbar. Der Server sieht Anfragen, während sie passieren, inklusive der IP-Adresse, behält davon aber nichts.
+how-t-spec-eyebrow = Kryptografische Spezifikation
+how-t-spec-title = Jedes Verfahren an einem Ort
+how-t-faq-eyebrow = Technische FAQ
+how-t-faq-title = Für Sicherheitsinteressierte
+how-t-faq-1-q = Wie wird die Einmaligkeit bei gleichzeitigen Zugriffen sichergestellt?
+how-t-faq-1-a = Das Anzeigen ist ein einziges bedingtes Update in der Datenbank: Genau eine gleichzeitige Anfrage kann ein Geheimnis von aktiv auf verbraucht setzen. Jede andere Anfrage, gleichzeitig oder später, erhält dieselbe allgemeine Antwort „kein Geheimnis gefunden“.
+how-t-faq-2-q = Warum das URL-Fragment statt eines Query-Parameters?
+how-t-faq-2-a = Query-Parameter werden an den Server gesendet und landen in Zugriffsprotokollen, Proxys und Analysen. Das Fragment (nach dem #) bleibt laut URL-Standard beim Client; der Browser nimmt es nie in eine Anfrage auf. Diese Eigenschaft ist die Grundlage des Zero-Knowledge-Designs.
+how-t-faq-3-q = Was hindert Link-Scanner daran, einmalige Geheimnisse vorzeitig zu verbrauchen?
+how-t-faq-3-a = Die Anzeigeseite ist eine statische Hülle, die nichts lädt. E-Mail-Sicherheit, Chat-Vorschauen und Virenscanner sehen nur diese Hülle; geladen wird erst nach einem echten Klick. Klickt doch ein Scanner, gilt das Geheimnis als verbraucht, und die empfangende Person sieht, dass es geöffnet wurde. Das ist das ehrliche Ergebnis: Etwas anderes hat es gelesen.
+how-t-faq-4-q = Kann ich das prüfen oder selbst hosten?
+how-t-faq-4-a = Ja. Quellcode und Protokollspezifikation sind unter AGPL-3.0 öffentlich, mit Konformitäts-Testvektoren, gegen die sich jede Implementierung prüfen kann. Betreib deine eigene Instanz, und die Vertrauensgrenze liegt ganz bei dir.
+how-t-faq-5-q = Wird für den Missbrauchsschutz etwas protokolliert?
+how-t-faq-5-a = Wir führen keine Zugriffsprotokolle je Geheimnis und keine IP-Historie. Die Ratenbegrenzung arbeitet mit kurzlebigen, gesalzenen Hashes der Client-Adressen, die sich nicht umkehren lassen, und die einzigen Statistiken sind Tagessummen, die nie mit einem Geheimnis verknüpft sind.
+how-cta-title = Lies den Code, dann erstelle ein Geheimnis
+how-cta-intro = Nimm uns nichts davon auf unser Wort: Es ist alles quelloffen. Oder probier es einfach aus.
+how-cta-button = Geheimnis erstellen
+how-cta-source = Quellcode ansehen
 
 ## About
 
-about-title = Über uns
+about-title = Über { -brand }
 about-lead = { -brand } ist ein einfacher Weg, Passwörter, Notizen und Dateien zu verschicken, die nicht dauerhaft herumliegen sollen.
 about-body-1 = Vertrauliches landet oft in Chatverläufen und Postfächern und bleibt dort jahrelang. { -brand } gibt dir einen Link, der nur eine begrenzte Zeit oder nur einmal funktioniert – danach ist das Geheimnis endgültig weg.
 about-body-2 = Wir haben { -brand } so gebaut, dass wir nicht lesen können, was du teilst. Dein Geheimnis wird auf deinem Gerät verschlüsselt, und der Schlüssel erreicht nie unsere Server.
@@ -81,59 +351,9 @@ contact-no-secrets = Bitte schick uns niemals geheime Links oder deren Inhalt pe
 
 ## Errors
 
+error-badge = Fehler
 error-404-title = Seite nicht gefunden
 error-404-body = Diese Seite gibt es nicht. Wenn du einem geheimen Link gefolgt bist, ist das Geheimnis vielleicht abgelaufen oder wurde schon geöffnet.
 error-500-title = Etwas ist schiefgelaufen
 error-500-body = Bei uns ist etwas Unerwartetes passiert. Bitte versuch es gleich noch einmal.
 error-home-link = Zur Startseite
-
-## Create result
-
-result-title = Dein Link ist fertig
-result-intro = Kopiere den Link und teile ihn. Sobald du diese Seite verlässt, wird er nicht mehr angezeigt.
-result-share-label = Teilen-Link
-result-burn-label = Brenn-Link
-result-burn-hint = Behalte diesen für dich. Damit kannst du das Geheimnis zerstören, bevor es jemand liest. Geht er verloren, lässt er sich nicht wiederherstellen.
-result-passphrase-reminder = Du hast eine Passphrase gesetzt. Schick sie auf einem anderen Weg als den Link.
-result-copy = Kopieren
-result-copied = Kopiert
-result-destroy = Jetzt zerstören
-result-destroyed = Zerstört. Das Geheimnis ist vom Server gelöscht.
-result-another = Weiteres Geheimnis erstellen
-create-encrypting = Wird in deinem Browser verschlüsselt …
-create-uploading = Wird hochgeladen …
-create-error-empty = Gib einen Text ein oder füge mindestens eine Datei hinzu.
-create-error-too-large = Das ist mehr, als diese Seite annimmt. Entferne Dateien oder kürze den Text.
-create-error-network = Der Server ist nicht erreichbar. Prüfe deine Verbindung und versuch es erneut.
-create-error-failed = Beim Erstellen des Geheimnisses ist etwas schiefgelaufen. Bitte versuch es erneut.
-
-## Reveal states
-
-reveal-fetching = Verschlüsseltes Geheimnis wird geladen …
-reveal-decrypting = Wird in deinem Browser entschlüsselt …
-reveal-passphrase-title = Dieses Geheimnis braucht eine Passphrase
-reveal-passphrase-label = Passphrase
-reveal-passphrase-submit = Entsperren
-reveal-wrong-passphrase = Diese Passphrase war nicht richtig. Versuch es erneut.
-reveal-revealed-title = Hier ist es
-reveal-single-view = Das war die einzige Ansicht. Das Geheimnis wurde vom Server gelöscht.
-reveal-expires-one = Dieser Link funktioniert noch etwa eine Stunde.
-reveal-expires-many = Dieser Link funktioniert noch etwa { "{hours}" } Stunden.
-reveal-copy-text = Text kopieren
-reveal-download = Herunterladen
-reveal-close-warning = Sichere jetzt, was du brauchst. Sobald du diese Seite verlässt, lässt es sich nicht mehr abrufen.
-reveal-not-found-title = Hier gibt es kein Geheimnis
-reveal-not-found-body = Dieser Link ist ungültig, oder das Geheimnis wurde bereits angesehen, ist abgelaufen oder wurde zerstört. Wir speichern nicht, was davon zutrifft.
-reveal-error-network = Der Server ist nicht erreichbar. Versuch es gleich noch einmal.
-reveal-error-corrupt = Dieses Geheimnis konnte nicht entschlüsselt werden. Der Link ist vielleicht unvollständig.
-
-## Burn page
-
-burn-title = Dieses Geheimnis zerstören
-burn-intro = Das ist ein Brenn-Link. Noch ist nichts passiert. Mit der Bestätigung wird das Geheimnis endgültig gelöscht, bevor es jemand öffnen kann.
-burn-confirm = Geheimnis zerstören
-burn-working = Wird zerstört …
-burn-done-title = Das Geheimnis wurde zerstört
-burn-done-body = Es ist vom Server gelöscht. Wer den Teilen-Link öffnet, sieht nur noch, dass kein Geheimnis gefunden wurde.
-burn-not-found-title = Nichts zu zerstören
-burn-not-found-body = Dieser Brenn-Link ist ungültig, oder das Geheimnis wurde bereits angesehen, ist abgelaufen oder wurde zerstört.

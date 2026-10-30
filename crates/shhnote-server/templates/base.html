@@ -1,9 +1,12 @@
+{%- import "partials/icons.html" as icons -%}
+{%- import "partials/menus.html" as menus -%}
 <!doctype html>
 <html lang="{{ ctx.locale }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="dark light">
   <title>{% block title %}{% endblock %} – {{ ctx.t("brand-name") }}</title>
   <link rel="stylesheet" href="/static/app.css?v={{ ctx.asset_version() }}">
   <script type="module" src="/static/app.js?v={{ ctx.asset_version() }}"></script>
@@ -16,47 +19,65 @@
   <script type="application/json" data-i18n>{{ ctx.ui_json()|safe }}</script>
   <a class="skip-link" href="#main">{{ ctx.t("skip-to-content") }}</a>
 
-  <header class="site-header">
-    <div class="container header-inner">
-      <a class="brand" href="{{ ctx.href("") }}">{{ ctx.t("brand-name") }}</a>
-      <nav class="site-nav" aria-label="{{ ctx.t("nav-label") }}">
-        <ul>
-          <li><a href="{{ ctx.href("") }}">{{ ctx.t("nav-home") }}</a></li>
-          <li><a href="{{ ctx.href("/how-it-works") }}">{{ ctx.t("nav-how-it-works") }}</a></li>
-          <li><a href="{{ ctx.href("/about") }}">{{ ctx.t("nav-about") }}</a></li>
-          <li><a href="{{ ctx.href("/contact") }}">{{ ctx.t("nav-contact") }}</a></li>
-        </ul>
+  <header class="header">
+    <div class="container header__inner">
+      <a class="logo" href="{{ ctx.href("") }}"><span class="color-accent">shh</span>note</a>
+      <nav class="header__nav" aria-label="{{ ctx.t("nav-label") }}">
+        <a href="{{ ctx.href("") }}"{% if ctx.path == "" %} aria-current="page"{% endif %}>{{ ctx.t("nav-home") }}</a>
+        <a href="{{ ctx.href("/how-it-works") }}"{% if ctx.path == "/how-it-works" %} aria-current="page"{% endif %}>{{ ctx.t("nav-how-it-works") }}</a>
+        <a href="{{ ctx.href("/about") }}"{% if ctx.path == "/about" %} aria-current="page"{% endif %}>{{ ctx.t("nav-about") }}</a>
+        <a href="{{ ctx.href("/contact") }}"{% if ctx.path == "/contact" %} aria-current="page"{% endif %}>{{ ctx.t("nav-contact") }}</a>
       </nav>
-      <nav class="language-nav" aria-label="{{ ctx.t("nav-language") }}">
-        <ul>
-          {%- for language in ctx.languages %}
-          <li>
-            {%- if language.current %}
-            <span lang="{{ language.code }}" aria-current="true">{{ language.name }}</span>
-            {%- else %}
-            <a href="{{ language.href }}" lang="{{ language.code }}" hreflang="{{ language.code }}" data-keep-hash>{{ language.name }}</a>
-            {%- endif %}
-          </li>
-          {%- endfor %}
-        </ul>
-      </nav>
+      <div class="header__controls">
+        {% call menus::language_menu(ctx, false) %}{% endcall %}
+        {% call menus::theme_menu(ctx, false) %}{% endcall %}
+      </div>
     </div>
   </header>
 
-  <main id="main" class="container">
+  <main id="main">
     {% block content %}{% endblock %}
   </main>
 
-  <footer class="site-footer">
-    <div class="container footer-inner">
-      <p>{{ ctx.t("footer-tagline") }}</p>
-      <nav aria-label="{{ ctx.t("footer-label") }}">
-        <ul>
-          <li><a href="{{ ctx.href("/terms") }}">{{ ctx.t("page-terms") }}</a></li>
-          <li><a href="{{ ctx.href("/privacy") }}">{{ ctx.t("page-privacy") }}</a></li>
-          <li><a href="{{ ctx.href("/security") }}">{{ ctx.t("page-security") }}</a></li>
-        </ul>
-      </nav>
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a class="logo" href="{{ ctx.href("") }}"><span class="color-accent">shh</span>note</a>
+          <p>{{ ctx.t("footer-tagline") }}</p>
+        </div>
+        <nav class="footer-col" aria-label="{{ ctx.t("footer-product") }}">
+          <h2>{{ ctx.t("footer-product") }}</h2>
+          <ul>
+            <li><a href="{{ ctx.href("/how-it-works") }}">{{ ctx.t("nav-how-it-works") }}</a></li>
+            <li><a href="{{ ctx.href("/how-it-works#technical") }}">{{ ctx.t("page-how-technical") }}</a></li>
+            <li><a href="{{ ctx.href("/about") }}">{{ ctx.t("nav-about") }}</a></li>
+            <li><a href="{{ ctx.href("/contact") }}">{{ ctx.t("nav-contact") }}</a></li>
+            {%- if !ctx.repo_url().is_empty() %}
+            <li><a href="{{ ctx.repo_url() }}" rel="noopener">{{ ctx.t("footer-source") }}</a></li>
+            {%- endif %}
+          </ul>
+        </nav>
+        <nav class="footer-col" aria-label="{{ ctx.t("footer-legal") }}">
+          <h2>{{ ctx.t("footer-legal") }}</h2>
+          <ul>
+            <li><a href="{{ ctx.href("/privacy") }}">{{ ctx.t("page-privacy") }}</a></li>
+            <li><a href="{{ ctx.href("/terms") }}">{{ ctx.t("page-terms") }}</a></li>
+            <li><a href="{{ ctx.href("/security") }}">{{ ctx.t("page-security") }}</a></li>
+          </ul>
+        </nav>
+        <div class="footer-col">
+          <h2>{{ ctx.t("footer-settings") }}</h2>
+          <ul>
+            <li>{% call menus::language_menu(ctx, true) %}{% endcall %}</li>
+            <li>{% call menus::theme_menu(ctx, true) %}{% endcall %}</li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <div>{{ ctx.t("brand-name") }} · AGPL-3.0</div>
+        <div>{{ ctx.t("footer-notice") }}</div>
+      </div>
     </div>
   </footer>
 </body>

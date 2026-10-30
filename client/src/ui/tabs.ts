@@ -31,6 +31,22 @@ export function wireTabs(): void {
       });
     });
 
+    // In-page links (and footer links) may name a tab by its id.
+    for (const link of $$<HTMLAnchorElement>("[data-tab-link]", container)) {
+      link.addEventListener("click", (event) => {
+        const index = tabs.findIndex((tab) => tab.id === link.dataset["tabLink"]);
+        if (index < 0) return;
+        event.preventDefault();
+        select(index, true);
+        history.replaceState(null, "", `#${panels[index]?.id ?? ""}`);
+        container.scrollIntoView({ block: "start" });
+      });
+    }
+    window.addEventListener("hashchange", () => {
+      const index = panels.findIndex((panel) => panel && `#${panel.id}` === location.hash);
+      if (index >= 0) select(index, false);
+    });
+
     const fromHash = panels.findIndex((panel) => panel && `#${panel.id}` === location.hash);
     select(Math.max(fromHash, 0), false);
     tabList.hidden = false;

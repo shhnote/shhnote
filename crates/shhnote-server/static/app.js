@@ -195,10 +195,6 @@ function setState(root, state) {
 function setStatus(el, text) {
   el.textContent = text;
 }
-function localePrefix() {
-  const lang = document.documentElement.lang || "en";
-  return `/${lang}`;
-}
 function wireCopy(button, getText, copiedLabel) {
   const original = button.textContent ?? "";
   button.addEventListener("click", async () => {
@@ -275,6 +271,73 @@ function wireBurn(page) {
       }
     }
   });
+}
+
+// src/ui/chrome.ts
+function wireMenus() {
+  const menus = $$("details[data-menu]");
+  document.addEventListener("click", (event) => {
+    for (const menu of menus) {
+      if (menu.open && !menu.contains(event.target)) menu.open = false;
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    for (const menu of menus) {
+      if (menu.open) {
+        menu.open = false;
+        menu.querySelector("summary")?.focus();
+      }
+    }
+  });
+  for (const menu of menus) {
+    menu.addEventListener("focusout", (event) => {
+      if (!menu.contains(event.relatedTarget)) menu.open = false;
+    });
+  }
+}
+var THEMES = /* @__PURE__ */ new Set(["light", "dark", "light-hc", "dark-hc"]);
+var THEME_KEY = "shhnote-theme";
+function wireTheme() {
+  const apply = (choice) => {
+    if (THEMES.has(choice)) document.documentElement.dataset["theme"] = choice;
+    else delete document.documentElement.dataset["theme"];
+    for (const button of $$("[data-theme-choice]")) {
+      button.setAttribute("aria-checked", String((button.dataset["themeChoice"] ?? "auto") === choice));
+    }
+  };
+  let stored = "auto";
+  try {
+    stored = localStorage.getItem(THEME_KEY) ?? "auto";
+  } catch {
+  }
+  apply(stored);
+  for (const button of $$("[data-theme-choice]")) {
+    button.addEventListener("click", () => {
+      const choice = button.dataset["themeChoice"] ?? "auto";
+      apply(choice);
+      try {
+        if (choice === "auto") localStorage.removeItem(THEME_KEY);
+        else localStorage.setItem(THEME_KEY, choice);
+      } catch {
+      }
+      button.closest("details")?.removeAttribute("open");
+    });
+  }
+}
+function wirePasswordToggles() {
+  for (const wrapper of $$("[data-pwd-input]")) {
+    const input = wrapper.querySelector("input");
+    const button = wrapper.querySelector("[data-pwd-toggle]");
+    if (!input || !button) continue;
+    button.addEventListener("click", () => {
+      const shown = input.type === "password";
+      input.type = shown ? "text" : "password";
+      wrapper.dataset["shown"] = String(shown);
+      button.setAttribute("aria-pressed", String(shown));
+      input.focus();
+    });
+  }
 }
 
 // src/crypto/kdf.ts
@@ -613,7 +676,8 @@ function wireCreate(form, dropzone) {
   const status = $("[data-form-status]", form);
   const submit = $("button[type=submit]", form);
   const result = $("[data-create-result]");
-  show(form);
+  const wrapper = $("[data-create-wrapper]");
+  show(wrapper);
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const data = new FormData(form);
@@ -651,10 +715,15 @@ function wireCreate(form, dropzone) {
         { lookupKey: encrypted.lookupKey, burnKey: encrypted.burnKey, lifetime, ttlSeconds },
         encrypted.blob
       );
-      showResult(api, result, encrypted.fragment, encrypted.burnFragment, passphrase.length > 0);
+      const expiryLabel = $("select[name=expiry]", form).selectedOptions[0]?.textContent ?? "";
+      showResult(api, result, encrypted.fragment, encrypted.burnFragment, {
+        hasPassphrase: passphrase.length > 0,
+        singleView: lifetime === "single_view",
+        expiryLabel
+      });
       form.reset();
       dropzone?.reset();
-      hide(form);
+      hide(wrapper);
       setStatus(status, "");
     } catch (e) {
       setStatus(status, messageFor(e));
@@ -663,13 +732,15 @@ function wireCreate(form, dropzone) {
     }
   });
 }
-function showResult(api, result, fragment, burnFragment, hasPassphrase) {
-  const origin = location.origin + localePrefix();
-  const shareLink = `${origin}/s#${fragment}`;
-  const burnLink = `${origin}/burn#${burnFragment}`;
+function showResult(api, result, fragment, burnFragment, info) {
+  const shareLink = `${location.origin}/s#${fragment}`;
+  const burnLink = `${location.origin}/burn#${burnFragment}`;
   $("[data-share-link]", result).textContent = shareLink;
   $("[data-burn-link]", result).textContent = burnLink;
-  if (hasPassphrase) show($("[data-passphrase-reminder]", result));
+  $("[data-open-link]", result).href = shareLink;
+  $("[data-chip-lifetime]", result).textContent = t(info.singleView ? "result-chip-single" : "result-chip-multi");
+  $("[data-chip-expiry]", result).textContent = t("result-chip-expires", { period: info.expiryLabel });
+  if (info.hasPassphrase) show($("[data-passphrase-reminder]", result));
   wireCopy($("[data-copy=share]", result), () => shareLink, t("result-copied"));
   wireCopy($("[data-copy=burn]", result), () => burnLink, t("result-copied"));
   const destroy = $("[data-destroy]", result);
@@ -778,19 +849,22 @@ function wireReveal(page) {
     event.preventDefault();
     if (!event.isTrusted) return;
     const button = $("button", armed);
+    const working = $("[data-working-status]", page);
     button.disabled = true;
     try {
-      setStatus(armedStatus, t("reveal-fetching"));
+      setState(page, "working");
+      setStatus(working, t("reveal-fetching"));
       const revealed = await api.reveal(await lookup(seed));
       blob = revealed.blob;
       claimToken = revealed.claimToken;
       expiresInHours = revealed.expiresInHours;
-      setStatus(armedStatus, t("reveal-decrypting"));
+      setStatus(working, t("reveal-decrypting"));
       await tryDecrypt(null);
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) {
         setState(page, "notfound");
       } else {
+        setState(page, "armed");
         setStatus(armedStatus, e instanceof ApiError ? t("reveal-error-network") : t("reveal-error-corrupt"));
         button.disabled = false;
       }
@@ -835,10 +909,12 @@ function wireReveal(page) {
     history.replaceState(null, "", location.pathname);
     const revealed = $("[data-state=revealed]", page);
     const lifetime = $("[data-lifetime]", revealed);
+    const lifetimeText = $("[data-lifetime-text]", lifetime);
     if (claimToken !== null) {
-      lifetime.textContent = t("reveal-single-view");
+      lifetimeText.textContent = t("reveal-single-view");
     } else if (expiresInHours !== null) {
-      lifetime.textContent = expiresInHours <= 1 ? t("reveal-expires-one") : t("reveal-expires-many", { hours: expiresInHours });
+      lifetime.classList.remove("badge--danger");
+      lifetimeText.textContent = expiresInHours <= 1 ? t("reveal-expires-one") : t("reveal-expires-many", { hours: expiresInHours });
     }
     if (payload.text !== null) {
       const block = $("[data-text-block]", revealed);
@@ -850,13 +926,26 @@ function wireReveal(page) {
     const list = $("[data-files]", revealed);
     for (const file of payload.files) {
       const item = document.createElement("li");
-      const label = document.createElement("span");
-      label.textContent = `${file.name} (${formatSize(file.bytes.length)})`;
+      item.className = "file-card";
+      const icon = document.createElement("span");
+      icon.className = "file-card__icon";
+      icon.setAttribute("aria-hidden", "true");
+      icon.textContent = "\u25A3";
+      const meta = document.createElement("div");
+      meta.className = "file-card__meta";
+      const name = document.createElement("div");
+      name.className = "file-card__name";
+      name.textContent = file.name;
+      const sub = document.createElement("div");
+      sub.className = "file-card__sub";
+      sub.textContent = `${file.type || "application/octet-stream"} \xB7 ${formatSize(file.bytes.length)}`;
+      meta.append(name, sub);
       const link = document.createElement("a");
+      link.className = "btn btn--ghost btn--sm";
       link.href = URL.createObjectURL(new Blob([file.bytes], { type: file.type || "application/octet-stream" }));
       link.download = file.name.replaceAll(/[/\\]/g, "_") || "file";
       link.textContent = t("reveal-download");
-      item.append(label, link);
+      item.append(icon, meta, link);
       list.append(item);
     }
     setState(page, "revealed");
@@ -901,6 +990,20 @@ function wireTabs() {
         if (step) select((index + step + tabs.length) % tabs.length, true);
       });
     });
+    for (const link of $$("[data-tab-link]", container)) {
+      link.addEventListener("click", (event) => {
+        const index = tabs.findIndex((tab) => tab.id === link.dataset["tabLink"]);
+        if (index < 0) return;
+        event.preventDefault();
+        select(index, true);
+        history.replaceState(null, "", `#${panels[index]?.id ?? ""}`);
+        container.scrollIntoView({ block: "start" });
+      });
+    }
+    window.addEventListener("hashchange", () => {
+      const index = panels.findIndex((panel) => panel && `#${panel.id}` === location.hash);
+      if (index >= 0) select(index, false);
+    });
     const fromHash = panels.findIndex((panel) => panel && `#${panel.id}` === location.hash);
     select(Math.max(fromHash, 0), false);
     tabList.hidden = false;
@@ -909,6 +1012,9 @@ function wireTabs() {
 }
 
 // src/main.ts
+wireTheme();
+wireMenus();
+wirePasswordToggles();
 for (const link of $$("a[data-keep-hash]")) {
   link.addEventListener("click", () => {
     if (location.hash) link.hash = location.hash;

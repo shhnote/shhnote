@@ -9,8 +9,6 @@ pub enum Doc {
     Terms,
     Privacy,
     Security,
-    HowItWorksSimple,
-    HowItWorksTechnical,
 }
 
 // Compiled into the binary. Only our own files go here: Markdown can contain raw HTML,
@@ -23,32 +21,12 @@ const SOURCES: &[(&str, Doc, &str)] = &[
         Doc::Security,
         include_str!("../content/en/security.md"),
     ),
-    (
-        "en",
-        Doc::HowItWorksSimple,
-        include_str!("../content/en/how-it-works-simple.md"),
-    ),
-    (
-        "en",
-        Doc::HowItWorksTechnical,
-        include_str!("../content/en/how-it-works-technical.md"),
-    ),
     ("de", Doc::Terms, include_str!("../content/de/terms.md")),
     ("de", Doc::Privacy, include_str!("../content/de/privacy.md")),
     (
         "de",
         Doc::Security,
         include_str!("../content/de/security.md"),
-    ),
-    (
-        "de",
-        Doc::HowItWorksSimple,
-        include_str!("../content/de/how-it-works-simple.md"),
-    ),
-    (
-        "de",
-        Doc::HowItWorksTechnical,
-        include_str!("../content/de/how-it-works-technical.md"),
     ),
 ];
 
@@ -91,13 +69,7 @@ mod tests {
 
     #[test]
     fn every_locale_has_every_doc() {
-        let all = [
-            Doc::Terms,
-            Doc::Privacy,
-            Doc::Security,
-            Doc::HowItWorksSimple,
-            Doc::HowItWorksTechnical,
-        ];
+        let all = [Doc::Terms, Doc::Privacy, Doc::Security];
         let content = Content::load();
         for locale in LOCALES {
             for doc in all {

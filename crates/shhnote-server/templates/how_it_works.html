@@ -1,25 +1,150 @@
 {% extends "base.html" %}
+{%- import "partials/icons.html" as icons -%}
 
 {% block title %}{{ ctx.t("how-title") }}{% endblock %}
 
 {% block content %}
-<h1>{{ ctx.t("how-title") }}</h1>
-
-{# Without JavaScript both sections are shown one after the other; the script turns them into tabs. #}
 <div class="tabs" data-tabs>
-  <div class="tab-list" role="tablist" aria-label="{{ ctx.t("how-title") }}" hidden>
-    <button type="button" role="tab" id="tab-simple" aria-controls="simple" aria-selected="true">{{ ctx.t("how-tab-simple") }}</button>
-    <button type="button" role="tab" id="tab-technical" aria-controls="technical" aria-selected="false" tabindex="-1">{{ ctx.t("how-tab-technical") }}</button>
+<section class="section section--hero">
+  <div class="container">
+    <header class="section__header">
+      <p class="eyebrow">{{ ctx.t("how-eyebrow") }}</p>
+      <h1>{{ ctx.t("how-title") }}</h1>
+      <p class="section__intro">{{ ctx.t("how-intro") }}</p>
+    </header>
+    {# Without the script both panels show one after the other; the script turns this into tabs. #}
+    <div class="doc-switch" role="tablist" aria-label="{{ ctx.t("how-title") }}" hidden style="margin-top:2rem">
+      <button type="button" role="tab" id="tab-simple" aria-controls="simple" aria-selected="true">{{ ctx.t("how-tab-simple") }}</button>
+      <button type="button" role="tab" id="tab-technical" aria-controls="technical" aria-selected="false" tabindex="-1">{{ ctx.t("how-tab-technical") }}</button>
+    </div>
   </div>
+</section>
 
-  <section class="tab-panel prose" id="simple" role="tabpanel" aria-labelledby="tab-simple">
+<section class="section tab-panel" id="simple" role="tabpanel" aria-labelledby="tab-simple">
+  <div class="container stack" style="gap:3rem">
     <h2 class="tab-heading">{{ ctx.t("how-tab-simple") }}</h2>
-    {{ simple|safe }}
-  </section>
+    <ol class="flow">
+      {%- for i in ["1", "2", "3"] %}
+      <li class="flow__step">
+        <div class="flow__num" aria-hidden="true">{{ i }}</div>
+        <div class="flow__body">
+          <h3>{{ ctx.tn("how-s-", i, "-title") }}</h3>
+          <p>{{ ctx.tn("how-s-", i, "-body") }}</p>
+        </div>
+      </li>
+      {%- endfor %}
+    </ol>
+    <div class="callout">
+      {% call icons::icon("shield", 22) %}{% endcall %}
+      <span><b>{{ ctx.t("how-s-callout-lead") }}</b> {{ ctx.t("how-s-callout") }}</span>
+    </div>
+    <div>
+      <header class="section__header">
+        <p class="eyebrow">{{ ctx.t("how-s-promises-eyebrow") }}</p>
+        <h2>{{ ctx.t("how-s-promises-title") }}</h2>
+      </header>
+      <ul class="fenced-cells">
+        {%- for i in ["1", "2", "3"] %}
+        <li class="cell">
+          <p class="eyebrow">{{ ctx.tn("how-s-p", i, "-eyebrow") }}</p>
+          <h3>{{ ctx.tn("how-s-p", i, "-title") }}</h3>
+          <p>{{ ctx.tn("how-s-p", i, "-body") }}</p>
+        </li>
+        {%- endfor %}
+      </ul>
+    </div>
+    <div class="faq">
+      {%- for i in ["1", "2", "3", "4"] %}
+      <details{% if loop.first %} open{% endif %}>
+        <summary>{{ ctx.tn("how-s-faq-", i, "-q") }}</summary>
+        <p>{{ ctx.tn("how-s-faq-", i, "-a") }}</p>
+      </details>
+      {%- endfor %}
+    </div>
+    <p class="color-muted">{{ ctx.t("how-s-more") }} <a class="color-accent" href="#technical" data-tab-link="tab-technical">{{ ctx.t("how-s-more-link") }}</a></p>
+  </div>
+</section>
 
-  <section class="tab-panel prose" id="technical" role="tabpanel" aria-labelledby="tab-technical">
+<section class="section tab-panel" id="technical" role="tabpanel" aria-labelledby="tab-technical">
+  <div class="container stack" style="gap:3rem">
     <h2 class="tab-heading">{{ ctx.t("how-tab-technical") }}</h2>
-    {{ technical|safe }}
-  </section>
+    <p class="section__intro" style="text-align:center">{{ ctx.t("how-t-intro") }}</p>
+    <div class="explainer">
+      {%- for i in ["1", "2", "3", "4", "5"] %}
+      <div class="explainer__row">
+        <div class="explainer__aside">
+          <p class="eyebrow">{{ ctx.tn("how-t-", i, "-eyebrow") }}</p>
+          <h3>{{ ctx.tn("how-t-", i, "-title") }}</h3>
+          <p class="plain"><b>{{ ctx.t("how-t-plain-lead") }}</b> {{ ctx.tn("how-t-", i, "-plain") }}</p>
+        </div>
+        <div class="explainer__detail">
+          <p>{{ ctx.tn("how-t-", i, "-d1") }}</p>
+          <p>{{ ctx.tn("how-t-", i, "-d2") }}</p>
+          <dl class="spec-list">
+            {%- for j in ["1", "2", "3"] %}
+            <div><dt>{{ ctx.tn2("how-t-", i, "-k", j) }}</dt><dd>{{ ctx.tn2("how-t-", i, "-v", j) }}</dd></div>
+            {%- endfor %}
+          </dl>
+        </div>
+      </div>
+      {%- endfor %}
+    </div>
+
+    <div>
+      <header class="section__header">
+        <p class="eyebrow">{{ ctx.t("how-t-threat-eyebrow") }}</p>
+        <h2>{{ ctx.t("how-t-threat-title") }}</h2>
+        <p class="section__intro">{{ ctx.t("how-t-threat-intro") }}</p>
+      </header>
+      <ul class="bordered-cells">
+        {%- for i in ["1", "2", "3"] %}
+        <li class="cell">
+          <p class="eyebrow">{{ ctx.tn("how-t-threat-", i, "-eyebrow") }}</p>
+          <h3>{{ ctx.tn("how-t-threat-", i, "-title") }}</h3>
+          <p>{{ ctx.tn("how-t-threat-", i, "-body") }}</p>
+        </li>
+        {%- endfor %}
+      </ul>
+    </div>
+
+    <div>
+      <header class="section__header">
+        <p class="eyebrow">{{ ctx.t("how-t-spec-eyebrow") }}</p>
+        <h2>{{ ctx.t("how-t-spec-title") }}</h2>
+      </header>
+      {% include "partials/spec_sheet.html" %}
+    </div>
+
+    <div>
+      <header class="section__header">
+        <p class="eyebrow">{{ ctx.t("how-t-faq-eyebrow") }}</p>
+        <h2>{{ ctx.t("how-t-faq-title") }}</h2>
+      </header>
+      <div class="faq">
+        {%- for i in ["1", "2", "3", "4", "5"] %}
+        <details{% if loop.first %} open{% endif %}>
+          <summary>{{ ctx.tn("how-t-faq-", i, "-q") }}</summary>
+          <p>{{ ctx.tn("how-t-faq-", i, "-a") }}</p>
+        </details>
+        {%- endfor %}
+      </div>
+    </div>
+  </div>
+</section>
 </div>
+
+<section class="section section--cta">
+  <div class="container">
+    <header class="section__header">
+      <h2>{{ ctx.t("how-cta-title") }}</h2>
+      <p class="section__intro">{{ ctx.t("how-cta-intro") }}</p>
+      <p class="btn-row btn-row--center">
+        <a href="{{ ctx.href("") }}" class="btn btn--primary">{{ ctx.t("how-cta-button") }}</a>
+        {%- if !ctx.repo_url().is_empty() %}
+        <a href="{{ ctx.repo_url() }}" rel="noopener" class="btn btn--ghost">{{ ctx.t("how-cta-source") }}</a>
+        {%- endif %}
+      </p>
+    </header>
+  </div>
+</section>
 {% endblock %}
