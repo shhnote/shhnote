@@ -1403,6 +1403,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "shhnote-argon2-wasm"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+]
+
+[[package]]
 name = "shhnote-core"
 version = "0.1.0"
 dependencies = [

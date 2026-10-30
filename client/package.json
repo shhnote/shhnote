@@ -1,0 +1,18 @@
+{
+  "name": "@shhnote/client",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "shhnote client: encrypts and decrypts secrets in the browser against the shhnote API",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "esbuild src/index.ts --bundle --format=esm --target=es2022 --outfile=dist/shh.js"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  }
+}
