@@ -27,6 +27,7 @@ const KNOWN: &[&str] = &[
     "SHH_PORT",
     "SHH_LOG_LEVEL",
     "SHH_LOCALES",
+    "SHH_DEFAULT_LOCALE",
     "SHH_TRUSTED_PROXIES",
     "SHH_DB",
     "SHH_SQLITE_PATH",
@@ -68,8 +69,10 @@ pub struct Config {
     pub secret_key: Secret,
     pub bind_addr: SocketAddr,
     pub log_level: LogLevel,
-    // UI languages to offer, in preference order (first is the fallback). Empty: all built in.
+    // UI languages to offer. Empty: all built in.
     pub locales: Vec<String>,
+    // Where visitors land whose browser asks for none of them; `None` means the first offered.
+    pub default_locale: Option<String>,
     pub trusted_proxies: Vec<IpAddr>,
     pub database: Database,
     pub storage: Storage,
@@ -277,6 +280,20 @@ impl Config {
             }
         }
 
+        let default_locale = vars
+            .get("SHH_DEFAULT_LOCALE")
+            .map(|v| v.trim().to_ascii_lowercase())
+            .filter(|v| !v.is_empty());
+        if let Some(code) = &default_locale
+            && !locales.is_empty()
+            && !locales.contains(code)
+        {
+            return Err(invalid(
+                "SHH_DEFAULT_LOCALE",
+                format!("{code} is not in SHH_LOCALES"),
+            ));
+        }
+
         let admin_token = match vars.get("SHH_ADMIN_TOKEN") {
             None => None,
             Some(_) => Some(vars.key("SHH_ADMIN_TOKEN")?),
@@ -292,6 +309,7 @@ impl Config {
             bind_addr: SocketAddr::new(host, port),
             log_level: vars.parse_or("SHH_LOG_LEVEL", LogLevel::Error)?,
             locales,
+            default_locale,
             trusted_proxies,
             database: Database::from_vars(&vars)?,
             storage: Storage::from_vars(&vars)?,
@@ -534,6 +552,19 @@ mod tests {
         let config = Config::from_vars(&with(&[("SHH_LOCALES", " de, EN ,de")])).unwrap();
         assert_eq!(config.locales, vec!["de", "en"]);
         assert!(Config::from_vars(&with(&[])).unwrap().locales.is_empty());
+        let config = Config::from_vars(&with(&[
+            ("SHH_LOCALES", "en,de"),
+            ("SHH_DEFAULT_LOCALE", "DE"),
+        ]))
+        .unwrap();
+        assert_eq!(config.default_locale.as_deref(), Some("de"));
+        assert_eq!(
+            invalid_name(Config::from_vars(&with(&[
+                ("SHH_LOCALES", "de"),
+                ("SHH_DEFAULT_LOCALE", "en")
+            ]))),
+            "SHH_DEFAULT_LOCALE"
+        );
     }
 
     fn with(changes: &[(&str, &str)]) -> HashMap<String, String> {

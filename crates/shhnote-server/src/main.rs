@@ -14,7 +14,8 @@ async fn main() {
         }
     };
     log::init(config.log_level);
-    if let Err(e) = shhnote_server::i18n::enabled_locales(&config.locales) {
+    if let Err(e) = shhnote_server::i18n::offered(&config.locales, config.default_locale.as_deref())
+    {
         eprintln!("configuration error: {e}");
         std::process::exit(1);
     }

@@ -58,31 +58,47 @@ impl I18n {
     }
 }
 
-// The locales an instance offers (`SHH_LOCALES`), as entries of the built-in list.
-pub fn enabled_locales(wanted: &[String]) -> Result<Vec<&'static str>, String> {
-    if wanted.is_empty() {
-        return Ok(LOCALES.to_vec());
-    }
-    wanted
-        .iter()
-        .map(|code| {
-            LOCALES
-                .iter()
-                .copied()
-                .find(|l| l.eq_ignore_ascii_case(code))
-                .ok_or_else(|| {
-                    format!(
-                        "SHH_LOCALES: unknown language {code:?}; available: {}",
-                        LOCALES.join(", ")
-                    )
-                })
-        })
-        .collect()
+// What an instance offers (`SHH_LOCALES`) and where unmatched visitors land
+// (`SHH_DEFAULT_LOCALE`, otherwise the first offered), as entries of the built-in list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Offered {
+    pub locales: Vec<&'static str>,
+    pub default: &'static str,
 }
 
-// Picks the best enabled locale from an `Accept-Language` header like `de-CH,de;q=0.9,en;q=0.8`;
-// the first enabled locale is the fallback.
-pub fn negotiate(accept_language: Option<&str>, enabled: &[&'static str]) -> &'static str {
+pub fn offered(wanted: &[String], default: Option<&str>) -> Result<Offered, String> {
+    let builtin = |code: &str| {
+        LOCALES
+            .iter()
+            .copied()
+            .find(|l| l.eq_ignore_ascii_case(code))
+            .ok_or_else(|| {
+                format!(
+                    "SHH_LOCALES: unknown language {code:?}; available: {}",
+                    LOCALES.join(", ")
+                )
+            })
+    };
+    let locales: Vec<&'static str> = if wanted.is_empty() {
+        LOCALES.to_vec()
+    } else {
+        wanted
+            .iter()
+            .map(|code| builtin(code))
+            .collect::<Result<_, _>>()?
+    };
+    let default = match default {
+        Some(code) => builtin(code)?,
+        None => locales[0],
+    };
+    if !locales.contains(&default) {
+        return Err(format!("SHH_DEFAULT_LOCALE: {default} is not offered"));
+    }
+    Ok(Offered { locales, default })
+}
+
+// Picks the best offered locale from an `Accept-Language` header like `de-CH,de;q=0.9,en;q=0.8`.
+pub fn negotiate(accept_language: Option<&str>, offered: &Offered) -> &'static str {
     let mut best: Option<(&'static str, f32)> = None;
     for part in accept_language.unwrap_or_default().split(',') {
         let mut pieces = part.split(';');
@@ -92,17 +108,18 @@ pub fn negotiate(accept_language: Option<&str>, enabled: &[&'static str]) -> &'s
             .and_then(|q| q.parse().ok())
             .unwrap_or(1.0);
         let language = tag.split('-').next().unwrap_or_default();
-        let Some(&locale) = enabled.iter().find(|l| l.eq_ignore_ascii_case(language)) else {
+        let Some(&locale) = offered
+            .locales
+            .iter()
+            .find(|l| l.eq_ignore_ascii_case(language))
+        else {
             continue;
         };
         if quality > 0.0 && best.is_none_or(|(_, best_quality)| quality > best_quality) {
             best = Some((locale, quality));
         }
     }
-    best.map_or(
-        enabled.first().copied().unwrap_or(DEFAULT_LOCALE),
-        |(locale, _)| locale,
-    )
+    best.map_or(offered.default, |(locale, _)| locale)
 }
 
 #[cfg(test)]
@@ -136,16 +153,18 @@ mod tests {
 
     #[test]
     fn negotiates_locale() {
-        assert_eq!(negotiate(None, LOCALES), "en");
-        assert_eq!(negotiate(Some("de-CH,de;q=0.9,en;q=0.8"), LOCALES), "de");
-        assert_eq!(negotiate(Some("fr,en;q=0.5,de;q=0.7"), LOCALES), "de");
-        assert_eq!(negotiate(Some("fr"), LOCALES), "en");
-        assert_eq!(negotiate(Some("de;q=0"), LOCALES), "en");
-        // Only enabled locales count, and the first one is the fallback.
-        assert_eq!(negotiate(Some("en"), &["de"]), "de");
-        assert_eq!(negotiate(None, &["de", "en"]), "de");
-        assert_eq!(enabled_locales(&[]).unwrap(), LOCALES);
-        assert_eq!(enabled_locales(&["DE".to_string()]).unwrap(), vec!["de"]);
-        assert!(enabled_locales(&["fr".to_string()]).is_err());
+        let all = offered(&[], None).unwrap();
+        assert_eq!(negotiate(None, &all), "en");
+        assert_eq!(negotiate(Some("de-CH,de;q=0.9,en;q=0.8"), &all), "de");
+        assert_eq!(negotiate(Some("fr,en;q=0.5,de;q=0.7"), &all), "de");
+        assert_eq!(negotiate(Some("fr"), &all), "en");
+        assert_eq!(negotiate(Some("de;q=0"), &all), "en");
+        // Only offered locales count; the default is explicit or the first offered.
+        let german = offered(&["DE".to_string()], None).unwrap();
+        assert_eq!(negotiate(Some("en"), &german), "de");
+        let both = offered(&["en".to_string(), "de".to_string()], Some("de")).unwrap();
+        assert_eq!(negotiate(None, &both), "de");
+        assert!(offered(&["fr".to_string()], None).is_err());
+        assert!(offered(&["de".to_string()], Some("en")).is_err());
     }
 }

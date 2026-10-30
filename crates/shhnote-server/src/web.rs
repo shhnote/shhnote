@@ -29,7 +29,7 @@ const MIB: u64 = 1024 * 1024;
 pub(crate) struct Shared {
     i18n: I18n,
     // Offered languages in preference order; the first is the redirect fallback.
-    locales: Vec<&'static str>,
+    offered: i18n::Offered,
     pub(crate) store: Store,
     pub(crate) settings: Arc<SettingsCell>,
     pub(crate) limiter: Arc<RateLimiter>,
@@ -57,7 +57,8 @@ pub(crate) struct PageState {
 pub fn router(config: &Config, api: &ApiState) -> Router {
     let shared = Arc::new(Shared {
         i18n: I18n::load(),
-        locales: i18n::enabled_locales(&config.locales).expect("SHH_LOCALES is checked at startup"),
+        offered: i18n::offered(&config.locales, config.default_locale.as_deref())
+            .expect("SHH_LOCALES and SHH_DEFAULT_LOCALE are checked at startup"),
         store: api.store.clone(),
         settings: api.settings.clone(),
         limiter: api.limiter.clone(),
@@ -80,8 +81,8 @@ pub fn router(config: &Config, api: &ApiState) -> Router {
         .route("/static/argon2.wasm", get(argon2_wasm))
         .route("/static/fonts/inter.woff2", get(font_regular))
         .route("/static/fonts/inter-italic.woff2", get(font_italic));
-    let locales = shared.locales.clone();
-    for &locale in &locales {
+    let offered = shared.offered.clone();
+    for &locale in &offered.locales {
         let state = PageState {
             shared: shared.clone(),
             locale,
@@ -90,7 +91,7 @@ pub fn router(config: &Config, api: &ApiState) -> Router {
     }
 
     router
-        .fallback_service(any(redirect_to_locale).with_state(locales))
+        .fallback_service(any(redirect_to_locale).with_state(offered))
         .layer(middleware::map_response_with_state(
             shared,
             security_headers,
@@ -143,6 +144,7 @@ impl PageState {
     pub(crate) fn ctx(&self, path: &str) -> Ctx<'_> {
         let languages = self
             .shared
+            .offered
             .locales
             .iter()
             .map(|&code| LanguageLink {
@@ -495,7 +497,7 @@ pub(crate) fn render(state: &PageState, page: impl Template) -> Response {
 
 // Paths without a locale, like `/` or `/s`, are sent to the same page in the browser's language.
 // Browsers keep the `#` part of the link across the redirect, so secret fragments survive it.
-async fn redirect_to_locale(State(locales): State<Vec<&'static str>>, req: Request) -> Response {
+async fn redirect_to_locale(State(offered): State<i18n::Offered>, req: Request) -> Response {
     let path = req.uri().path();
     if path.starts_with("/static/") {
         return StatusCode::NOT_FOUND.into_response();
@@ -505,7 +507,7 @@ async fn redirect_to_locale(State(locales): State<Vec<&'static str>>, req: Reque
         .headers()
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|v| v.to_str().ok());
-    let locale = i18n::negotiate(accept_language, &locales);
+    let locale = i18n::negotiate(accept_language, &offered);
     // A link made under a language this instance no longer offers keeps working in another.
     let path = i18n::LOCALES
         .iter()
