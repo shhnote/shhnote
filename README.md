@@ -35,7 +35,7 @@ Caddy fetches the TLS certificate; the site is up at your domain and the admin p
 Rust (stable, with the `wasm32-unknown-unknown` target) and Node 24.
 
 ```sh
-cp .env.example .env            # SQLite, local addresses, nothing else needed
+cp .env.example .env            # SQLite and local addresses; set SHH_SECRET_KEY to any 32+ characters
 scripts/build-client.sh         # Argon2 WASM module and the JavaScript bundles
 cargo run -p shhnote-server     # http://localhost:3000
 cargo test --workspace          # add SHH_TEST_PG_URL=postgres://… to cover Postgres too
