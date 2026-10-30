@@ -48,10 +48,13 @@ async function errorFor(response: Response): Promise<ApiError> {
   return new ApiError(response.status, code);
 }
 
-async function send(input: string, init: RequestInit): Promise<Response> {
+// Anything with fetch's shape: the browser's own, Node's, or a test double.
+export type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
+
+async function send(fetchImpl: Fetch, input: string, init: RequestInit): Promise<Response> {
   let response: Response;
   try {
-    response = await fetch(input, { ...init, credentials: "omit", cache: "no-store" });
+    response = await fetchImpl(input, { ...init, credentials: "omit", cache: "no-store" });
   } catch {
     throw new ApiError(0, "network");
   }
@@ -61,7 +64,13 @@ async function send(input: string, init: RequestInit): Promise<Response> {
 
 // Talks to one instance's API (SPEC §4). Identifiers travel only in request bodies.
 export class Api {
-  constructor(private readonly base: string) {}
+  private readonly base: string;
+  private readonly fetchImpl: Fetch;
+
+  constructor(base: string, fetchImpl?: Fetch) {
+    this.base = base.replace(/\/+$/, "");
+    this.fetchImpl = fetchImpl ?? ((input, init) => fetch(input, init));
+  }
 
   static fromPage(): Api {
     const base = document.body.dataset["api"];
@@ -70,7 +79,7 @@ export class Api {
   }
 
   async config(): Promise<InstanceConfig> {
-    const response = await send(`${this.base}/config`, { method: "GET" });
+    const response = await send(this.fetchImpl, `${this.base}/config`, { method: "GET" });
     return (await response.json()) as InstanceConfig;
   }
 
@@ -85,13 +94,13 @@ export class Api {
     // `meta` must come first; the server validates it before reading the blob.
     form.append("meta", new Blob([json], { type: "application/json" }));
     form.append("blob", new Blob([blob as BlobPart], { type: "application/octet-stream" }), "blob");
-    await send(`${this.base}/secrets`, { method: "POST", body: form });
+    await send(this.fetchImpl, `${this.base}/secrets`, { method: "POST", body: form });
   }
 
   async reveal(lookup: Uint8Array, claimToken?: string): Promise<Revealed> {
     const body: Record<string, string> = { lookup: toBase64Url(lookup) };
     if (claimToken) body["claim_token"] = claimToken;
-    const response = await send(`${this.base}/secrets/reveal`, {
+    const response = await send(this.fetchImpl, `${this.base}/secrets/reveal`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -105,7 +114,7 @@ export class Api {
   }
 
   async confirm(lookup: Uint8Array, claimToken: string): Promise<void> {
-    await send(`${this.base}/secrets/confirm`, {
+    await send(this.fetchImpl, `${this.base}/secrets/confirm`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ lookup: toBase64Url(lookup), claim_token: claimToken }),
@@ -113,7 +122,7 @@ export class Api {
   }
 
   async report(lookup: Uint8Array): Promise<void> {
-    await send(`${this.base}/reports`, {
+    await send(this.fetchImpl, `${this.base}/reports`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ lookup: toBase64Url(lookup) }),
@@ -121,7 +130,7 @@ export class Api {
   }
 
   async burn(burnToken: Uint8Array): Promise<void> {
-    await send(`${this.base}/secrets/burn`, {
+    await send(this.fetchImpl, `${this.base}/secrets/burn`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ burn_token: toBase64Url(burnToken) }),

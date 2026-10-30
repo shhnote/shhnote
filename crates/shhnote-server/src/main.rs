@@ -1,7 +1,7 @@
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use shhnote_core::{config::Config, settings::Settings};
-use shhnote_server::{api::ApiState, app, scheduler, storage::Blobs};
+use shhnote_server::{api::ApiState, app, log, scheduler, storage::Blobs};
 use shhnote_store::Store;
 
 #[tokio::main]
@@ -9,15 +9,20 @@ async fn main() {
     let config = match Config::load() {
         Ok(config) => config,
         Err(e) => {
-            eprintln!("config error: {e}");
+            shhnote_server::log_error!("config error: {e}");
             std::process::exit(1);
         }
     };
+    log::init(config.log_level);
+    if let Err(e) = shhnote_server::i18n::enabled_locales(&config.locales) {
+        eprintln!("configuration error: {e}");
+        std::process::exit(1);
+    }
 
     let store = match Store::connect(&config.database).await {
         Ok(store) => store,
         Err(e) => {
-            eprintln!("database error: {e}");
+            shhnote_server::log_error!("database error: {e}");
             std::process::exit(1);
         }
     };
@@ -25,13 +30,13 @@ async fn main() {
     let overrides = match store.setting_overrides().await {
         Ok(overrides) => overrides,
         Err(e) => {
-            eprintln!("database error: {e}");
+            shhnote_server::log_error!("database error: {e}");
             std::process::exit(1);
         }
     };
     let (settings, warnings) = Settings::with_overrides(&overrides);
     for warning in warnings {
-        eprintln!("warning: {warning}");
+        shhnote_server::log_warn!("{warning}");
     }
 
     if std::env::args().nth(1).as_deref() == Some("reset-admin") {
@@ -40,14 +45,14 @@ async fn main() {
                 "deleted {n} admin key(s); SHH_ADMIN_TOKEN works again until a new one is created"
             ),
             Err(e) => {
-                eprintln!("database error: {e}");
+                shhnote_server::log_error!("database error: {e}");
                 std::process::exit(1);
             }
         }
         return;
     }
     if config.admin_token.is_some() && matches!(store.admin_key_count().await, Ok(n) if n > 0) {
-        eprintln!(
+        shhnote_server::log_error!(
             "warning: SHH_ADMIN_TOKEN is set but an admin API key exists, so the token is ignored; unset it"
         );
     }
@@ -56,7 +61,7 @@ async fn main() {
         Some(external) => match Blobs::open(external).await {
             Ok(blobs) => Some(Arc::new(blobs)),
             Err(e) => {
-                eprintln!("storage error: {e}");
+                shhnote_server::log_error!("storage error: {e}");
                 std::process::exit(1);
             }
         },
@@ -64,7 +69,7 @@ async fn main() {
     };
 
     if !settings.inline_enabled && storage.is_none() {
-        eprintln!(
+        shhnote_server::log_error!(
             "warning: inline_enabled is off but SHH_STORAGE is inline, so blobs stay in the database"
         );
     }

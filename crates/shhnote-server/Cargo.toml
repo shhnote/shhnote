@@ -3,6 +3,10 @@ name = "shhnote-server"
 version.workspace = true
 edition.workspace = true
 
+[[bin]]
+name = "shhnote"
+path = "src/main.rs"
+
 [dependencies]
 shhnote-core.workspace = true
 shhnote-store.workspace = true

@@ -1,4 +1,17 @@
 export { Argon2 } from "./crypto/argon2.ts";
+export {
+  type ClientOptions,
+  type CreateOptions,
+  type Created,
+  type ParsedFragment,
+  type RevealOptions,
+  type RevealedSecret,
+  burnSecret,
+  createSecret,
+  parseFragment,
+  revealSecret,
+} from "./client.ts";
+export { Api, ApiError, type Fetch, type InstanceConfig, type Lifetime } from "./ui/api.ts";
 export { fromBase64Url, toBase64Url } from "./crypto/bytes.ts";
 export type { Payload, PayloadFile } from "./crypto/container.ts";
 export { type ErrorCode, ShhError } from "./crypto/error.ts";

@@ -116,4 +116,24 @@ Ein Settings-Patch wird über die aktuellen Werte gelegt und als Ganzes geprüft
 
 ## Einen Client bauen
 
+Der schnellste Weg ist das Modul `shh.js`, das jede Instanz unter `/static/shh.js` ausliefert und das auch unter Node läuft. Es fasst den gesamten Ablauf in vier Aufrufen zusammen und nimmt eine fetch-Implementierung deiner Wahl:
+
+```js
+import { Argon2, createSecret, revealSecret, burnSecret } from "./shh.js";
+
+const api = { apiBase: "{{api_url}}" };
+const { fragment, burnFragment } = await createSecret({
+  ...api,
+  payload: { text: "das Passwort ist hunter2", files: [] },
+  lifetime: "single_view",
+  ttlSeconds: 86400,
+});
+console.log(`{{site_url}}/s#${fragment}`);
+
+const { payload } = await revealSecret(`#${fragment}`, api);
+await burnSecret(`#${burnFragment}`, api); // jetzt 404: es war einmalig
+```
+
+Mit Passphrase geschützte Geheimnisse brauchen zusätzlich `argon2: await Argon2.load(wasmBytes)` mit dem Modul von `/static/argon2.wasm`.
+
 Leite die Werte, die die API erwartet, aus dem 32-Byte-Seed im Teilen-Link ab: `lookup = HKDF-SHA-256(seed, info "shhnote/lookup/v1")`, base64url-kodiert gesendet. Das Brenn-Token sind separate zufällige 32 Bytes, die der Ersteller behält. Blob-Aufbau, Schlüsselumhüllung, Chunking und Auffüllung sind auf der Seite [Technische Details]({{site_url}}/how-it-works#technical) spezifiziert und durch die Konformitätsvektoren byteweise festgelegt; ein Client, der sie reproduziert, ist mit jeder Instanz kompatibel.

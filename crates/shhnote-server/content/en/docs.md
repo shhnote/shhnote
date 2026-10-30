@@ -116,4 +116,24 @@ A settings patch is merged over the current values and validated as a whole; on 
 
 ## Building a client
 
+The quickest route is the `shh.js` module served by every instance at `/static/shh.js`, which also runs under Node. It wraps the whole flow in four calls and takes a fetch implementation of your choice:
+
+```js
+import { Argon2, createSecret, revealSecret, burnSecret } from "./shh.js";
+
+const api = { apiBase: "{{api_url}}" };
+const { fragment, burnFragment } = await createSecret({
+  ...api,
+  payload: { text: "the password is hunter2", files: [] },
+  lifetime: "single_view",
+  ttlSeconds: 86400,
+});
+console.log(`{{site_url}}/s#${fragment}`);
+
+const { payload } = await revealSecret(`#${fragment}`, api);
+await burnSecret(`#${burnFragment}`, api); // 404 now: it was single-view
+```
+
+Passphrase-protected secrets additionally need `argon2: await Argon2.load(wasmBytes)` with the module from `/static/argon2.wasm`.
+
 Derive the values the API expects from the 32-byte seed in the share link: `lookup = HKDF-SHA-256(seed, info "shhnote/lookup/v1")`, send it base64url-encoded. The burn token is a separate random 32 bytes the creator keeps. Blob layout, key wrapping, chunking and padding are specified on the [technical details]({{site_url}}/how-it-works#technical) page and pinned byte for byte by the conformance vectors; a client that reproduces them is compatible with every instance.

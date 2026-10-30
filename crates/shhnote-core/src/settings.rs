@@ -46,6 +46,8 @@ pub struct Settings {
     pub site_name: String,
     pub contact_email: String,
     pub security_email: String,
+    // Link to the running code, shown in the footer; empty hides it.
+    pub source_url: String,
     pub padding: PaddingPolicy,
     pub claim_window_secs: i64,
     pub min_ttl_secs: i64,
@@ -78,6 +80,7 @@ impl Default for Settings {
             site_name: "shhnote".into(),
             contact_email: String::new(),
             security_email: String::new(),
+            source_url: "https://github.com/zbcdo/shhnote".into(),
             padding: PaddingPolicy::Padme {
                 min: PaddingPolicy::DEFAULT_MIN,
             },
@@ -127,6 +130,10 @@ impl Settings {
                 }
                 "contact_email" => {
                     s.contact_email = value.to_string();
+                    Ok(())
+                }
+                "source_url" => {
+                    s.source_url = value.trim().to_string();
                     Ok(())
                 }
                 "security_email" => {
@@ -224,6 +231,7 @@ impl Settings {
             ("site_name", self.site_name.clone()),
             ("contact_email", self.contact_email.clone()),
             ("security_email", self.security_email.clone()),
+            ("source_url", self.source_url.clone()),
             ("padding_mode", padding_mode.to_string()),
             ("padding_min", padding_min),
             ("padding_ladder", padding_ladder),

@@ -1357,3 +1357,47 @@ async fn admin_api_guessing_is_rate_limited() {
         StatusCode::TOO_MANY_REQUESTS
     );
 }
+
+#[tokio::test]
+async fn only_enabled_locales_are_served() {
+    let vars: HashMap<String, String> = [
+        ("SHH_ENV", "local"),
+        ("SHH_URL", "http://localhost:3000"),
+        ("SHH_SECRET_KEY", &"s".repeat(44)),
+        ("SHH_DB", "sqlite"),
+        ("SHH_LOCALES", "de"),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+    let config = Config::from_vars(&vars).unwrap();
+    let path = sqlite_path_for_tests("web-locales");
+    let store = Store::connect_url(&format!("sqlite://{}?mode=rwc", path.display()))
+        .await
+        .unwrap();
+    let app = app::router(
+        &config,
+        ApiState::new(store, Settings::default(), &config, None),
+    );
+
+    // A link under a language that is not offered lands on the same page in one that is.
+    let reply = get_page(&app, "/en/terms", "").await;
+    assert_eq!(reply.status, StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(location(&reply), "/de/terms");
+    let home = get_page(&app, "/de", "").await;
+    assert_eq!(home.status, StatusCode::OK);
+    assert!(
+        !text(&home).contains(r#"href="/en""#),
+        "menu offers a disabled language"
+    );
+    // An English browser still lands on the only language there is.
+    let req = Request::get("/")
+        .header(header::HOST, "localhost")
+        .header(header::ACCEPT_LANGUAGE, "en-US,en;q=0.9")
+        .body(Body::empty())
+        .unwrap();
+    let reply = send(&app, req).await;
+    assert_eq!(reply.status, StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(location(&reply), "/de");
+    assert!(reply.headers.contains_key("permissions-policy"));
+}

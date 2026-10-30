@@ -301,7 +301,7 @@ async fn create(
                 Ok(true) => Ok(StatusCode::CREATED),
                 other => {
                     if let Err(e) = storage.delete(&key).await {
-                        eprintln!("storage: could not remove orphaned object: {e}");
+                        crate::log_error!("storage: could not remove orphaned object: {e}");
                     }
                     match other {
                         Ok(_) => Err(ApiError::bad_request("duplicate_key")),
@@ -539,7 +539,7 @@ impl ApiError {
     }
 
     fn internal(e: impl std::fmt::Display) -> Self {
-        eprintln!("store error: {e}");
+        crate::log_error!("store error: {e}");
         Self::Internal
     }
 }

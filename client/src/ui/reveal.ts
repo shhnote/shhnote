@@ -29,6 +29,21 @@ export function wireReveal(page: HTMLElement): void {
   let blob: Uint8Array | null = null;
   let claimToken: string | null = null;
   let expiresInHours: number | null = null;
+  let shown: Payload | null = null;
+  const objectUrls: string[] = [];
+
+  // Best effort (SPEC §10): overwrite what we can once the page is left. Strings cannot be
+  // wiped in JavaScript; file bytes and the DOM can.
+  window.addEventListener("pagehide", () => {
+    blob?.fill(0);
+    blob = null;
+    for (const file of shown?.files ?? []) file.bytes.fill(0);
+    shown = null;
+    for (const url of objectUrls) URL.revokeObjectURL(url);
+    const pre = page.querySelector("[data-text]");
+    if (pre) pre.textContent = "";
+    page.querySelector("[data-files]")?.replaceChildren();
+  });
 
   armed.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -95,6 +110,7 @@ export function wireReveal(page: HTMLElement): void {
 
   async function display(payload: Payload): Promise<void> {
     blob = null;
+    shown = payload;
     // The fragment has done its job; keep the seed out of history and autocomplete.
     history.replaceState(null, "", location.pathname);
 
@@ -137,6 +153,7 @@ export function wireReveal(page: HTMLElement): void {
       const link = document.createElement("a");
       link.className = "btn btn--ghost btn--sm";
       link.href = URL.createObjectURL(new Blob([file.bytes as BlobPart], { type: file.type || "application/octet-stream" }));
+      objectUrls.push(link.href);
       // Keep the sender's name, but never let it carry a path.
       link.download = file.name.replaceAll(/[/\\]/g, "_") || "file";
       link.textContent = t("reveal-download");

@@ -340,7 +340,7 @@ impl S3 {
                 return Err("S3 bucket versioning is enabled; turn it off (SPEC §6)".into());
             }
             if body.contains("<Status>Suspended</Status>") {
-                eprintln!(
+                crate::log_error!(
                     "warning: S3 bucket versioning is suspended; versions created earlier still exist"
                 );
             }
@@ -349,7 +349,7 @@ impl S3 {
             Err(format!("S3 bucket check failed: {status}"))
         } else {
             // Some S3-compatible services don't implement the versioning API at all.
-            eprintln!(
+            crate::log_error!(
                 "warning: could not check S3 bucket versioning ({status}); make sure it is off"
             );
             Ok(())

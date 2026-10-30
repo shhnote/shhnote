@@ -337,7 +337,13 @@ struct Group {
 const GROUPS: &[(&str, &[&str])] = &[
     (
         "general",
-        &["site_name", "contact_email", "security_email", "regions"],
+        &[
+            "site_name",
+            "contact_email",
+            "security_email",
+            "source_url",
+            "regions",
+        ],
     ),
     (
         "secrets",
@@ -700,7 +706,7 @@ pub(crate) async fn mint_key(
 }
 
 fn db_error(state: &PageState, error: shhnote_store::Error) -> Response {
-    eprintln!("admin: database error: {error}");
+    crate::log_error!("admin: database error: {error}");
     error_page(state, StatusCode::INTERNAL_SERVER_ERROR)
 }
 

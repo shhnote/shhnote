@@ -5,6 +5,7 @@ pub mod app;
 pub mod clock;
 pub mod content;
 pub mod i18n;
+pub mod log;
 pub mod ratelimit;
 pub mod scheduler;
 pub mod storage;

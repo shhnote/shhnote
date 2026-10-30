@@ -105,10 +105,10 @@ async function errorFor(response) {
   }
   return new ApiError(response.status, code);
 }
-async function send(input, init) {
+async function send(fetchImpl, input, init) {
   let response;
   try {
-    response = await fetch(input, { ...init, credentials: "omit", cache: "no-store" });
+    response = await fetchImpl(input, { ...init, credentials: "omit", cache: "no-store" });
   } catch {
     throw new ApiError(0, "network");
   }
@@ -116,17 +116,19 @@ async function send(input, init) {
   return response;
 }
 var Api = class _Api {
-  constructor(base) {
-    this.base = base;
-  }
   base;
+  fetchImpl;
+  constructor(base, fetchImpl) {
+    this.base = base.replace(/\/+$/, "");
+    this.fetchImpl = fetchImpl ?? ((input, init) => fetch(input, init));
+  }
   static fromPage() {
     const base = document.body.dataset["api"];
     if (!base) throw new Error("page has no data-api attribute");
     return new _Api(base);
   }
   async config() {
-    const response = await send(`${this.base}/config`, { method: "GET" });
+    const response = await send(this.fetchImpl, `${this.base}/config`, { method: "GET" });
     return await response.json();
   }
   async create(meta, blob) {
@@ -139,12 +141,12 @@ var Api = class _Api {
     });
     form.append("meta", new Blob([json], { type: "application/json" }));
     form.append("blob", new Blob([blob], { type: "application/octet-stream" }), "blob");
-    await send(`${this.base}/secrets`, { method: "POST", body: form });
+    await send(this.fetchImpl, `${this.base}/secrets`, { method: "POST", body: form });
   }
   async reveal(lookup2, claimToken) {
     const body = { lookup: toBase64Url(lookup2) };
     if (claimToken) body["claim_token"] = claimToken;
-    const response = await send(`${this.base}/secrets/reveal`, {
+    const response = await send(this.fetchImpl, `${this.base}/secrets/reveal`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body)
@@ -157,21 +159,21 @@ var Api = class _Api {
     };
   }
   async confirm(lookup2, claimToken) {
-    await send(`${this.base}/secrets/confirm`, {
+    await send(this.fetchImpl, `${this.base}/secrets/confirm`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ lookup: toBase64Url(lookup2), claim_token: claimToken })
     });
   }
   async report(lookup2) {
-    await send(`${this.base}/reports`, {
+    await send(this.fetchImpl, `${this.base}/reports`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ lookup: toBase64Url(lookup2) })
     });
   }
   async burn(burnToken) {
-    await send(`${this.base}/secrets/burn`, {
+    await send(this.fetchImpl, `${this.base}/secrets/burn`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ burn_token: toBase64Url(burnToken) })
@@ -897,6 +899,18 @@ function wireReveal(page) {
   let blob = null;
   let claimToken = null;
   let expiresInHours = null;
+  let shown = null;
+  const objectUrls = [];
+  window.addEventListener("pagehide", () => {
+    blob?.fill(0);
+    blob = null;
+    for (const file of shown?.files ?? []) file.bytes.fill(0);
+    shown = null;
+    for (const url of objectUrls) URL.revokeObjectURL(url);
+    const pre = page.querySelector("[data-text]");
+    if (pre) pre.textContent = "";
+    page.querySelector("[data-files]")?.replaceChildren();
+  });
   armed.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!event.isTrusted) return;
@@ -958,6 +972,7 @@ function wireReveal(page) {
   }
   async function display(payload) {
     blob = null;
+    shown = payload;
     history.replaceState(null, "", location.pathname);
     const revealed = $("[data-state=revealed]", page);
     const lifetime = $("[data-lifetime]", revealed);
@@ -995,6 +1010,7 @@ function wireReveal(page) {
       const link = document.createElement("a");
       link.className = "btn btn--ghost btn--sm";
       link.href = URL.createObjectURL(new Blob([file.bytes], { type: file.type || "application/octet-stream" }));
+      objectUrls.push(link.href);
       link.download = file.name.replaceAll(/[/\\]/g, "_") || "file";
       link.textContent = t("reveal-download");
       item.append(icon, meta, link);

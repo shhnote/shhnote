@@ -57,7 +57,7 @@ async fn require_admin(State(state): State<ApiState>, req: Request, next: Next) 
                 }
             }
             Err(e) => {
-                eprintln!("admin api: database error: {e}");
+                crate::log_error!("admin api: database error: {e}");
                 return error_response(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "internal",
@@ -91,7 +91,7 @@ async fn require_admin(State(state): State<ApiState>, req: Request, next: Next) 
 }
 
 fn db_error(e: shhnote_store::Error) -> Response {
-    eprintln!("admin api: database error: {e}");
+    crate::log_error!("admin api: database error: {e}");
     error_response(
         StatusCode::INTERNAL_SERVER_ERROR,
         "internal",

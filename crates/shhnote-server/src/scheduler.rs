@@ -19,14 +19,14 @@ pub fn spawn(
             ticker.tick().await;
             let now = now();
             if let Err(e) = store.sweep(now).await {
-                eprintln!("scheduler: sweep failed: {e}");
+                crate::log_error!("scheduler: sweep failed: {e}");
             }
             scrub(&store, storage.as_deref()).await;
             let retention = settings.load().daily_retention_days;
             if retention > 0
                 && let Err(e) = store.rollup_daily(now - retention * 86_400).await
             {
-                eprintln!("scheduler: roll-up failed: {e}");
+                crate::log_error!("scheduler: roll-up failed: {e}");
             }
         }
     });
@@ -38,7 +38,7 @@ pub async fn scrub(store: &Store, storage: Option<&Blobs>) {
     let pending = match store.pending_deletes().await {
         Ok(pending) => pending,
         Err(e) => {
-            eprintln!("scheduler: listing pending deletes failed: {e}");
+            crate::log_error!("scheduler: listing pending deletes failed: {e}");
             return;
         }
     };
@@ -46,7 +46,7 @@ pub async fn scrub(store: &Store, storage: Option<&Blobs>) {
         return;
     }
     let Some(storage) = storage else {
-        eprintln!(
+        crate::log_error!(
             "scheduler: {} object(s) await deletion but no external tier is configured",
             pending.len()
         );
@@ -56,10 +56,10 @@ pub async fn scrub(store: &Store, storage: Option<&Blobs>) {
         match storage.delete(&key).await {
             Ok(()) => {
                 if let Err(e) = store.finish_delete(&lookup_key).await {
-                    eprintln!("scheduler: finishing delete failed: {e}");
+                    crate::log_error!("scheduler: finishing delete failed: {e}");
                 }
             }
-            Err(e) => eprintln!("scheduler: deleting object failed: {e}"),
+            Err(e) => crate::log_error!("scheduler: deleting object failed: {e}"),
         }
     }
 }

@@ -4,10 +4,10 @@ use askama::Template;
 use axum::{
     Router,
     extract::{Request, State},
-    http::{HeaderValue, StatusCode, header},
+    http::{HeaderName, HeaderValue, StatusCode, header},
     middleware,
     response::{Html, IntoResponse, Redirect, Response},
-    routing::get,
+    routing::{any, get},
 };
 use fluent_bundle::FluentArgs;
 use shhnote_core::{
@@ -20,17 +20,16 @@ use crate::{
     admin,
     api::ApiState,
     content::{Content, Doc},
-    i18n::{self, I18n, LOCALES},
+    i18n::{self, I18n},
     ratelimit::RateLimiter,
 };
-
-// TODO: settings. Empty hides the source links.
-const REPO_URL: &str = "https://github.com/zbcdo/shhnote";
 
 const MIB: u64 = 1024 * 1024;
 
 pub(crate) struct Shared {
     i18n: I18n,
+    // Offered languages in preference order; the first is the redirect fallback.
+    locales: Vec<&'static str>,
     pub(crate) store: Store,
     pub(crate) settings: Arc<SettingsCell>,
     pub(crate) limiter: Arc<RateLimiter>,
@@ -58,6 +57,7 @@ pub(crate) struct PageState {
 pub fn router(config: &Config, api: &ApiState) -> Router {
     let shared = Arc::new(Shared {
         i18n: I18n::load(),
+        locales: i18n::enabled_locales(&config.locales).expect("SHH_LOCALES is checked at startup"),
         store: api.store.clone(),
         settings: api.settings.clone(),
         limiter: api.limiter.clone(),
@@ -80,7 +80,8 @@ pub fn router(config: &Config, api: &ApiState) -> Router {
         .route("/static/argon2.wasm", get(argon2_wasm))
         .route("/static/fonts/inter.woff2", get(font_regular))
         .route("/static/fonts/inter-italic.woff2", get(font_italic));
-    for &locale in LOCALES {
+    let locales = shared.locales.clone();
+    for &locale in &locales {
         let state = PageState {
             shared: shared.clone(),
             locale,
@@ -89,7 +90,7 @@ pub fn router(config: &Config, api: &ApiState) -> Router {
     }
 
     router
-        .fallback(redirect_to_locale)
+        .fallback_service(any(redirect_to_locale).with_state(locales))
         .layer(middleware::map_response_with_state(
             shared,
             security_headers,
@@ -140,7 +141,9 @@ impl PageState {
 
     // `path` is the page's path without the locale prefix, e.g. `/terms`.
     pub(crate) fn ctx(&self, path: &str) -> Ctx<'_> {
-        let languages = LOCALES
+        let languages = self
+            .shared
+            .locales
             .iter()
             .map(|&code| LanguageLink {
                 code,
@@ -193,8 +196,8 @@ impl Ctx<'_> {
         &self.shared.asset_version
     }
 
-    pub(crate) fn repo_url(&self) -> &str {
-        REPO_URL
+    pub(crate) fn repo_url(&self) -> String {
+        self.shared.settings.load().source_url.clone()
     }
 
     // The strings the page script needs, as a JSON object. `<` is escaped so a translation can
@@ -473,7 +476,7 @@ pub(crate) fn error_page(state: &PageState, status: StatusCode) -> Response {
         Ok(html) => (status, Html(html)).into_response(),
         // Don't try to render another page here, or a broken error template would loop.
         Err(e) => {
-            eprintln!("template error: {e}");
+            crate::log_error!("template error: {e}");
             status.into_response()
         }
     }
@@ -484,7 +487,7 @@ pub(crate) fn render(state: &PageState, page: impl Template) -> Response {
     match page.render() {
         Ok(html) => Html(html).into_response(),
         Err(e) => {
-            eprintln!("template error: {e}");
+            crate::log_error!("template error: {e}");
             error_page(state, StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
@@ -492,7 +495,7 @@ pub(crate) fn render(state: &PageState, page: impl Template) -> Response {
 
 // Paths without a locale, like `/` or `/s`, are sent to the same page in the browser's language.
 // Browsers keep the `#` part of the link across the redirect, so secret fragments survive it.
-async fn redirect_to_locale(req: Request) -> Response {
+async fn redirect_to_locale(State(locales): State<Vec<&'static str>>, req: Request) -> Response {
     let path = req.uri().path();
     if path.starts_with("/static/") {
         return StatusCode::NOT_FOUND.into_response();
@@ -502,7 +505,15 @@ async fn redirect_to_locale(req: Request) -> Response {
         .headers()
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|v| v.to_str().ok());
-    let locale = i18n::negotiate(accept_language);
+    let locale = i18n::negotiate(accept_language, &locales);
+    // A link made under a language this instance no longer offers keeps working in another.
+    let path = i18n::LOCALES
+        .iter()
+        .find_map(|known| {
+            let rest = path.strip_prefix('/')?.strip_prefix(known)?;
+            (rest.is_empty() || rest.starts_with('/')).then_some(rest)
+        })
+        .unwrap_or(path);
     let path = if path == "/" { "" } else { path };
     let location = match req.uri().query() {
         Some(query) => format!("/{locale}{path}?{query}"),
@@ -544,6 +555,20 @@ async fn security_headers(State(shared): State<Arc<Shared>>, mut response: Respo
         HeaderValue::from_static("nosniff"),
     );
     headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    // Nothing on the site uses device features; say so, so an injected script can't either.
+    headers.insert(
+        HeaderName::from_static("permissions-policy"),
+        HeaderValue::from_static(
+            "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), \
+             microphone=(), payment=(), usb=()",
+        ),
+    );
+    if shared.secure_cookies {
+        headers.insert(
+            header::STRICT_TRANSPORT_SECURITY,
+            HeaderValue::from_static("max-age=63072000; includeSubDomains"),
+        );
+    }
     response
 }
 

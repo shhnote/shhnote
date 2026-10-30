@@ -26,6 +26,7 @@ const KNOWN: &[&str] = &[
     "SHH_HOST",
     "SHH_PORT",
     "SHH_LOG_LEVEL",
+    "SHH_LOCALES",
     "SHH_TRUSTED_PROXIES",
     "SHH_DB",
     "SHH_SQLITE_PATH",
@@ -67,6 +68,8 @@ pub struct Config {
     pub secret_key: Secret,
     pub bind_addr: SocketAddr,
     pub log_level: LogLevel,
+    // UI languages to offer, in preference order (first is the fallback). Empty: all built in.
+    pub locales: Vec<String>,
     pub trusted_proxies: Vec<IpAddr>,
     pub database: Database,
     pub storage: Storage,
@@ -266,6 +269,14 @@ impl Config {
             ));
         }
 
+        let mut locales: Vec<String> = Vec::new();
+        for code in vars.get("SHH_LOCALES").unwrap_or_default().split(',') {
+            let code = code.trim().to_ascii_lowercase();
+            if !code.is_empty() && !locales.contains(&code) {
+                locales.push(code);
+            }
+        }
+
         let admin_token = match vars.get("SHH_ADMIN_TOKEN") {
             None => None,
             Some(_) => Some(vars.key("SHH_ADMIN_TOKEN")?),
@@ -280,6 +291,7 @@ impl Config {
             secret_key: vars.key("SHH_SECRET_KEY")?,
             bind_addr: SocketAddr::new(host, port),
             log_level: vars.parse_or("SHH_LOG_LEVEL", LogLevel::Error)?,
+            locales,
             trusted_proxies,
             database: Database::from_vars(&vars)?,
             storage: Storage::from_vars(&vars)?,
@@ -515,6 +527,13 @@ mod tests {
         .into_iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect()
+    }
+
+    #[test]
+    fn locales_are_trimmed_lowercased_and_deduplicated() {
+        let config = Config::from_vars(&with(&[("SHH_LOCALES", " de, EN ,de")])).unwrap();
+        assert_eq!(config.locales, vec!["de", "en"]);
+        assert!(Config::from_vars(&with(&[])).unwrap().locales.is_empty());
     }
 
     fn with(changes: &[(&str, &str)]) -> HashMap<String, String> {
