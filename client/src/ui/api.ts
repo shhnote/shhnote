@@ -112,6 +112,14 @@ export class Api {
     });
   }
 
+  async report(lookup: Uint8Array): Promise<void> {
+    await send(`${this.base}/reports`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ lookup: toBase64Url(lookup) }),
+    });
+  }
+
   async burn(burnToken: Uint8Array): Promise<void> {
     await send(`${this.base}/secrets/burn`, {
       method: "POST",

@@ -22,8 +22,10 @@ pub fn spawn(
                 eprintln!("scheduler: sweep failed: {e}");
             }
             scrub(&store, storage.as_deref()).await;
-            let cutoff = now - settings.load().daily_retention_days * 86_400;
-            if let Err(e) = store.rollup_daily(cutoff).await {
+            let retention = settings.load().daily_retention_days;
+            if retention > 0
+                && let Err(e) = store.rollup_daily(now - retention * 86_400).await
+            {
                 eprintln!("scheduler: roll-up failed: {e}");
             }
         }

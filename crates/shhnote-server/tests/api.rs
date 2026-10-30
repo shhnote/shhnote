@@ -1089,3 +1089,46 @@ async fn files_disabled_caps_blobs_at_text_size() {
     assert_eq!(reply.status, StatusCode::BAD_REQUEST);
     assert_eq!(reply.json()["error"]["code"], "files_disabled");
 }
+
+#[tokio::test]
+async fn report_page_region_selector_and_settings_tabs_render() {
+    let app = server_with(
+        "web-report-regions",
+        &[(
+            "regions",
+            r#"[{"code":"eu","name":"Europe","url":"http://localhost:3000"},{"code":"us","name":"United States","url":"https://us.example.test"}]"#,
+        )],
+    )
+    .await;
+    let page = get_page(&app, "/en/report", "").await;
+    assert_eq!(page.status, StatusCode::OK);
+    let html = text(&page);
+    assert!(html.contains("data-report-page") && html.contains("data-report-form"));
+
+    // This instance is "Europe"; the other region is a plain link to its own origin.
+    let home = text(&get_page(&app, "/en", "").await);
+    assert!(home.contains("region-select"));
+    assert!(home.contains("<span>Europe</span>"), "{home}");
+    assert!(home.contains(r#"href="https://us.example.test""#));
+    assert!(
+        !text(&get_page(&server("web-no-regions").await, "/en", "").await)
+            .contains("region-select")
+    );
+
+    // Footer links to the report page on every page.
+    assert!(home.contains(r#"href="/en/report""#));
+}
+
+#[tokio::test]
+async fn settings_page_groups_every_setting_into_tabs() {
+    let (app, _store) = admin_server("admin-settings-tabs").await;
+    let cookie = session_cookie(&login(&app, BOOTSTRAP).await);
+    let html = text(&get_page(&app, "/en/admin/settings", &cookie).await);
+    for group in ["general", "secrets", "storage", "limits", "stats"] {
+        assert!(html.contains(&format!(r#"id="group-{group}""#)), "{group}");
+    }
+    assert!(!html.contains(r#"id="group-other""#));
+    for key in Settings::default().as_strings().keys() {
+        assert!(html.contains(&format!(r#"name="{key}""#)), "{key} missing");
+    }
+}

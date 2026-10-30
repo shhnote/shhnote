@@ -325,27 +325,106 @@ struct Field {
     default: String,
 }
 
+// One tab on the settings page. Order here is the order on screen.
+struct Group {
+    key: &'static str,
+    fields: Vec<Field>,
+}
+
+const GROUPS: &[(&str, &[&str])] = &[
+    (
+        "general",
+        &["site_name", "contact_email", "security_email", "regions"],
+    ),
+    (
+        "secrets",
+        &[
+            "default_ttl_secs",
+            "ttl_presets",
+            "min_ttl_secs",
+            "max_ttl_secs",
+            "claim_window_secs",
+            "text_max_bytes",
+            "files_enabled",
+        ],
+    ),
+    (
+        "storage",
+        &[
+            "padding_mode",
+            "padding_min",
+            "padding_ladder",
+            "inline_enabled",
+        ],
+    ),
+    (
+        "limits",
+        &[
+            "rate_create_per_hour",
+            "rate_reveal_per_hour",
+            "rate_confirm_per_hour",
+            "rate_burn_per_hour",
+            "rate_report_per_hour",
+            "rate_login_per_hour",
+            "rate_user_multiplier",
+            "salt_rotation_secs",
+            "require_api_key_for_create",
+        ],
+    ),
+    ("stats", &["daily_retention_days"]),
+];
+
 #[derive(Template)]
 #[template(path = "admin/settings.html")]
 struct SettingsPage<'a> {
     ctx: Ctx<'a>,
     admin: AdminCtx,
-    fields: Vec<Field>,
+    groups: Vec<Group>,
     errors: Vec<String>,
     saved: bool,
 }
 
-fn fields(current: &Settings) -> Vec<Field> {
+// `shown` overrides what the form displays, so a rejected submission keeps the typed values.
+fn groups(current: &Settings, shown: Option<&HashMap<String, String>>) -> Vec<Group> {
     let defaults = Settings::default().as_strings();
-    current
-        .as_strings()
-        .into_iter()
-        .map(|(key, value)| Field {
+    let values = current.as_strings();
+    let mut groups: Vec<Group> = GROUPS
+        .iter()
+        .map(|(key, members)| Group {
             key,
-            default: defaults.get(key).cloned().unwrap_or_default(),
-            value,
+            fields: members
+                .iter()
+                .map(|member| Field {
+                    key: member,
+                    value: shown
+                        .and_then(|s| s.get(*member).cloned())
+                        .or_else(|| values.get(member).cloned())
+                        .unwrap_or_default(),
+                    default: defaults.get(member).cloned().unwrap_or_default(),
+                })
+                .collect(),
         })
-        .collect()
+        .collect();
+    // A setting that is not in any group is a bug worth noticing in development.
+    let placed: usize = GROUPS.iter().map(|(_, m)| m.len()).sum();
+    debug_assert_eq!(placed, values.len(), "every setting needs a group");
+    if placed != values.len() {
+        let known: Vec<&str> = GROUPS.iter().flat_map(|(_, m)| m.iter().copied()).collect();
+        let rest = values
+            .iter()
+            .filter(|(k, _)| !known.contains(k))
+            .map(|(k, v)| Field {
+                key: k,
+                value: v.clone(),
+                default: defaults.get(k).cloned().unwrap_or_default(),
+            })
+            .collect();
+        groups.push(Group {
+            key: "other",
+            fields: rest,
+        });
+    }
+    groups
 }
 
 async fn settings_page(State(state): State<PageState>, headers: HeaderMap) -> Response {
@@ -359,7 +438,7 @@ async fn settings_page(State(state): State<PageState>, headers: HeaderMap) -> Re
         SettingsPage {
             ctx: state.ctx("/admin/settings"),
             admin: admin_ctx(&state, &session),
-            fields: fields(&current),
+            groups: groups(&current, None),
             errors: Vec::new(),
             saved: false,
         },
@@ -391,18 +470,12 @@ async fn settings_save(
     }
     let (new_settings, errors) = Settings::with_overrides(&submitted);
     if !errors.is_empty() {
-        let mut page_fields = fields(&new_settings);
-        for field in &mut page_fields {
-            if let Some(v) = submitted.get(field.key) {
-                field.value = v.clone();
-            }
-        }
         let mut response = render(
             &state,
             SettingsPage {
                 ctx: state.ctx("/admin/settings"),
                 admin: admin_ctx(&state, &session),
-                fields: page_fields,
+                groups: groups(&new_settings, Some(&submitted)),
                 errors,
                 saved: false,
             },
@@ -428,7 +501,7 @@ async fn settings_save(
         SettingsPage {
             ctx: state.ctx("/admin/settings"),
             admin: admin_ctx(&state, &session),
-            fields: fields(&new_settings),
+            groups: groups(&new_settings, None),
             errors: Vec::new(),
             saved: true,
         },

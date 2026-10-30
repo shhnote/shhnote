@@ -44,6 +44,7 @@ pub(crate) struct Shared {
     css: String,
     content: Content,
     api_url: String,
+    site_url: String,
     max_blob_bytes: u64,
     csp: HeaderValue,
 }
@@ -71,6 +72,7 @@ pub fn router(config: &Config, api: &ApiState) -> Router {
         css: APP_CSS.replace("__V__", &asset_version()),
         content: Content::load(),
         api_url: config.api_url.clone(),
+        site_url: config.url.clone(),
         max_blob_bytes: config.storage.max_blob_bytes(),
         csp: content_security_policy(config),
     });
@@ -111,6 +113,7 @@ fn pages(state: PageState) -> Router {
         .route("/terms", get(terms))
         .route("/privacy", get(privacy))
         .route("/security", get(security))
+        .route("/report", get(report))
         .nest("/admin", admin::routes())
         .fallback(not_found)
         .with_state(state)
@@ -230,6 +233,8 @@ const UI_KEYS: &[&str] = &[
     "reveal-error-network",
     "reveal-error-corrupt",
     "burn-working",
+    "report-working",
+    "report-error-invalid",
 ];
 
 #[derive(Template)]
@@ -237,6 +242,15 @@ const UI_KEYS: &[&str] = &[
 struct HomePage<'a> {
     ctx: Ctx<'a>,
     upload_hint: String,
+    regions: Vec<RegionLink>,
+    // The name of this instance's region, if it is in the list.
+    region_here: Option<String>,
+}
+
+struct RegionLink {
+    name: String,
+    url: String,
+    current: bool,
 }
 
 async fn home(State(state): State<PageState>) -> Response {
@@ -247,7 +261,29 @@ async fn home(State(state): State<PageState>) -> Response {
         format_size(state.shared.max_blob_bytes, state.locale),
     );
     let upload_hint = ctx.t_args("form-files-hint", &args);
-    render(&state, HomePage { ctx, upload_hint })
+    let here = state.shared.site_url.trim_end_matches('/');
+    let regions: Vec<RegionLink> = state
+        .shared
+        .settings
+        .load()
+        .regions
+        .iter()
+        .map(|r| RegionLink {
+            name: r.name.clone(),
+            url: r.url.clone(),
+            current: r.url.trim_end_matches('/') == here,
+        })
+        .collect();
+    let region_here = regions.iter().find(|r| r.current).map(|r| r.name.clone());
+    render(
+        &state,
+        HomePage {
+            ctx,
+            upload_hint,
+            regions,
+            region_here,
+        },
+    )
 }
 
 #[derive(Template)]
@@ -260,6 +296,21 @@ struct SecretPage<'a> {
 #[template(path = "burn.html")]
 struct BurnPage<'a> {
     ctx: Ctx<'a>,
+}
+
+#[derive(Template)]
+#[template(path = "report.html")]
+struct ReportPage<'a> {
+    ctx: Ctx<'a>,
+}
+
+async fn report(State(state): State<PageState>) -> Response {
+    render(
+        &state,
+        ReportPage {
+            ctx: state.ctx("/report"),
+        },
+    )
 }
 
 async fn burn(State(state): State<PageState>) -> Response {

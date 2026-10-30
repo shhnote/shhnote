@@ -419,7 +419,7 @@ setting-inline_enabled-help = Wenn aus, geht jedes Geheimnis unabhängig von der
 setting-regions = Regionen (JSON)
 setting-regions-help = Schwesterinstanzen als JSON-Liste von Objekten mit code, name und url. Leer blendet die Auswahl aus.
 setting-daily_retention_days = Tagesstatistik aufbewahren für (Tage)
-setting-daily_retention_days-help = Ältere Tage werden in die Zeile des 1. Januar ihres Jahres in derselben Tabelle addiert und dann gelöscht; Summen schrumpfen nie, alte Tage verlieren nur ihre Auflösung.
+setting-daily_retention_days-help = Ältere Tage werden in die Zeile des 1. Januar ihres Jahres in derselben Tabelle addiert und dann gelöscht; Summen schrumpfen nie, alte Tage verlieren nur ihre Auflösung. -1 behält jeden Tag dauerhaft.
 setting-rate_create_per_hour = Ratenlimit: Erstellen (pro Stunde)
 setting-rate_create_per_hour-help = Pro Client. 0 deaktiviert.
 setting-rate_reveal_per_hour = Ratenlimit: Anzeigen (pro Stunde)
@@ -468,3 +468,27 @@ error-400-title = Ungültige Anfrage
 error-400-body = Die Anfrage konnte nicht verstanden werden.
 error-403-title = Nicht erlaubt
 error-403-body = Dem Formular fehlte sein Sicherheits-Token. Geh zurück, lade die Seite neu und versuch es erneut.
+
+## Report and regions
+
+nav-report = Link melden
+report-badge = Missbrauch melden
+report-title = Einen geheimen Link melden
+report-intro = Füge einen Link ein, der deiner Meinung nach etwas teilt, was er nicht sollte. Ist das Geheimnis noch aktiv, wird es sofort entfernt. Wir können den Inhalt nicht sehen, also gibt es nichts zu prüfen und nichts mitzuteilen.
+report-link-label = Geheimer Link
+report-link-placeholder = https://…/s#…
+report-link-help = Der vollständige Link einschließlich des Teils nach dem #. Er dient nur dem Auffinden des Geheimnisses und wird nicht gespeichert.
+report-submit = Dieses Geheimnis entfernen
+report-working = Wird gesendet …
+report-error-invalid = Das sieht nicht nach einem geheimen Link dieser Seite aus.
+report-done-badge = Eingegangen
+report-done-title = Danke, erledigt.
+report-done-body = Falls der Link auf ein aktives Geheimnis zeigte, ist es jetzt weg. Wir vermerken nur, dass eine Meldung eingegangen ist, mehr nicht.
+region-label = Region:
+region-choose = Wählen
+admin-settings-group-general = Allgemein
+admin-settings-group-secrets = Geheimnisse
+admin-settings-group-storage = Speicher
+admin-settings-group-limits = Limits
+admin-settings-group-stats = Statistik
+admin-settings-group-other = Sonstiges

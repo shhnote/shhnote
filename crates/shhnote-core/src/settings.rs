@@ -57,6 +57,7 @@ pub struct Settings {
     // When false, every blob goes to the external tier; needs `SHH_STORAGE` to enable one.
     pub inline_enabled: bool,
     pub regions: Vec<Region>,
+    // Days kept at daily resolution before folding into the year; -1 never folds.
     pub daily_retention_days: i64,
     pub rate_limits: RateLimits,
     pub salt_rotation_secs: i64,
@@ -191,6 +192,11 @@ impl Settings {
             s.min_ttl_secs = d.min_ttl_secs;
             s.max_ttl_secs = d.max_ttl_secs;
             s.default_ttl_secs = d.default_ttl_secs;
+        }
+        if s.daily_retention_days == 0 || s.daily_retention_days < -1 {
+            warnings
+                .push("setting daily_retention_days ignored: use a positive number or -1".into());
+            s.daily_retention_days = Self::default().daily_retention_days;
         }
         (s, warnings)
     }
@@ -330,6 +336,26 @@ mod tests {
         let (back, warnings) = Settings::with_overrides(&strings);
         assert!(warnings.is_empty(), "{warnings:?}");
         assert_eq!(back, defaults);
+    }
+
+    fn overrides(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn retention_accepts_minus_one_only_as_off_switch() {
+        let (s, warnings) = Settings::with_overrides(&overrides(&[("daily_retention_days", "-1")]));
+        assert!(warnings.is_empty());
+        assert_eq!(s.daily_retention_days, -1);
+        for bad in ["0", "-2"] {
+            let (s, warnings) =
+                Settings::with_overrides(&overrides(&[("daily_retention_days", bad)]));
+            assert_eq!(warnings.len(), 1, "{bad}");
+            assert_eq!(s.daily_retention_days, 365);
+        }
     }
 
     #[test]

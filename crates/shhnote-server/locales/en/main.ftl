@@ -419,7 +419,7 @@ setting-inline_enabled-help = When off, every secret goes to the external tier r
 setting-regions = Regions (JSON)
 setting-regions-help = Sibling instances as a JSON list of objects with code, name and url. Empty hides the selector.
 setting-daily_retention_days = Keep per-day stats for (days)
-setting-daily_retention_days-help = Older days are added into their year's 1 January row of the same table and then deleted, so totals never shrink but old days lose their resolution.
+setting-daily_retention_days-help = Older days are added into their year's 1 January row of the same table and then deleted, so totals never shrink but old days lose their resolution. -1 keeps every day forever.
 setting-rate_create_per_hour = Rate limit: create (per hour)
 setting-rate_create_per_hour-help = Per client. 0 disables.
 setting-rate_reveal_per_hour = Rate limit: reveal (per hour)
@@ -468,3 +468,27 @@ error-400-title = Bad request
 error-400-body = The request couldn't be understood.
 error-403-title = Not allowed
 error-403-body = The form was missing its security token. Go back, reload the page and try again.
+
+## Report and regions
+
+nav-report = Report a link
+report-badge = Abuse report
+report-title = Report a secret link
+report-intro = Paste a link you believe shares something it shouldn't. If the secret is still active it is removed immediately. We can't see what it contains, so there is nothing to review and nothing to tell you.
+report-link-label = Secret link
+report-link-placeholder = https://…/s#…
+report-link-help = The full link including the part after the #. It is used only to find the secret; it is not stored.
+report-submit = Remove this secret
+report-working = Sending…
+report-error-invalid = That doesn't look like a secret link from this site.
+report-done-badge = Received
+report-done-title = Thanks, that's handled.
+report-done-body = If that link pointed at an active secret, it is gone now. We keep a record that a report was received, nothing more.
+region-label = Region:
+region-choose = Choose
+admin-settings-group-general = General
+admin-settings-group-secrets = Secrets
+admin-settings-group-storage = Storage
+admin-settings-group-limits = Limits
+admin-settings-group-stats = Statistics
+admin-settings-group-other = Other

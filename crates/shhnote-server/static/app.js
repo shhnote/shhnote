@@ -163,6 +163,13 @@ var Api = class _Api {
       body: JSON.stringify({ lookup: toBase64Url(lookup2), claim_token: claimToken })
     });
   }
+  async report(lookup2) {
+    await send(`${this.base}/reports`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ lookup: toBase64Url(lookup2) })
+    });
+  }
   async burn(burnToken) {
     await send(`${this.base}/secrets/burn`, {
       method: "POST",
@@ -835,6 +842,42 @@ var Dropzone = class _Dropzone {
   }
 };
 
+// src/ui/report.ts
+function wireReport(page) {
+  const api = Api.fromPage();
+  const form = $("[data-report-form]", page);
+  const input = $("input[name=link]", form);
+  const status = $("[data-form-status]", form);
+  if (location.hash.length > 1) {
+    input.value = `${location.origin}/s${location.hash}`;
+    history.replaceState(null, "", location.pathname);
+  }
+  show(form);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!event.isTrusted) return;
+    let seed;
+    try {
+      const hash = input.value.trim().split("#")[1] ?? "";
+      seed = decodeFragment(`#${hash}`);
+    } catch {
+      setStatus(status, t("report-error-invalid"));
+      return;
+    }
+    const button = $("button", form);
+    button.disabled = true;
+    setStatus(status, t("report-working"));
+    try {
+      await api.report(await lookup(seed));
+      input.value = "";
+      setState(page, "done");
+    } catch {
+      setStatus(status, t("reveal-error-network"));
+      button.disabled = false;
+    }
+  });
+}
+
 // src/ui/reveal.ts
 function wireReveal(page) {
   const api = Api.fromPage();
@@ -1037,3 +1080,5 @@ var revealPage = document.querySelector("[data-reveal-page]");
 if (revealPage) wireReveal(revealPage);
 var burnPage = document.querySelector("[data-burn-page]");
 if (burnPage) wireBurn(burnPage);
+var reportPage = document.querySelector("[data-report-page]");
+if (reportPage) wireReport(reportPage);

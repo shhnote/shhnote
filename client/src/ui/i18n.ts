@@ -22,7 +22,9 @@ export type UiKey =
   | "reveal-download"
   | "reveal-error-network"
   | "reveal-error-corrupt"
-  | "burn-working";
+  | "burn-working"
+  | "report-working"
+  | "report-error-invalid";
 
 let strings: Partial<Record<UiKey, string>> | null = null;
 

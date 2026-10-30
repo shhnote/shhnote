@@ -3,6 +3,7 @@ import { wireMenus, wirePasswordToggles, wireTheme } from "./ui/chrome.ts";
 import { wireCreate } from "./ui/create.ts";
 import { $$ } from "./ui/dom.ts";
 import { Dropzone } from "./ui/dropzone.ts";
+import { wireReport } from "./ui/report.ts";
 import { wireReveal } from "./ui/reveal.ts";
 import { wireTabs } from "./ui/tabs.ts";
 
@@ -28,3 +29,6 @@ if (revealPage) wireReveal(revealPage);
 
 const burnPage = document.querySelector<HTMLElement>("[data-burn-page]");
 if (burnPage) wireBurn(burnPage);
+
+const reportPage = document.querySelector<HTMLElement>("[data-report-page]");
+if (reportPage) wireReport(reportPage);

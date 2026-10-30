@@ -79,6 +79,22 @@
           </div>
         </div>
       </form>
+      {%- if !regions.is_empty() %}
+      {# Sibling instances share nothing; picking one just goes there (SPEC §9). #}
+      <div class="region-select">
+        <span>{{ ctx.t("region-label") }}</span>
+        <details class="menu" data-menu>
+          <summary>
+            <span>{% if let Some(name) = region_here %}{{ name }}{% else %}{{ ctx.t("region-choose") }}{% endif %}</span>
+          </summary>
+          <ul class="menu__list">
+            {%- for r in regions %}
+            <li><a href="{{ r.url }}"{% if r.current %} aria-current="true"{% endif %}>{{ r.name }}</a></li>
+            {%- endfor %}
+          </ul>
+        </details>
+      </div>
+      {%- endif %}
     </div>
 
     {# Shown in place of the form once the secret is stored. The links exist only in this page's memory. #}

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{%- import "partials/icons.html" as icons -%}
+
+{% block title %}{{ ctx.t("report-title") }}{% endblock %}
+
+{% block content %}
+<section class="section">
+  <div class="container">
+    <article class="vault" data-report-page>
+      <div class="panel panel--center stack" data-state="armed">
+        <span class="badge badge--muted"><span class="dot"></span>{{ ctx.t("report-badge") }}</span>
+        <div class="lock-badge lock-badge--muted">{% call icons::icon("shield", 28) %}{% endcall %}</div>
+        <div class="stack--sm">
+          <h1 class="panel__heading">{{ ctx.t("report-title") }}</h1>
+          <p>{{ ctx.t("report-intro") }}</p>
+        </div>
+        <noscript><p class="callout callout--notice">{{ ctx.t("noscript-view") }}</p></noscript>
+        <form class="stack" data-report-form hidden>
+          <div class="form-field" style="text-align:left">
+            <label class="form-label" for="report-link">{{ ctx.t("report-link-label") }}</label>
+            <input class="form-input" id="report-link" name="link" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="{{ ctx.t("report-link-placeholder") }}" required>
+            <p class="input-help">{{ ctx.t("report-link-help") }}</p>
+          </div>
+          <button type="submit" class="btn btn--primary btn--lg w-full">{{ ctx.t("report-submit") }}</button>
+          <p class="status" role="status" aria-live="polite" data-form-status></p>
+        </form>
+      </div>
+
+      <div class="panel panel--center stack" data-state="done" hidden>
+        <span class="badge badge--muted"><span class="dot"></span>{{ ctx.t("report-done-badge") }}</span>
+        <div class="lock-badge lock-badge--muted">{% call icons::icon("shield", 28) %}{% endcall %}</div>
+        <div class="stack--sm">
+          <h1 class="panel__heading">{{ ctx.t("report-done-title") }}</h1>
+          <p>{{ ctx.t("report-done-body") }}</p>
+        </div>
+        <p class="btn-row btn-row--center"><a class="btn btn--primary" href="{{ ctx.href("") }}">{{ ctx.t("error-home-link") }}</a></p>
+      </div>
+    </article>
+  </div>
+</section>
+{% endblock %}

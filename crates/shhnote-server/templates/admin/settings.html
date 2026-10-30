@@ -23,30 +23,45 @@
     </div>
     {%- endif %}
 
-    <form method="post" action="{{ ctx.href("/admin/settings") }}" class="form-grid">
+    {# One form for every group: a hidden tab still submits its fields, so one save covers all. #}
+    <form method="post" action="{{ ctx.href("/admin/settings") }}" class="stack" style="gap:1.5rem">
       <input type="hidden" name="csrf" value="{{ admin.csrf }}">
-      {%- for f in fields %}
-      <div class="form-field">
-        <label class="form-label" for="s-{{ f.key }}">{{ ctx.tn("setting-", f.key, "") }}</label>
-        {%- if f.key == "files_enabled" || f.key == "inline_enabled" || f.key == "require_api_key_for_create" %}
-        <span class="toggle">
-          <input type="checkbox" id="s-{{ f.key }}" name="{{ f.key }}" value="true"{% if f.value == "true" %} checked{% endif %}>
-          <span class="track" aria-hidden="true"></span>
-        </span>
-        {%- else if f.key == "padding_mode" %}
-        <select class="form-select" id="s-{{ f.key }}" name="{{ f.key }}">
-          <option value="padme"{% if f.value == "padme" %} selected{% endif %}>padme</option>
-          <option value="buckets"{% if f.value == "buckets" %} selected{% endif %}>buckets</option>
-        </select>
-        {%- else if f.key == "regions" %}
-        <textarea class="form-textarea" id="s-{{ f.key }}" name="{{ f.key }}" rows="3" style="min-height:5rem">{{ f.value }}</textarea>
-        {%- else %}
-        <input class="form-input" id="s-{{ f.key }}" name="{{ f.key }}" value="{{ f.value }}">
-        {%- endif %}
-        <p class="input-help">{{ ctx.tn("setting-", f.key, "-help") }} <span class="color-faint">{{ ctx.t("admin-settings-default") }} <code>{{ f.default }}</code></span></p>
+      <div class="tabs" data-tabs>
+        <div class="doc-switch" role="tablist" aria-label="{{ ctx.t("admin-settings-title") }}" hidden>
+          {%- for g in groups %}
+          <button type="button" role="tab" id="tab-{{ g.key }}" aria-controls="group-{{ g.key }}" aria-selected="{{ loop.first }}"{% if !loop.first %} tabindex="-1"{% endif %}>{{ ctx.tn("admin-settings-group-", g.key, "") }}</button>
+          {%- endfor %}
+        </div>
+        {%- for g in groups %}
+        <section class="tab-panel settings-group" id="group-{{ g.key }}" role="tabpanel" aria-labelledby="tab-{{ g.key }}">
+          <h2 class="settings-group__title">{{ ctx.tn("admin-settings-group-", g.key, "") }}</h2>
+          <div class="form-grid">
+            {%- for f in g.fields %}
+            <div class="form-field">
+              <label class="form-label" for="s-{{ f.key }}">{{ ctx.tn("setting-", f.key, "") }}</label>
+              {%- if f.key == "files_enabled" || f.key == "inline_enabled" || f.key == "require_api_key_for_create" %}
+              <span class="toggle">
+                <input type="checkbox" id="s-{{ f.key }}" name="{{ f.key }}" value="true"{% if f.value == "true" %} checked{% endif %}>
+                <span class="track" aria-hidden="true"></span>
+              </span>
+              {%- else if f.key == "padding_mode" %}
+              <select class="form-select" id="s-{{ f.key }}" name="{{ f.key }}">
+                <option value="padme"{% if f.value == "padme" %} selected{% endif %}>padme</option>
+                <option value="buckets"{% if f.value == "buckets" %} selected{% endif %}>buckets</option>
+              </select>
+              {%- else if f.key == "regions" %}
+              <textarea class="form-textarea" id="s-{{ f.key }}" name="{{ f.key }}" rows="3" style="min-height:5rem">{{ f.value }}</textarea>
+              {%- else %}
+              <input class="form-input" id="s-{{ f.key }}" name="{{ f.key }}" value="{{ f.value }}">
+              {%- endif %}
+              <p class="input-help">{{ ctx.tn("setting-", f.key, "-help") }} <span class="color-faint">{{ ctx.t("admin-settings-default") }} <code>{{ f.default }}</code></span></p>
+            </div>
+            {%- endfor %}
+          </div>
+        </section>
+        {%- endfor %}
       </div>
-      {%- endfor %}
-      <div class="form-field form-grid__full">
+      <div>
         <button type="submit" class="btn btn--primary">{{ ctx.t("admin-settings-save") }}</button>
       </div>
     </form>
