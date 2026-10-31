@@ -53,6 +53,7 @@ dependencies = [
  "blake2",
  "cpufeatures 0.3.1",
  "password-hash",
+ "zeroize",
 ]
 
 [[package]]
@@ -1408,6 +1409,7 @@ name = "shhnote-argon2-wasm"
 version = "0.1.0"
 dependencies = [
  "argon2",
+ "zeroize",
 ]
 
 [[package]]

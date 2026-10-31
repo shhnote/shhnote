@@ -1,6 +1,7 @@
-use argon2::{Algorithm, Argon2, Params, Version};
+use argon2::{Algorithm, Argon2, Block, Params, Version};
 use hkdf::Hkdf;
 use sha2::{Digest, Sha256};
+use zeroize::Zeroize;
 
 use crate::Error;
 
@@ -71,9 +72,12 @@ pub fn argon2id(
     let params = Params::new(params.m, params.t, params.p, Some(32))
         .map_err(|_| Error::Argon2OutOfBounds)?;
     let mut out = [0u8; 32];
-    Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
-        .hash_password_into(passphrase.as_bytes(), salt, &mut out)
-        .map_err(|_| Error::Argon2OutOfBounds)?;
+    // Caller-owned work memory, wiped before it is freed (SPEC §10).
+    let mut blocks = vec![Block::new(); params.block_count()];
+    let result = Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
+        .hash_password_into_with_memory(passphrase.as_bytes(), salt, &mut out, &mut blocks);
+    blocks.zeroize();
+    result.map_err(|_| Error::Argon2OutOfBounds)?;
     Ok(out)
 }
 

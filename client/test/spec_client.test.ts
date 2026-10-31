@@ -215,7 +215,7 @@ describe("spec: argon2", () => {
     }
   });
 
-  it("work memory is wiped before the WASM call returns", { skip: "S-44" }, () => {
+  it("work memory is wiped before the WASM call returns", () => {
     const wasm = (argon2 as unknown as { wasm: { memory: WebAssembly.Memory } }).wasm;
     argon2.hash("correct horse", salt, ARGON2_MIN);
     const mem = new Uint8Array(wasm.memory.buffer);

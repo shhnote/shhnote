@@ -1,6 +1,7 @@
 use std::slice;
 
-use argon2::{Algorithm, Argon2, Params, Version};
+use argon2::{Algorithm, Argon2, Block, Params, Version};
+use zeroize::Zeroize;
 
 // The same client bounds as `shhnote_core::kdf::Argon2Params` (SPEC §2.9). Duplicated on
 // purpose: this crate must stay free of the core crate's non-wasm dependencies.
@@ -55,9 +56,13 @@ pub unsafe extern "C" fn shh_argon2id(
     let pwd = unsafe { slice::from_raw_parts(pwd, pwd_len) };
     let salt = unsafe { slice::from_raw_parts(salt, salt_len) };
     let out = unsafe { slice::from_raw_parts_mut(out, OUT_LEN) };
-    match Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
-        .hash_password_into(pwd, salt, out)
-    {
+    // The work memory is ours, so it can be wiped before it goes back to the allocator;
+    // otherwise the passphrase-derived state would sit in wasm memory until reused (SPEC §10).
+    let mut blocks = vec![Block::new(); params.block_count()];
+    let result = Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
+        .hash_password_into_with_memory(pwd, salt, out, &mut blocks);
+    blocks.zeroize();
+    match result {
         Ok(()) => OK,
         Err(_) => ERR_FAILED,
     }
