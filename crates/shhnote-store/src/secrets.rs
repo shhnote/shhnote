@@ -268,6 +268,8 @@ impl Store {
             count(&mut tx, now, Counter::Expired, expired).await?;
         }
         tx.commit().await?;
+        // Every terminal transition since the last tick is in the WAL; fold and truncate it.
+        self.checkpoint().await?;
         Ok(Sweep {
             expired: expired as u64,
             consumed: consumed as u64,

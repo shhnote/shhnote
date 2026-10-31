@@ -70,7 +70,6 @@ async fn spec_sqlite_secrets_have_no_rowid() {
 // A destroyed secret's ciphertext does not outlive the row in the -wal file once the scheduler
 // has run (SPEC §6.1 accepted residuals: the WAL is truncated after each sweep).
 #[tokio::test]
-#[ignore = "S-15"]
 async fn spec_destroyed_blob_leaves_the_wal_after_sweep() {
     let (store, path, raw) = open("spec-privacy-wal").await;
     let blob = random_blob();

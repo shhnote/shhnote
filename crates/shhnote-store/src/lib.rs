@@ -84,12 +84,15 @@ impl Store {
             options = options.after_connect(|conn, _| {
                 Box::pin(async move {
                     // WAL lets readers and the scheduler overlap; secure_delete overwrites deleted
-                    // rows so a destroyed secret's bytes don't linger in free pages.
+                    // rows so a destroyed secret's bytes don't linger in free pages, and
+                    // journal_size_limit = 0 lets each checkpoint shrink the WAL back to nothing,
+                    // so destroyed ciphertext does not linger there either (SPEC §6.1).
                     for pragma in [
                         "PRAGMA journal_mode = WAL",
                         "PRAGMA secure_delete = ON",
                         "PRAGMA synchronous = NORMAL",
                         "PRAGMA busy_timeout = 5000",
+                        "PRAGMA journal_size_limit = 0",
                     ] {
                         sqlx::query(pragma).execute(&mut *conn).await?;
                     }
@@ -104,6 +107,18 @@ impl Store {
 
     pub fn backend(&self) -> Backend {
         self.backend
+    }
+
+    // Folds the WAL into the main file and truncates it, so the frames of rows destroyed
+    // since the last checkpoint are gone from disk (SPEC §6.1). SQLite only; a checkpoint
+    // that cannot complete because a reader is mid-transaction just waits for the next one.
+    pub async fn checkpoint(&self) -> Result<(), Error> {
+        if self.backend == Backend::Sqlite {
+            sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+                .execute(&self.pool)
+                .await?;
+        }
+        Ok(())
     }
 }
 
