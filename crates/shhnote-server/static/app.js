@@ -882,9 +882,11 @@ function prefetchArgon2() {
   });
 }
 function loadArgon2() {
+  if (typeof WebAssembly === "undefined") return Promise.reject(new ShhError("argon2_unavailable", "WebAssembly is not available"));
   const version = document.body.dataset["assetVersion"] ?? "";
   loading ??= Argon2.fromResponse(fetch(`/static/argon2.wasm?v=${version}`, { cache: "force-cache" })).catch((e) => {
     loading = null;
+    if (e instanceof WebAssembly.CompileError) throw new ShhError("argon2_unavailable", "WebAssembly is blocked");
     throw e;
   });
   return loading;
@@ -997,6 +999,7 @@ function messageFor(e) {
   if (e instanceof ShhError && (e.code === "payload_too_large" || e.code === "empty_payload")) {
     return t(e.code === "empty_payload" ? "create-error-empty" : "create-error-too-large");
   }
+  if (e instanceof ShhError && e.code === "argon2_unavailable") return t("create-error-wasm");
   console.error(e);
   return t("create-error-failed");
 }
@@ -1092,6 +1095,28 @@ function wireReport(page) {
   });
 }
 
+// src/ui/filename.ts
+var RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+var INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u00ad\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g;
+var SEPARATORS = /[/\\\u2044\u2215\u29f5\u29f8\u29f9\uff0f\uff3c:*?"<>|]/g;
+var MAX_BYTES = 255;
+function sanitiseFileName(name) {
+  let out = name.normalize("NFC").replace(INVISIBLE, "").replace(SEPARATORS, "_");
+  out = out.replace(/^[. ]+/, "").replace(/[. ]+$/, "");
+  if (RESERVED.test(out)) out = `_${out}`;
+  return truncate(out) || "file";
+}
+function truncate(name) {
+  const encoder4 = new TextEncoder();
+  if (encoder4.encode(name).length <= MAX_BYTES) return name;
+  let out = "";
+  for (const ch of name) {
+    if (encoder4.encode(out + ch).length > MAX_BYTES) break;
+    out += ch;
+  }
+  return out;
+}
+
 // src/ui/reveal.ts
 function wireReveal(page) {
   const api = Api.fromPage();
@@ -1117,9 +1142,11 @@ function wireReveal(page) {
   let shown = null;
   const objectUrls = [];
   window.addEventListener("pagehide", () => {
+    seed.fill(0);
     bodyBytes?.fill(0);
     bodyBytes = null;
     locked = null;
+    passInput.value = "";
     for (const file of shown?.files ?? []) file.bytes.fill(0);
     shown = null;
     for (const url of objectUrls) URL.revokeObjectURL(url);
@@ -1188,6 +1215,8 @@ function wireReveal(page) {
       if (e instanceof ShhError && e.code === "wrong_passphrase") {
         setStatus(passStatus, t("reveal-wrong-passphrase"));
         passInput.select();
+      } else if (e instanceof ShhError && e.code === "argon2_unavailable") {
+        setStatus(passStatus, t("reveal-error-wasm"));
       } else if (e instanceof ApiError && e.code === "network") {
         locked = null;
         setState(page, "armed");
@@ -1208,6 +1237,7 @@ function wireReveal(page) {
     bodyBytes?.fill(0);
     bodyBytes = null;
     locked = null;
+    passInput.value = "";
     shown = payload;
     history.replaceState(null, "", location.pathname);
     const revealed = $("[data-state=revealed]", page);
@@ -1238,16 +1268,19 @@ function wireReveal(page) {
       meta.className = "file-card__meta";
       const name = document.createElement("div");
       name.className = "file-card__name";
-      name.textContent = file.name;
+      const safeName = sanitiseFileName(file.name);
+      const bdi = document.createElement("bdi");
+      bdi.textContent = safeName;
+      name.append(bdi);
       const sub = document.createElement("div");
       sub.className = "file-card__sub";
       sub.textContent = `${file.type || "application/octet-stream"} \xB7 ${formatSize(file.bytes.length)}`;
       meta.append(name, sub);
       const link = document.createElement("a");
       link.className = "btn btn--ghost btn--sm";
-      link.href = URL.createObjectURL(new Blob([file.bytes], { type: file.type || "application/octet-stream" }));
+      link.href = URL.createObjectURL(new Blob([file.bytes], { type: "application/octet-stream" }));
       objectUrls.push(link.href);
-      link.download = file.name.replaceAll(/[/\\]/g, "_") || "file";
+      link.download = safeName;
       link.textContent = t("reveal-download");
       item.append(icon, meta, link);
       list.append(item);

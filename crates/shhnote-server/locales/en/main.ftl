@@ -156,6 +156,7 @@ create-error-empty = Add some text or at least one file.
 create-error-too-large = That's more than this site accepts. Remove some files or shorten the text.
 create-error-network = Couldn't reach the server. Check your connection and try again.
 create-error-failed = Something went wrong while creating the secret. Please try again.
+create-error-wasm = Passphrases need WebAssembly, which your browser or its security level has switched off. Allow it, or create the secret without a passphrase.
 
 ## Reveal
 
@@ -191,6 +192,7 @@ reveal-not-found-body = This link is invalid, or the secret it pointed to has al
 reveal-not-found-callout = If you still need the secret, ask the sender for a fresh link, and double-check you copied the whole URL, including the part after the #.
 reveal-error-network = Couldn't reach the server. Try again in a moment.
 reveal-error-corrupt = This secret couldn't be decrypted. The link may be incomplete.
+reveal-error-wasm = This passphrase needs WebAssembly, which your browser or its security level has switched off (Tor Browser at "Safer", for example). Allow it and try again.
 
 ## Burn
 

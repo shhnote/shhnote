@@ -8,6 +8,7 @@ import { collect, iterateBytes, readHeader } from "../crypto/stream.ts";
 import { Api, ApiError, DEFAULT_MAX_BLOB_BYTES } from "./api.ts";
 import { loadArgon2, prefetchArgon2 } from "./argon2-loader.ts";
 import { $, formatSize, setState, setStatus, show, wireCopy } from "./dom.ts";
+import { sanitiseFileName } from "./filename.ts";
 import { t } from "./i18n.ts";
 
 // `/s#…`: nothing is fetched until the button is pressed, so link previews and scanners
@@ -44,11 +45,13 @@ export function wireReveal(page: HTMLElement): void {
   const objectUrls: string[] = [];
 
   // Best effort (SPEC §10): overwrite what we can once the page is left. Strings cannot be
-  // wiped in JavaScript; file bytes and the DOM can.
+  // wiped in JavaScript; the seed, file bytes and the DOM can.
   window.addEventListener("pagehide", () => {
+    seed.fill(0);
     bodyBytes?.fill(0);
     bodyBytes = null;
     locked = null;
+    passInput.value = "";
     for (const file of shown?.files ?? []) file.bytes.fill(0);
     shown = null;
     for (const url of objectUrls) URL.revokeObjectURL(url);
@@ -127,6 +130,8 @@ export function wireReveal(page: HTMLElement): void {
       if (e instanceof ShhError && e.code === "wrong_passphrase") {
         setStatus(passStatus, t("reveal-wrong-passphrase"));
         passInput.select();
+      } else if (e instanceof ShhError && e.code === "argon2_unavailable") {
+        setStatus(passStatus, t("reveal-error-wasm"));
       } else if (e instanceof ApiError && e.code === "network") {
         // The download behind the prompt failed; the next press fetches again with the token.
         locked = null;
@@ -151,6 +156,7 @@ export function wireReveal(page: HTMLElement): void {
     bodyBytes?.fill(0);
     bodyBytes = null;
     locked = null;
+    passInput.value = "";
     shown = payload;
     // The fragment has done its job; keep the seed out of history and autocomplete.
     history.replaceState(null, "", location.pathname);
@@ -185,18 +191,23 @@ export function wireReveal(page: HTMLElement): void {
       meta.className = "file-card__meta";
       const name = document.createElement("div");
       name.className = "file-card__name";
-      // textContent, never innerHTML: the file name came from the sender.
-      name.textContent = file.name;
+      // The cleaned name, as text inside <bdi>: the sender's name can neither inject markup
+      // nor reorder the text around it.
+      const safeName = sanitiseFileName(file.name);
+      const bdi = document.createElement("bdi");
+      bdi.textContent = safeName;
+      name.append(bdi);
       const sub = document.createElement("div");
       sub.className = "file-card__sub";
       sub.textContent = `${file.type || "application/octet-stream"} · ${formatSize(file.bytes.length)}`;
       meta.append(name, sub);
       const link = document.createElement("a");
       link.className = "btn btn--ghost btn--sm";
-      link.href = URL.createObjectURL(new Blob([file.bytes as BlobPart], { type: file.type || "application/octet-stream" }));
+      // Always octet-stream: a sender-chosen text/html would render under this origin if the
+      // blob URL were opened in a tab.
+      link.href = URL.createObjectURL(new Blob([file.bytes as BlobPart], { type: "application/octet-stream" }));
       objectUrls.push(link.href);
-      // Keep the sender's name, but never let it carry a path.
-      link.download = file.name.replaceAll(/[/\\]/g, "_") || "file";
+      link.download = safeName;
       link.textContent = t("reveal-download");
       item.append(icon, meta, link);
       list.append(item);

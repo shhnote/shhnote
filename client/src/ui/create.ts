@@ -132,6 +132,7 @@ function messageFor(e: unknown): string {
   if (e instanceof ShhError && (e.code === "payload_too_large" || e.code === "empty_payload")) {
     return t(e.code === "empty_payload" ? "create-error-empty" : "create-error-too-large");
   }
+  if (e instanceof ShhError && e.code === "argon2_unavailable") return t("create-error-wasm");
   console.error(e);
   return t("create-error-failed");
 }

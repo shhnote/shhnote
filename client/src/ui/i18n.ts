@@ -13,6 +13,7 @@ export type UiKey =
   | "create-error-too-large"
   | "create-error-network"
   | "create-error-failed"
+  | "create-error-wasm"
   | "reveal-fetching"
   | "reveal-decrypting"
   | "reveal-wrong-passphrase"
@@ -22,6 +23,7 @@ export type UiKey =
   | "reveal-download"
   | "reveal-error-network"
   | "reveal-error-corrupt"
+  | "reveal-error-wasm"
   | "burn-working"
   | "report-working"
   | "report-error-invalid";

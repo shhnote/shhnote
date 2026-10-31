@@ -18,6 +18,7 @@ import { CHUNK_SIZE, pad } from "../src/crypto/padding.ts";
 import { decrypt, decryptStream } from "../src/crypto/secret.ts";
 import { burnSecret, parseFragment, revealSecret } from "../src/client.ts";
 import { ApiError } from "../src/ui/api.ts";
+import { sanitiseFileName } from "../src/ui/filename.ts";
 
 const subtle = globalThis.crypto.subtle;
 const wasmBytes = new Uint8Array(readFileSync(new URL("../../target/wasm32-unknown-unknown/wasm/shhnote_argon2_wasm.wasm", import.meta.url)));
@@ -157,6 +158,11 @@ describe("spec: container beyond the vectors", () => {
     const m = enc.encode(json);
     return concat(u32be(m.length), m, tail);
   };
+
+  it("a null file entry stays inside the error contract (S-47)", () => {
+    assert.throws(() => decodePayload(withManifest('{"v":1,"text":null,"files":[null]}')), isCode("manifest"));
+    assert.throws(() => decodePayload(withManifest('{"v":1,"text":null,"files":[1]}')), isCode("manifest"));
+  });
 
   it("encoding an empty payload is refused", () => {
     assert.throws(() => encodePayload({ text: null, files: [] }), isCode("empty_payload"));
@@ -336,10 +342,7 @@ describe("spec: client library", () => {
 });
 
 describe("spec: download names (SPEC §10)", () => {
-  it("controls, bidi overrides, look-alike slashes, reserved names and long names are cleaned", { skip: "S-50" }, async () => {
-    // The sanitiser lands in a DOM-free module with step 25; the cast keeps tsc from resolving
-    // it until then.
-    const { sanitiseFileName } = (await import("../src/ui/filename.ts" as string)) as { sanitiseFileName: (name: string) => string };
+  it("controls, bidi overrides, look-alike slashes, reserved names and long names are cleaned", () => {
     const rlo = "invoice‮fdp.exe";
     assert.ok(!sanitiseFileName(rlo).includes("‮"));
     assert.ok(!/[\u0000-\u001f]/.test(sanitiseFileName("a\u0000b\u001b[31m")));
@@ -347,5 +350,8 @@ describe("spec: download names (SPEC §10)", () => {
     assert.notEqual(sanitiseFileName("CON"), "CON");
     assert.ok(sanitiseFileName("x".repeat(10_000)).length <= 255);
     assert.ok(!sanitiseFileName("../../a").startsWith("."));
+    assert.equal(sanitiseFileName(""), "file");
+    assert.equal(sanitiseFileName("Bericht 2026.pdf"), "Bericht 2026.pdf");
+    assert.ok(new TextEncoder().encode(sanitiseFileName("ü".repeat(300))).length <= 255);
   });
 });
