@@ -5,9 +5,11 @@ import { t } from "./i18n.ts";
 // kept here and read back by the create flow.
 export class Dropzone {
   readonly files: File[] = [];
+  private readonly zone: HTMLElement;
   private readonly list: HTMLUListElement;
 
-  constructor(private readonly zone: HTMLElement) {
+  constructor(zone: HTMLElement) {
+    this.zone = zone;
     const input = $<HTMLInputElement>("input[type=file]", zone);
     this.list = $<HTMLUListElement>("[data-file-list]", zone.parentElement ?? document);
 

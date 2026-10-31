@@ -8,6 +8,7 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
+    "erasableSyntaxOnly": true,
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "skipLibCheck": true

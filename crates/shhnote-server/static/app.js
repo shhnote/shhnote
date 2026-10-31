@@ -1006,6 +1006,9 @@ function messageFor(e) {
 
 // src/ui/dropzone.ts
 var Dropzone = class _Dropzone {
+  files = [];
+  zone;
+  list;
   constructor(zone) {
     this.zone = zone;
     const input = $("input[type=file]", zone);
@@ -1025,9 +1028,6 @@ var Dropzone = class _Dropzone {
       this.add(event.dataTransfer?.files ?? null);
     });
   }
-  zone;
-  files = [];
-  list;
   static wireAll() {
     return $$("[data-dropzone]").map((zone) => new _Dropzone(zone));
   }

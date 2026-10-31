@@ -2,6 +2,10 @@
 name = "shhnote-argon2-wasm"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "Argon2id for the shhnote browser client, built from the same crate the server uses"
 
 [lib]
 crate-type = ["cdylib"]

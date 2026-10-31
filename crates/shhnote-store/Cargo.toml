@@ -2,6 +2,10 @@
 name = "shhnote-store"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "Persistence for shhnote over SQLite or PostgreSQL"
 
 [dependencies]
 shhnote-core.workspace = true
