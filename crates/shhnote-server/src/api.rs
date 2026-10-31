@@ -368,8 +368,9 @@ async fn create(
     match sink {
         Sink::Memory(buf) if bucket <= state.limits.inline_max && inline_allowed => {
             match state.store.create(&secret(Some(buf), None), now).await {
-                Ok(true) => Ok(StatusCode::CREATED),
-                Ok(false) => Err(ApiError::bad_request("duplicate_key")),
+                // A duplicate key is answered like a success and writes nothing (D-21): a
+                // different answer would tell a hash holder whether the secret still exists.
+                Ok(_) => Ok(StatusCode::CREATED),
                 Err(e) => Err(ApiError::internal(e)),
             }
         }
@@ -404,12 +405,15 @@ async fn create(
                     reservation.commit();
                     Ok(StatusCode::CREATED)
                 }
-                other => {
+                // Duplicate (D-21): the object goes, the reservation is given back, and the
+                // answer is the same 201.
+                Ok(false) => {
                     drop(guard);
-                    match other {
-                        Ok(_) => Err(ApiError::bad_request("duplicate_key")),
-                        Err(e) => Err(ApiError::internal(e)),
-                    }
+                    Ok(StatusCode::CREATED)
+                }
+                Err(e) => {
+                    drop(guard);
+                    Err(ApiError::internal(e))
                 }
             }
         }

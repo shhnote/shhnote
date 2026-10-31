@@ -211,9 +211,10 @@ async fn single_view_round_trip_with_raw_bytes() {
     );
     assert!(reply.body.is_empty());
 
-    // Same keys again: refused, the client reused a seed.
+    // Same keys again (the client reused a seed): answered like a success, nothing written (D-21).
     let reply = create(&app, meta(&keys, "single_view", 3600), &blob).await;
-    assert_eq!(reply.status, StatusCode::BAD_REQUEST);
+    assert_eq!(reply.status, StatusCode::CREATED);
+    assert!(reply.body.is_empty());
 
     let reveal = post_json(
         &app,

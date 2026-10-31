@@ -60,7 +60,7 @@ Speichert ein Geheimnis. Der Körper ist `multipart/form-data` mit zwei Teilen i
 
 2. `blob`, der verschlüsselte Blob als Bytes. Seine Länge muss genau einer aufgefüllten Größe entsprechen, die die Instanz akzeptiert.
 
-Antwortet mit **201** und leerem Körper. Fehler: `invalid_meta`, `invalid_lookup_key`, `invalid_burn_key`, `invalid_lifetime`, `invalid_ttl`, `invalid_blob_length`, `duplicate_key` (400); `files_disabled` (400, die Instanz nimmt nur textgroße Geheimnisse an); `too_large` (413); `storage_full` (507, die Instanz hat gerade keinen Platz für große Geheimnisse); `api_key_required` (401, siehe unten).
+Antwortet mit **201** und leerem Körper, auch wenn ein Geheimnis mit diesem `lookup_key` bereits existiert (dann wird nichts geschrieben; eine andere Antwort würde jedem, der einen Hash besitzt, verraten, ob das Geheimnis noch da ist). Fehler: `invalid_meta`, `invalid_lookup_key`, `invalid_burn_key`, `invalid_lifetime`, `invalid_ttl`, `invalid_blob_length` (400); `files_disabled` (400, die Instanz nimmt nur textgroße Geheimnisse an); `too_large` (413); `storage_full` (507, die Instanz hat gerade keinen Platz für große Geheimnisse); `api_key_required` (401, siehe unten).
 
 ## `POST /secrets/reveal`
 

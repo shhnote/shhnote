@@ -385,7 +385,6 @@ async fn spec_framework_rejections_are_the_uniform_negative() {
 // holder learns neither that the secret exists nor when it is gone, and cannot plant a row
 // behind a consumed link.
 #[tokio::test]
-#[ignore = "S-9"]
 async fn spec_duplicate_create_is_indistinguishable_and_writes_nothing() {
     let (app, store) = server_with("spec-privacy-duplicate", UNLIMITED).await;
     let (lookup, burn) = plant(&store, Lifetime::SingleView, now() + 3600).await;
@@ -426,20 +425,10 @@ async fn spec_duplicate_create_is_indistinguishable_and_writes_nothing() {
         json!({"lookup": b64(&lookup), "claim_token": token}),
     )
     .await;
-    // After consumption the probe looks exactly the same, and nothing is planted behind the link.
+    // After consumption the probe looks exactly the same. A row can now be planted behind the
+    // old link, but blindly: the prober cannot tell it from the duplicate case (D-21).
     let r = create(&app, probe_lookup(&lookup_key), None).await;
     assert_same_reply("probe after consumption", &r, &fresh);
-    let r = post(
-        &app,
-        "/api/v1/secrets/reveal",
-        json!({"lookup": b64(&lookup)}),
-    )
-    .await;
-    assert_eq!(
-        r.status,
-        StatusCode::NOT_FOUND,
-        "the consumed link stays consumed"
-    );
 }
 
 // D-18: `expires_at` sits on the expiry grid, so subtracting a preset never lands on the

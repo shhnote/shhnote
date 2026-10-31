@@ -60,7 +60,7 @@ Stores a secret. The body is `multipart/form-data` with two parts in this order:
 
 2. `blob`, the encrypted blob as bytes. Its length must correspond exactly to a padded size the instance accepts.
 
-Responds **201** with an empty body. Errors: `invalid_meta`, `invalid_lookup_key`, `invalid_burn_key`, `invalid_lifetime`, `invalid_ttl`, `invalid_blob_length`, `duplicate_key` (400); `files_disabled` (400, the instance accepts only text-sized secrets); `too_large` (413); `storage_full` (507, the instance has no room for large secrets right now); `api_key_required` (401, see below).
+Responds **201** with an empty body, also when a secret with that `lookup_key` already exists (nothing is written then; a different answer would tell anyone holding a hash whether the secret is still there). Errors: `invalid_meta`, `invalid_lookup_key`, `invalid_burn_key`, `invalid_lifetime`, `invalid_ttl`, `invalid_blob_length` (400); `files_disabled` (400, the instance accepts only text-sized secrets); `too_large` (413); `storage_full` (507, the instance has no room for large secrets right now); `api_key_required` (401, see below).
 
 ## `POST /secrets/reveal`
 
