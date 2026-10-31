@@ -200,27 +200,15 @@ impl Store {
         Ok(destroyed > 0)
     }
 
-    // Records the report in the ledger and removes a matching active secret. Returns whether it matched.
+    // Removes a matching active secret. Returns whether it matched. Nothing per report is
+    // stored (D-19): a row keyed by the secret's hash would be a tombstone.
     pub async fn report(&self, lookup_key: &[u8; 32], now: i64) -> Result<bool, Error> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(
-            "INSERT INTO reports (lookup_key, count, first_reported_at, last_reported_at, matched) \
-             VALUES ($1, 1, $2, $2, 0) \
-             ON CONFLICT (lookup_key) DO UPDATE SET count = reports.count + 1, last_reported_at = $2",
-        )
-        .bind(lookup_key.to_vec())
-        .bind(now)
-        .execute(&mut *tx)
-        .await?;
         // SECURITY: same narrowness as burn; claimed secrets are handled by the window.
         let predicate = "lookup_key = $1 AND status = 'active' AND expires_at > $2";
         let destroyed = destroy(&mut tx, predicate, &[&lookup_key[..]], now).await?;
         if destroyed > 0 {
             count(&mut tx, now, Counter::Removed, destroyed).await?;
-            sqlx::query("UPDATE reports SET matched = 1 WHERE lookup_key = $1")
-                .bind(lookup_key.to_vec())
-                .execute(&mut *tx)
-                .await?;
         }
         tx.commit().await?;
         Ok(destroyed > 0)

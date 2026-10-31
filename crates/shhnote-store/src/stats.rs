@@ -14,6 +14,7 @@ pub struct Stats {
     pub burned: i64,
     pub expired: i64,
     pub removed: i64,
+    pub reports: i64,
     pub active: i64,
 }
 
@@ -25,15 +26,7 @@ pub struct Day {
     pub burned: i64,
     pub expired: i64,
     pub removed: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Report {
-    pub lookup_key: Vec<u8>,
-    pub count: i64,
-    pub first_reported_at: i64,
-    pub last_reported_at: i64,
-    pub matched: bool,
+    pub reports: i64,
 }
 
 impl Store {
@@ -44,7 +37,8 @@ impl Store {
              CAST(COALESCE(SUM(viewed), 0) AS BIGINT) AS viewed, \
              CAST(COALESCE(SUM(burned), 0) AS BIGINT) AS burned, \
              CAST(COALESCE(SUM(expired), 0) AS BIGINT) AS expired, \
-             CAST(COALESCE(SUM(removed), 0) AS BIGINT) AS removed FROM stats_daily",
+             CAST(COALESCE(SUM(removed), 0) AS BIGINT) AS removed, \
+             CAST(COALESCE(SUM(reports), 0) AS BIGINT) AS reports FROM stats_daily",
         )
         .fetch_one(&self.pool)
         .await?;
@@ -57,13 +51,14 @@ impl Store {
             burned: totals.try_get("burned")?,
             expired: totals.try_get("expired")?,
             removed: totals.try_get("removed")?,
+            reports: totals.try_get("reports")?,
             active: active.try_get("n")?,
         })
     }
 
     pub async fn daily(&self, since: i64) -> Result<Vec<Day>, Error> {
         let rows = sqlx::query(
-            "SELECT day, created, viewed, burned, expired, removed FROM stats_daily \
+            "SELECT day, created, viewed, burned, expired, removed, reports FROM stats_daily \
              WHERE day >= $1 ORDER BY day",
         )
         .bind(since)
@@ -76,7 +71,7 @@ impl Store {
     // survive forever while old days lose their resolution. Returns how many rows were folded.
     pub async fn rollup_daily(&self, before: i64) -> Result<u64, Error> {
         let rows = sqlx::query(
-            "SELECT day, created, viewed, burned, expired, removed FROM stats_daily WHERE day < $1",
+            "SELECT day, created, viewed, burned, expired, removed, reports FROM stats_daily WHERE day < $1",
         )
         .bind(before)
         .fetch_all(&self.pool)
@@ -98,12 +93,14 @@ impl Store {
                 burned: 0,
                 expired: 0,
                 removed: 0,
+                reports: 0,
             });
             acc.created += day.created;
             acc.viewed += day.viewed;
             acc.burned += day.burned;
             acc.expired += day.expired;
             acc.removed += day.removed;
+            acc.reports += day.reports;
             folded += 1;
         }
         if by_year.is_empty() {
@@ -113,12 +110,12 @@ impl Store {
         let mut tx = self.pool.begin().await?;
         for (year, sum) in by_year {
             sqlx::query(
-                "INSERT INTO stats_daily (day, created, viewed, burned, expired, removed) \
-                 VALUES ($1, $2, $3, $4, $5, $6) \
+                "INSERT INTO stats_daily (day, created, viewed, burned, expired, removed, reports) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7) \
                  ON CONFLICT (day) DO UPDATE SET \
                  created = stats_daily.created + $2, viewed = stats_daily.viewed + $3, \
                  burned = stats_daily.burned + $4, expired = stats_daily.expired + $5, \
-                 removed = stats_daily.removed + $6",
+                 removed = stats_daily.removed + $6, reports = stats_daily.reports + $7",
             )
             .bind(year)
             .bind(sum.created)
@@ -126,6 +123,7 @@ impl Store {
             .bind(sum.burned)
             .bind(sum.expired)
             .bind(sum.removed)
+            .bind(sum.reports)
             .execute(&mut *tx)
             .await?;
             // Every day of that year except the accumulator, bounded by `before`.
@@ -139,26 +137,6 @@ impl Store {
         tx.commit().await?;
         Ok(folded)
     }
-
-    pub async fn reports(&self) -> Result<Vec<Report>, Error> {
-        let rows = sqlx::query(
-            "SELECT lookup_key, count, first_reported_at, last_reported_at, matched \
-             FROM reports ORDER BY last_reported_at DESC",
-        )
-        .fetch_all(&self.pool)
-        .await?;
-        rows.into_iter()
-            .map(|row| {
-                Ok(Report {
-                    lookup_key: row.try_get("lookup_key")?,
-                    count: row.try_get("count")?,
-                    first_reported_at: row.try_get("first_reported_at")?,
-                    last_reported_at: row.try_get("last_reported_at")?,
-                    matched: row.try_get::<i64, _>("matched")? != 0,
-                })
-            })
-            .collect()
-    }
 }
 
 fn day_from_row(row: &sqlx::any::AnyRow) -> Result<Day, Error> {
@@ -169,6 +147,7 @@ fn day_from_row(row: &sqlx::any::AnyRow) -> Result<Day, Error> {
         burned: row.try_get("burned")?,
         expired: row.try_get("expired")?,
         removed: row.try_get("removed")?,
+        reports: row.try_get("reports")?,
     })
 }
 

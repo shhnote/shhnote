@@ -6,5 +6,6 @@ CREATE TABLE stats_daily (
     viewed  INTEGER NOT NULL DEFAULT 0,
     burned  INTEGER NOT NULL DEFAULT 0,
     expired INTEGER NOT NULL DEFAULT 0,
-    removed INTEGER NOT NULL DEFAULT 0
+    removed INTEGER NOT NULL DEFAULT 0,
+    reports INTEGER NOT NULL DEFAULT 0   -- takedown reports received (D-19)
 );

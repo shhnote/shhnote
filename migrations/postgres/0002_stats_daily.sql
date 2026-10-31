@@ -6,5 +6,6 @@ CREATE TABLE stats_daily (
     viewed  BIGINT NOT NULL DEFAULT 0,
     burned  BIGINT NOT NULL DEFAULT 0,
     expired BIGINT NOT NULL DEFAULT 0,
-    removed BIGINT NOT NULL DEFAULT 0
+    removed BIGINT NOT NULL DEFAULT 0,
+    reports BIGINT NOT NULL DEFAULT 0   -- takedown reports received (D-19)
 );

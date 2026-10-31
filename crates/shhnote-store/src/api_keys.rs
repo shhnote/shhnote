@@ -3,14 +3,15 @@ use sqlx::Row;
 use crate::{Error, Store};
 
 // Operator credentials (SPEC §8). The key itself is shown once and stored only as a hash;
-// timestamps are fine here because these are not secrets.
+// timestamps are fine here because these are not secrets. Last use is kept to the UTC day
+// (`last_used_on`, unix seconds at 00:00 UTC) so it cannot be joined with a secret's expiry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApiKey {
     pub key_hash: Vec<u8>,
     pub name: String,
     pub scope: Scope,
     pub created_at: i64,
-    pub last_used_at: Option<i64>,
+    pub last_used_on: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,7 +46,7 @@ impl Store {
         now: i64,
     ) -> Result<(), Error> {
         sqlx::query(
-            "INSERT INTO api_keys (key_hash, name, scopes, created_at, last_used_at) VALUES ($1, $2, $3, $4, NULL)",
+            "INSERT INTO api_keys (key_hash, name, scopes, created_at, last_used_on) VALUES ($1, $2, $3, $4, NULL)",
         )
         .bind(key_hash.to_vec())
         .bind(name)
@@ -59,7 +60,7 @@ impl Store {
     // A keyed lookup by the hash of the presented key: nothing to compare, nothing to time.
     pub async fn find_api_key(&self, key_hash: &[u8; 32]) -> Result<Option<ApiKey>, Error> {
         let row = sqlx::query(
-            "SELECT key_hash, name, scopes, created_at, last_used_at FROM api_keys WHERE key_hash = $1",
+            "SELECT key_hash, name, scopes, created_at, last_used_on FROM api_keys WHERE key_hash = $1",
         )
         .bind(key_hash.to_vec())
         .fetch_optional(&self.pool)
@@ -67,10 +68,12 @@ impl Store {
         row.map(|row| api_key(&row)).transpose()
     }
 
+    // Records the UTC day of use, never the time (D-23).
     pub async fn touch_api_key(&self, key_hash: &[u8; 32], now: i64) -> Result<(), Error> {
-        sqlx::query("UPDATE api_keys SET last_used_at = $2 WHERE key_hash = $1")
+        let day = now - now.rem_euclid(86_400);
+        sqlx::query("UPDATE api_keys SET last_used_on = $2 WHERE key_hash = $1")
             .bind(key_hash.to_vec())
-            .bind(now)
+            .bind(day)
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -78,7 +81,7 @@ impl Store {
 
     pub async fn list_api_keys(&self) -> Result<Vec<ApiKey>, Error> {
         let rows = sqlx::query(
-            "SELECT key_hash, name, scopes, created_at, last_used_at FROM api_keys ORDER BY created_at DESC",
+            "SELECT key_hash, name, scopes, created_at, last_used_on FROM api_keys ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -116,6 +119,6 @@ fn api_key(row: &sqlx::any::AnyRow) -> Result<ApiKey, Error> {
         name: row.try_get("name")?,
         scope: Scope::parse(&scopes).unwrap_or(Scope::User),
         created_at: row.try_get("created_at")?,
-        last_used_at: row.try_get("last_used_at")?,
+        last_used_on: row.try_get("last_used_on")?,
     })
 }

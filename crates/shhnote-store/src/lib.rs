@@ -14,7 +14,7 @@ mod stats;
 
 pub use api_keys::{ApiKey, Scope};
 pub use secrets::{Lifetime, NewSecret, Served, Sweep, TtlServed};
-pub use stats::{Day, Report, Stats};
+pub use stats::{Day, Stats};
 
 pub type Error = sqlx::Error;
 
@@ -124,21 +124,15 @@ const MIGRATIONS: &[(i64, &str, &str, &str)] = &[
     ),
     (
         3,
-        "reports",
-        include_str!("../../../migrations/sqlite/0003_reports.sql"),
-        include_str!("../../../migrations/postgres/0003_reports.sql"),
+        "settings",
+        include_str!("../../../migrations/sqlite/0003_settings.sql"),
+        include_str!("../../../migrations/postgres/0003_settings.sql"),
     ),
     (
         4,
-        "settings",
-        include_str!("../../../migrations/sqlite/0004_settings.sql"),
-        include_str!("../../../migrations/postgres/0004_settings.sql"),
-    ),
-    (
-        5,
         "api_keys",
-        include_str!("../../../migrations/sqlite/0005_api_keys.sql"),
-        include_str!("../../../migrations/postgres/0005_api_keys.sql"),
+        include_str!("../../../migrations/sqlite/0004_api_keys.sql"),
+        include_str!("../../../migrations/postgres/0004_api_keys.sql"),
     ),
 ];
 
@@ -190,7 +184,7 @@ pub fn sqlite_path_for_tests(name: &str) -> std::path::PathBuf {
 impl Store {
     // Test helper: empties every table and resets the counters. Never called by the server.
     pub async fn wipe_for_tests(&self) -> Result<(), Error> {
-        for table in ["secrets", "stats_daily", "reports", "settings", "api_keys"] {
+        for table in ["secrets", "stats_daily", "settings", "api_keys"] {
             // Table names come from the fixed list above, never from input.
             sqlx::query(AssertSqlSafe(format!("DELETE FROM {table}")))
                 .execute(&self.pool)

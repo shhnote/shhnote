@@ -163,10 +163,8 @@ async fn single_view_lifecycle() {
             (1, 1, 0),
             "{backend}"
         );
-        // The report above was recorded in the ledger without a match.
-        let reports = store.reports().await.unwrap();
-        assert_eq!(reports.len(), 1);
-        assert!(!reports[0].matched);
+        // The unmatched report above left no trace (D-19).
+        assert_eq!(stats.removed, 0, "{backend}");
     }
 }
 
@@ -263,7 +261,7 @@ async fn ttl_lifecycle_and_burn() {
 }
 
 #[tokio::test]
-async fn report_removes_and_keeps_a_ledger() {
+async fn report_removes_and_keeps_no_ledger() {
     for (backend, store) in backends("report").await {
         let _guard = fresh(backend, &store).await;
         let now = 4_000_000;
@@ -283,18 +281,11 @@ async fn report_removes_and_keeps_a_ledger() {
             "{backend}: already removed"
         );
 
-        let reports = store.reports().await.unwrap();
-        assert_eq!(reports.len(), 2, "{backend}");
-        let matched = reports
-            .iter()
-            .find(|r| r.lookup_key == s.lookup_key)
-            .unwrap();
-        assert_eq!(
-            (matched.count, matched.matched, matched.last_reported_at),
-            (2, true, now + 2),
-            "{backend}"
-        );
+        // Only the takedown is counted; which secret was reported is not kept anywhere.
         assert_eq!(store.stats().await.unwrap().removed, 1, "{backend}");
+        let days = store.daily(0).await.unwrap();
+        assert_eq!(days.len(), 1, "{backend}");
+        assert_eq!(days[0].removed, 1, "{backend}");
     }
 }
 
@@ -476,19 +467,20 @@ async fn api_keys_round_trip() {
 
         let found = store.find_api_key(&user).await.unwrap().unwrap();
         assert_eq!(
-            (found.name.as_str(), found.scope, found.last_used_at),
+            (found.name.as_str(), found.scope, found.last_used_on),
             ("ci", Scope::User, None),
             "{backend}"
         );
-        store.touch_api_key(&user, 300).await.unwrap();
+        // Use at 2 days + 1000 s is recorded as the start of day 2, never the second.
+        store.touch_api_key(&user, 2 * 86_400 + 1000).await.unwrap();
         assert_eq!(
             store
                 .find_api_key(&user)
                 .await
                 .unwrap()
                 .unwrap()
-                .last_used_at,
-            Some(300),
+                .last_used_on,
+            Some(2 * 86_400),
             "{backend}"
         );
         assert!(
