@@ -13,7 +13,7 @@
       <p class="section__intro">{{ ctx.t("how-intro") }}</p>
     </header>
     {# Without the script both panels show one after the other; the script turns this into tabs. #}
-    <div class="doc-switch" role="tablist" aria-label="{{ ctx.t("how-title") }}" hidden style="margin-top:2rem">
+    <div class="doc-switch mt-8" role="tablist" aria-label="{{ ctx.t("how-title") }}" hidden>
       <button type="button" role="tab" id="tab-simple" aria-controls="simple" aria-selected="true">{{ ctx.t("how-tab-simple") }}</button>
       <button type="button" role="tab" id="tab-technical" aria-controls="technical" aria-selected="false" tabindex="-1">{{ ctx.t("how-tab-technical") }}</button>
     </div>
@@ -21,7 +21,7 @@
 </section>
 
 <section class="section tab-panel" id="simple" role="tabpanel" aria-labelledby="tab-simple">
-  <div class="container stack" style="gap:3rem">
+  <div class="container stack gap-12">
     <h2 class="tab-heading">{{ ctx.t("how-tab-simple") }}</h2>
     <ol class="flow">
       {%- for i in ["1", "2", "3"] %}
@@ -66,9 +66,9 @@
 </section>
 
 <section class="section tab-panel" id="technical" role="tabpanel" aria-labelledby="tab-technical">
-  <div class="container stack" style="gap:3rem">
+  <div class="container stack gap-12">
     <h2 class="tab-heading">{{ ctx.t("how-tab-technical") }}</h2>
-    <p class="section__intro" style="text-align:center">{{ ctx.t("how-t-intro") }}</p>
+    <p class="section__intro text-center">{{ ctx.t("how-t-intro") }}</p>
     <div class="explainer">
       {%- for i in ["1", "2", "3", "4", "5"] %}
       <div class="explainer__row">

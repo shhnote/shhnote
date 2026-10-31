@@ -5,7 +5,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::padding::PaddingPolicy;
+use crate::{config::AppEnv, padding::PaddingPolicy};
 
 const DAY: i64 = 86_400;
 // Hard ceiling from SPEC D-7; an override above it is refused, not clamped.
@@ -123,7 +123,10 @@ impl Default for Settings {
 impl Settings {
     // Applies database overrides on top of the defaults. An invalid value is reported and
     // skipped rather than failing startup (SPEC §7.2).
-    pub fn with_overrides(overrides: &HashMap<String, String>) -> (Self, Vec<String>) {
+    // `env` decides the URL rule: links rendered into pages must be `https://`, except on a
+    // local instance, where `http://` is how the pages themselves are served (SPEC §7.2).
+    pub fn with_overrides(overrides: &HashMap<String, String>, env: AppEnv) -> (Self, Vec<String>) {
+        let allow_http = env == AppEnv::Local;
         let mut s = Self::default();
         let mut warnings = Vec::new();
         let mut padding_mode = "padme".to_string();
@@ -138,7 +141,7 @@ impl Settings {
                     Ok(())
                 }
                 "contact_email" => email(value).map(|v| s.contact_email = v),
-                "source_url" => web_url(value).map(|v| s.source_url = v),
+                "source_url" => web_url(value, allow_http).map(|v| s.source_url = v),
                 "security_email" => email(value).map(|v| s.security_email = v),
                 "padding_mode" => match value {
                     "padme" | "buckets" => {
@@ -206,7 +209,7 @@ impl Settings {
                     .map(|v| s.salt_rotation_secs = v),
                 "regions" => serde_json::from_str(value)
                     .map_err(|e| e.to_string())
-                    .and_then(regions)
+                    .and_then(|v| regions(v, allow_http))
                     .map(|v| s.regions = v),
                 _ => Err("unknown setting".into()),
             };
@@ -369,13 +372,18 @@ fn ladder(entries: Vec<u64>) -> Result<Vec<u64>, String> {
     }
 }
 
-// Links rendered into pages: a web URL or nothing. (Production tightens this to https.)
-fn web_url(value: &str) -> Result<String, String> {
+// Links rendered into pages: an https URL or nothing; plain http only on a local instance.
+fn web_url(value: &str, allow_http: bool) -> Result<String, String> {
     let value = value.trim();
-    if value.is_empty() || value.starts_with("https://") || value.starts_with("http://") {
+    let ok = value.is_empty()
+        || value.starts_with("https://")
+        || (allow_http && value.starts_with("http://"));
+    if ok {
         Ok(value.to_string())
-    } else {
+    } else if allow_http {
         Err("must be a web URL".into())
+    } else {
+        Err("must be an https:// URL".into())
     }
 }
 
@@ -391,12 +399,12 @@ fn email(value: &str) -> Result<String, String> {
     }
 }
 
-fn regions(regions: Vec<Region>) -> Result<Vec<Region>, String> {
+fn regions(regions: Vec<Region>, allow_http: bool) -> Result<Vec<Region>, String> {
     for region in &regions {
         if region.code.trim().is_empty() || region.name.trim().is_empty() {
             return Err("every region needs a code and a name".into());
         }
-        web_url(&region.url).map_err(|_| "every region needs a web URL".to_string())?;
+        web_url(&region.url, allow_http).map_err(|e| format!("every region URL {e}"))?;
     }
     Ok(regions)
 }
@@ -429,7 +437,7 @@ mod tests {
         .into_iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
-        let (s, warnings) = Settings::with_overrides(&overrides);
+        let (s, warnings) = Settings::with_overrides(&overrides, AppEnv::Production);
         assert_eq!(s.site_name, "Example");
         assert_eq!(
             s.padding,
@@ -441,6 +449,27 @@ mod tests {
         assert_eq!(s.max_ttl_secs, MAX_TTL_CEILING);
         assert!(s.files_enabled);
         assert_eq!(warnings.len(), 3, "{warnings:?}");
+    }
+
+    #[test]
+    fn plain_http_links_only_on_a_local_instance() {
+        let region = r#"[{"code":"eu","name":"EU","url":"http://eu.example"}]"#;
+        for (key, value) in [
+            ("source_url", "http://example.com/src"),
+            ("regions", region),
+        ] {
+            let (s, warnings) =
+                Settings::with_overrides(&overrides(&[(key, value)]), AppEnv::Production);
+            assert_eq!(warnings.len(), 1, "{key}: {warnings:?}");
+            assert_eq!(s, Settings::default());
+            let (_, warnings) =
+                Settings::with_overrides(&overrides(&[(key, value)]), AppEnv::Local);
+            assert!(warnings.is_empty(), "{key}: {warnings:?}");
+            let https = value.replace("http://", "https://");
+            let (_, warnings) =
+                Settings::with_overrides(&overrides(&[(key, &https)]), AppEnv::Production);
+            assert!(warnings.is_empty(), "{key}: {warnings:?}");
+        }
     }
 
     #[test]
@@ -471,11 +500,15 @@ mod tests {
                 r#"[{"code":"x","name":"X","url":"javascript:alert(1)"}]"#,
             ),
         ] {
-            let (s, warnings) = Settings::with_overrides(&overrides(&[(key, value)]));
+            let (s, warnings) =
+                Settings::with_overrides(&overrides(&[(key, value)]), AppEnv::Production);
             assert_eq!(warnings.len(), 1, "{key}={value}: {warnings:?}");
             assert_eq!(s, Settings::default(), "{key}={value} changed something");
         }
-        let (s, warnings) = Settings::with_overrides(&overrides(&[("ttl_presets", "900,3600")]));
+        let (s, warnings) = Settings::with_overrides(
+            &overrides(&[("ttl_presets", "900,3600")]),
+            AppEnv::Production,
+        );
         assert!(warnings.is_empty());
         assert_eq!(s.ttl_presets, vec![900, 3600]);
     }
@@ -488,7 +521,7 @@ mod tests {
             .into_iter()
             .map(|(k, v)| (k.to_string(), v))
             .collect();
-        let (back, warnings) = Settings::with_overrides(&strings);
+        let (back, warnings) = Settings::with_overrides(&strings, AppEnv::Production);
         assert!(warnings.is_empty(), "{warnings:?}");
         assert_eq!(back, defaults);
     }
@@ -502,12 +535,17 @@ mod tests {
 
     #[test]
     fn retention_accepts_minus_one_only_as_off_switch() {
-        let (s, warnings) = Settings::with_overrides(&overrides(&[("daily_retention_days", "-1")]));
+        let (s, warnings) = Settings::with_overrides(
+            &overrides(&[("daily_retention_days", "-1")]),
+            AppEnv::Production,
+        );
         assert!(warnings.is_empty());
         assert_eq!(s.daily_retention_days, -1);
         for bad in ["0", "-2"] {
-            let (s, warnings) =
-                Settings::with_overrides(&overrides(&[("daily_retention_days", bad)]));
+            let (s, warnings) = Settings::with_overrides(
+                &overrides(&[("daily_retention_days", bad)]),
+                AppEnv::Production,
+            );
             assert_eq!(warnings.len(), 1, "{bad}");
             assert_eq!(s.daily_retention_days, 365);
         }
@@ -515,7 +553,7 @@ mod tests {
 
     #[test]
     fn empty_overrides_are_the_defaults() {
-        let (s, warnings) = Settings::with_overrides(&HashMap::new());
+        let (s, warnings) = Settings::with_overrides(&HashMap::new(), AppEnv::Production);
         assert_eq!(s, Settings::default());
         assert!(warnings.is_empty());
     }

@@ -5,7 +5,7 @@
 
 {% block content %}
 <section class="section">
-  <div class="container stack" style="gap:2rem">
+  <div class="container stack gap-8">
     {% call nav::admin_nav(ctx, admin) %}{% endcall %}
     <div class="stack--sm">
       <h1>{{ ctx.t("admin-settings-title") }}</h1>
@@ -24,7 +24,7 @@
     {%- endif %}
 
     {# One form for every group: a hidden tab still submits its fields, so one save covers all. #}
-    <form method="post" action="{{ ctx.href("/admin/settings") }}" class="stack" style="gap:1.5rem">
+    <form method="post" action="{{ ctx.href("/admin/settings") }}" class="stack gap-6">
       <input type="hidden" name="csrf" value="{{ admin.csrf }}">
       <div class="tabs" data-tabs>
         <div class="doc-switch" role="tablist" aria-label="{{ ctx.t("admin-settings-title") }}" hidden>
@@ -50,7 +50,7 @@
                 <option value="buckets"{% if f.value == "buckets" %} selected{% endif %}>buckets</option>
               </select>
               {%- else if f.key == "regions" %}
-              <textarea class="form-textarea" id="s-{{ f.key }}" name="{{ f.key }}" rows="3" style="min-height:5rem">{{ f.value }}</textarea>
+              <textarea class="form-textarea min-h-20" id="s-{{ f.key }}" name="{{ f.key }}" rows="3">{{ f.value }}</textarea>
               {%- else %}
               <input class="form-input" id="s-{{ f.key }}" name="{{ f.key }}" value="{{ f.value }}">
               {%- endif %}

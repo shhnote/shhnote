@@ -20,6 +20,7 @@ use axum::{
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde_json::{Value, json};
 use shhnote_core::{
+    config::AppEnv,
     config::Config,
     container::{File, Payload},
     kdf::Argon2Params,
@@ -80,7 +81,7 @@ async fn srv(name: &str, env: &[(&str, &str)], overrides: &[(&str, &str)]) -> Sr
     let store = Store::connect_url(&format!("sqlite://{}?mode=rwc", db.display()))
         .await
         .unwrap();
-    let (settings, warnings) = Settings::with_overrides(&map(overrides));
+    let (settings, warnings) = Settings::with_overrides(&map(overrides), AppEnv::Local);
     assert!(warnings.is_empty(), "{warnings:?}");
     let app = app::router(
         &config,

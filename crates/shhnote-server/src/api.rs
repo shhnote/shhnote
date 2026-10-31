@@ -15,6 +15,7 @@ use axum::{
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use shhnote_core::{
+    config::AppEnv,
     config::Config,
     fragment,
     padding::PaddingPolicy,
@@ -45,6 +46,8 @@ pub struct ApiState {
     pub uploads: Arc<Semaphore>,
     // SHA-256 of SHH_ADMIN_TOKEN; honoured only while no admin key exists (SPEC §8).
     pub admin_token_hash: Option<[u8; 32]>,
+    // Decides the URL rule for settings (SPEC §7.2).
+    pub env: AppEnv,
 }
 
 impl ApiState {
@@ -67,6 +70,7 @@ impl ApiState {
                 .admin_token
                 .as_ref()
                 .map(|t| credential_hash(t.expose().as_bytes())),
+            env: config.env,
         }
     }
 }

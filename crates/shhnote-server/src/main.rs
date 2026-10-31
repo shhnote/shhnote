@@ -79,7 +79,7 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    let (settings, warnings) = Settings::with_overrides(&overrides);
+    let (settings, warnings) = Settings::with_overrides(&overrides, config.env);
     for warning in warnings {
         shhnote_server::log_warn!("{warning}");
     }

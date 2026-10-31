@@ -38,6 +38,7 @@ pub(crate) struct Shared {
     // Signs admin sessions; comes from SHH_SECRET_KEY.
     pub(crate) secret_key: Vec<u8>,
     pub(crate) secure_cookies: bool,
+    pub(crate) env: AppEnv,
     pub(crate) admin_token_hash: Option<[u8; 32]>,
     asset_version: String,
     // app.css with the asset hash substituted into its font URLs.
@@ -83,6 +84,7 @@ pub fn router(config: &Config, api: &ApiState) -> Router {
         limiter: api.limiter.clone(),
         secret_key: config.secret_key.expose().as_bytes().to_vec(),
         secure_cookies: config.env == AppEnv::Production,
+        env: config.env,
         admin_token_hash: api.admin_token_hash,
         asset_version: asset_version(),
         css: APP_CSS.replace("__V__", &asset_version()),

@@ -750,7 +750,6 @@ async fn spec_settings_markup_is_escaped_in_pages() {
 // SPEC §7.2: region and source URLs are https:// only (http:// when SHH_ENV is local), so no
 // javascript: or data: link ever reaches a page.
 #[tokio::test]
-#[ignore = "S-42"]
 async fn spec_settings_refuse_non_http_urls() {
     let (app, _) = build("spec-admin-urls").await;
     let auth = bearer(BOOTSTRAP);

@@ -21,7 +21,7 @@ use axum::{
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use futures_util::stream;
 use serde_json::{Value, json};
-use shhnote_core::{config::Config, padding::blob_len, secret, settings::Settings};
+use shhnote_core::{config::AppEnv, config::Config, padding::blob_len, secret, settings::Settings};
 use shhnote_server::{api::ApiState, app, scheduler, storage::Blobs};
 use shhnote_store::{Store, sqlite_path_for_tests};
 use tokio::{
@@ -71,7 +71,7 @@ async fn build(name: &str, tier: &[(&str, &str)]) -> (Router, Store, Option<Arc<
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
-    let (settings, warnings) = Settings::with_overrides(&overrides);
+    let (settings, warnings) = Settings::with_overrides(&overrides, AppEnv::Local);
     assert!(warnings.is_empty(), "{warnings:?}");
     let app = app::router(
         &config,

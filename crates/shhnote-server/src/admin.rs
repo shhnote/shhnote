@@ -12,6 +12,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 use shhnote_core::{
+    config::AppEnv,
     secret::credential_hash,
     settings::{Settings, SettingsCell},
 };
@@ -549,7 +550,14 @@ async fn settings_save(
     }
     // Saved: redirect, so a refresh re-reads the page instead of re-posting the form.
     // Invalid: the form comes back with what was typed, as a 422.
-    match save_settings(&state.shared.store, &state.shared.settings, &submitted).await {
+    match save_settings(
+        &state.shared.store,
+        &state.shared.settings,
+        &submitted,
+        state.shared.env,
+    )
+    .await
+    {
         Ok(_) => Redirect::to(&format!("{}?saved", state.href("/admin/settings"))).into_response(),
         Err(SaveError::Invalid(errors)) => {
             let current = state.shared.settings.load();
@@ -766,8 +774,9 @@ pub(crate) async fn save_settings(
     store: &Store,
     cell: &SettingsCell,
     submitted: &HashMap<String, String>,
+    env: AppEnv,
 ) -> Result<Settings, SaveError> {
-    let (settings, errors) = Settings::with_overrides(submitted);
+    let (settings, errors) = Settings::with_overrides(submitted, env);
     if !errors.is_empty() {
         return Err(SaveError::Invalid(errors));
     }

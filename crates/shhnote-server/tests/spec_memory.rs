@@ -17,7 +17,7 @@ use axum::{
     body::Body,
     http::{Request, StatusCode, header},
 };
-use shhnote_core::{config::Config, settings::Settings};
+use shhnote_core::{config::AppEnv, config::Config, settings::Settings};
 use shhnote_server::{api::ApiState, app, storage::Blobs};
 use shhnote_store::{Store, sqlite_path_for_tests};
 use tower::ServiceExt;
@@ -68,7 +68,7 @@ async fn app(name: &str, env: &[(&str, &str)], overrides: &[(&str, &str)]) -> Ro
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
-    let (settings, _) = Settings::with_overrides(&overrides);
+    let (settings, _) = Settings::with_overrides(&overrides, AppEnv::Local);
     let blobs = match &config.storage.external {
         Some(ext) => Some(Arc::new(Blobs::open(ext).await.unwrap())),
         None => None,

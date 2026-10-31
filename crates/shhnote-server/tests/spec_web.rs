@@ -291,7 +291,6 @@ fn inline_problems(html: &str) -> Vec<String> {
 
 // SPEC §10/§11: no inline scripts or styles anywhere.
 #[tokio::test]
-#[ignore = "S-38"]
 async fn spec_no_inline_styles_or_scripts_on_any_page() {
     let app = build("spec-web-inline", &[]).await;
     let bearer_free = walk(&app, "localhost", "/api/v1").await;
