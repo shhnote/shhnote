@@ -179,7 +179,6 @@ fn spec_config_retains_nothing_per_request() {
 // SPEC §4: the `meta` part is read in bounded chunks and refused past 4 KiB, so an oversized
 // one costs no more memory than a blob of the same size, which is spooled.
 #[test]
-#[ignore = "S-3"]
 fn spec_meta_part_is_bounded_before_it_is_buffered() {
     let _guard = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     runtime().block_on(async {

@@ -210,18 +210,18 @@ struct CreateMeta {
     ttl_seconds: i64,
 }
 
+// The `meta` part is tiny; anything bigger is not a client of ours.
+const META_MAX_BYTES: usize = 4096;
+
 // `meta` comes first so the request can be refused before the blob is read.
 async fn create(
     State(state): State<ApiState>,
     mut multipart: Multipart,
 ) -> Result<StatusCode, ApiError> {
     let meta_field = next_field(&mut multipart, "meta").await?;
-    let meta_text = meta_field.text().await.map_err(multipart_error)?;
-    if meta_text.len() > 4096 {
-        return Err(ApiError::bad_request("invalid_meta"));
-    }
+    let meta_bytes = read_capped(meta_field, META_MAX_BYTES).await?;
     let meta: CreateMeta =
-        serde_json::from_str(&meta_text).map_err(|_| ApiError::bad_request("invalid_meta"))?;
+        serde_json::from_slice(&meta_bytes).map_err(|_| ApiError::bad_request("invalid_meta"))?;
     let lookup_key =
         decode32(&meta.lookup_key).ok_or(ApiError::bad_request("invalid_lookup_key"))?;
     let burn_key = decode32(&meta.burn_key).ok_or(ApiError::bad_request("invalid_burn_key"))?;
@@ -489,6 +489,23 @@ async fn report(
             .map_err(ApiError::internal)?;
     }
     Ok(Json(ReportResponse { status: "received" }))
+}
+
+// Reads a small part in chunks and refuses the moment the cap is passed, so an oversized
+// part costs no more memory than the cap (SPEC §4). Takes the field by value: the multipart
+// stream only moves on once the field is dropped.
+async fn read_capped(
+    mut field: axum::extract::multipart::Field<'_>,
+    cap: usize,
+) -> Result<Vec<u8>, ApiError> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = field.chunk().await.map_err(multipart_error)? {
+        if bytes.len() + chunk.len() > cap {
+            return Err(ApiError::bad_request("invalid_meta"));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
 }
 
 async fn next_field<'a>(
