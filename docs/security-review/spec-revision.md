@@ -77,6 +77,7 @@ the review tests become the regression suite, then code.
 | 30 | S-55 to S-57 + suspicions 10/14/15: compose/systemd hardening, env example comments, Fly notes. | `shhnote check` against each example |
 | 31 | Remaining suspicions (3, 4, 5, 8, 9, 11, 12, 13, 16, 17): run the named experiment, report, fix only if confirmed and small; otherwise record as a residual or a new finding. | per item |
 | 32 | **OPEN decision:** reveal-page expiry display. Skip until the human has decided; then apply to §4, §5.2, §11, the header and the template in one step. | `cargo test` |
+| 33 | **S-46, empty passphrase (decided 2026-10-31):** an empty passphrase is an error in both libraries, never "no passphrase". `createSecret`/`revealSecret` in TS and the equivalents in core reject `""` at the API boundary with the usual error type; omitting the parameter is the only way to mean direct mode. The website's create and reveal forms treat a blank field as "omitted" *before* calling the library, so visible behaviour does not change. Add to §2.10: "A passphrase, when present, is a non-empty string; both implementations reject an empty passphrase at the API boundary. User interfaces treat an empty input as no passphrase before calling the library." Add a reject vector `passphrase: ""`; un-ignore and rewrite `spec_empty_passphrase_is_a_passphrase` and the client's S-46 test to assert the error; note the rule in `docs.md`. Update `CHANGELOG.md` S-46 row. | `cargo test`, `npm test` |
 
 ---
 
