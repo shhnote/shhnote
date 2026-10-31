@@ -2,7 +2,7 @@ import { decodeFragment } from "../crypto/fragment.ts";
 import { ShhError } from "../crypto/error.ts";
 import { encrypt, generateRandomness } from "../crypto/secret.ts";
 import { Api, ApiError, type Lifetime } from "./api.ts";
-import { loadArgon2 } from "./argon2-loader.ts";
+import { loadArgon2, prefetchArgon2 } from "./argon2-loader.ts";
 import { $, $$, hide, setStatus, show, wireCopy } from "./dom.ts";
 import type { Dropzone } from "./dropzone.ts";
 import { t } from "./i18n.ts";
@@ -15,6 +15,7 @@ export function wireCreate(form: HTMLFormElement, dropzone: Dropzone | undefined
   const result = $("[data-create-result]");
   const wrapper = $("[data-create-wrapper]");
   show(wrapper);
+  prefetchArgon2();
 
   // Instance policy: with files switched off the drop zone goes away and the API would refuse
   // anything file-sized anyway.

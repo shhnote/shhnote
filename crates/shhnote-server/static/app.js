@@ -877,6 +877,10 @@ var Argon2 = class _Argon2 {
 
 // src/ui/argon2-loader.ts
 var loading = null;
+function prefetchArgon2() {
+  loadArgon2().catch(() => {
+  });
+}
 function loadArgon2() {
   const version = document.body.dataset["assetVersion"] ?? "";
   loading ??= Argon2.fromResponse(fetch(`/static/argon2.wasm?v=${version}`, { cache: "force-cache" })).catch((e) => {
@@ -894,6 +898,7 @@ function wireCreate(form, dropzone) {
   const result = $("[data-create-result]");
   const wrapper = $("[data-create-wrapper]");
   show(wrapper);
+  prefetchArgon2();
   let filesEnabled = true;
   void api.config().then((config) => {
     filesEnabled = config.files_enabled;
@@ -1104,6 +1109,7 @@ function wireReveal(page) {
     return;
   }
   show(armed);
+  prefetchArgon2();
   let locked = null;
   let bodyBytes = null;
   let claimToken = null;
@@ -1121,10 +1127,19 @@ function wireReveal(page) {
     if (pre) pre.textContent = "";
     page.querySelector("[data-files]")?.replaceChildren();
   });
-  armed.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    if (!event.isTrusted) return;
-    const button = $("button", armed);
+  const button = $("button", armed);
+  armed.addEventListener("submit", (event) => event.preventDefault());
+  button.addEventListener("click", (event) => {
+    if (event.isTrusted && event.detail > 0 && userActivated()) void reveal();
+  });
+  button.addEventListener("keydown", (event) => {
+    if (event.isTrusted && (event.key === "Enter" || event.key === " ") && userActivated()) {
+      event.preventDefault();
+      void reveal();
+    }
+  });
+  async function reveal() {
+    if (button.disabled) return;
     const working = $("[data-working-status]", page);
     button.disabled = true;
     try {
@@ -1158,12 +1173,12 @@ function wireReveal(page) {
         button.disabled = false;
       }
     }
-  });
+  }
   passForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!locked) return;
-    const button = $("button", passForm);
-    button.disabled = true;
+    const button2 = $("button", passForm);
+    button2.disabled = true;
     try {
       setStatus(passStatus, t("reveal-decrypting"));
       const ek = await unwrapEk(locked.header, seed, passInput.value, await loadArgon2());
@@ -1177,14 +1192,18 @@ function wireReveal(page) {
         locked = null;
         setState(page, "armed");
         setStatus(armedStatus, t("reveal-error-network"));
-        $("button", armed).disabled = false;
+        button2.disabled = false;
       } else {
         setStatus(passStatus, t("reveal-error-corrupt"));
       }
     } finally {
-      button.disabled = false;
+      button2.disabled = false;
     }
   });
+  function userActivated() {
+    const activation = navigator.userActivation;
+    return activation === void 0 || activation.isActive;
+  }
   async function display(payload) {
     bodyBytes?.fill(0);
     bodyBytes = null;

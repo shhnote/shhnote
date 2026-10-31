@@ -6,7 +6,7 @@ import { HEADER_LEN } from "../crypto/padding.ts";
 import { decryptBody, lookup, unwrapEk } from "../crypto/secret.ts";
 import { collect, iterateBytes, readHeader } from "../crypto/stream.ts";
 import { Api, ApiError, DEFAULT_MAX_BLOB_BYTES } from "./api.ts";
-import { loadArgon2 } from "./argon2-loader.ts";
+import { loadArgon2, prefetchArgon2 } from "./argon2-loader.ts";
 import { $, formatSize, setState, setStatus, show, wireCopy } from "./dom.ts";
 import { t } from "./i18n.ts";
 
@@ -30,6 +30,7 @@ export function wireReveal(page: HTMLElement): void {
     return;
   }
   show(armed);
+  prefetchArgon2();
 
   // Kept only for a passphrase-protected secret: the header to retry the passphrase against
   // and the ciphertext body, so every retry stays in the browser (SPEC §2.10).
@@ -56,10 +57,24 @@ export function wireReveal(page: HTMLElement): void {
     page.querySelector("[data-files]")?.replaceChildren();
   });
 
-  armed.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    if (!event.isTrusted) return;
-    const button = $<HTMLButtonElement>("button", armed);
+  // Only a real press reveals (SPEC §5). A page script can fire a trusted `submit`
+  // (`requestSubmit()`) or a trusted `click` with `detail` 0 (`button.click()`), so the form
+  // itself never submits; the button acts on a pointer click with `detail > 0` or on a key
+  // press, both trusted, and only while the browser reports user activation.
+  const button = $<HTMLButtonElement>("button", armed);
+  armed.addEventListener("submit", (event) => event.preventDefault());
+  button.addEventListener("click", (event) => {
+    if (event.isTrusted && event.detail > 0 && userActivated()) void reveal();
+  });
+  button.addEventListener("keydown", (event) => {
+    if (event.isTrusted && (event.key === "Enter" || event.key === " ") && userActivated()) {
+      event.preventDefault();
+      void reveal();
+    }
+  });
+
+  async function reveal(): Promise<void> {
+    if (button.disabled) return;
     const working = $("[data-working-status]", page);
     button.disabled = true;
     try {
@@ -95,7 +110,7 @@ export function wireReveal(page: HTMLElement): void {
         button.disabled = false;
       }
     }
-  });
+  }
 
   // Wrong passphrases are retried against the header already in memory: no server round trip.
   passForm.addEventListener("submit", async (event) => {
@@ -117,7 +132,7 @@ export function wireReveal(page: HTMLElement): void {
         locked = null;
         setState(page, "armed");
         setStatus(armedStatus, t("reveal-error-network"));
-        $<HTMLButtonElement>("button", armed).disabled = false;
+        button.disabled = false;
       } else {
         setStatus(passStatus, t("reveal-error-corrupt"));
       }
@@ -125,6 +140,12 @@ export function wireReveal(page: HTMLElement): void {
       button.disabled = false;
     }
   });
+
+  // Browsers without the API cannot be asked; those with it must say a gesture is in flight.
+  function userActivated(): boolean {
+    const activation = navigator.userActivation as { isActive: boolean } | undefined;
+    return activation === undefined || activation.isActive;
+  }
 
   async function display(payload: Payload): Promise<void> {
     bodyBytes?.fill(0);

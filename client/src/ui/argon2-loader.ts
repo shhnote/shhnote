@@ -2,7 +2,12 @@ import { Argon2 } from "../crypto/argon2.ts";
 
 let loading: Promise<Argon2> | null = null;
 
-// Fetched same-origin only when a passphrase is actually involved, and only once per page.
+// Fetched same-origin, once per page. Every create and reveal page fetches it, whether or
+// not a passphrase is involved, so the fetch says nothing about passphrase use (D-22).
+export function prefetchArgon2(): void {
+  loadArgon2().catch(() => {});
+}
+
 export function loadArgon2(): Promise<Argon2> {
   const version = document.body.dataset["assetVersion"] ?? "";
   loading ??= Argon2.fromResponse(fetch(`/static/argon2.wasm?v=${version}`, { cache: "force-cache" })).catch((e) => {

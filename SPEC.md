@@ -221,7 +221,7 @@ The §11 security headers are applied to every response, API and drain responses
 
 ## 5. Lifecycle (D-1)
 
-The interstitial `/s` page is static and fetches nothing until the user acts; the reveal button responds only to a trusted user gesture (`event.isTrusted`). The scheduler runs every 60 s. Every terminal transition increments its counter and deletes the row (inline) or moves it to `pending_delete` (external) in one transaction; `pending_delete` rows are never served.
+The interstitial `/s` page is static and fetches nothing until the user acts; the reveal button responds only to a trusted pointer or keyboard activation (§5.1 residual). The scheduler runs every 60 s. Every terminal transition increments its counter and deletes the row (inline) or moves it to `pending_delete` (external) in one transaction; `pending_delete` rows are never served.
 
 ### 5.1 Single-view
 
