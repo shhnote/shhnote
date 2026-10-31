@@ -88,8 +88,6 @@ jobs:
             shhnote-*.tar.gz
             SHA256SUMS
           generate_release_notes: true
-          # A dash in the tag (v1.2.0-rc1) marks a pre-release.
-          prerelease: ${{ contains(github.ref_name, '-') }}
 
   # One image per platform, built natively and pushed by digest only (no tag yet). The
   # cache scope matches the binaries job, so the compile is already done by the time
@@ -165,13 +163,14 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: meta
-        # Pre-releases (a dash in the tag) get only their exact version; `latest` and the
-        # major.minor tag move on real releases alone.
+        # Every tag is a full GitHub release and gets its exact image tag. `major.minor`
+        # and `latest` move only on stable tags (no dash), so a pull of `latest` never
+        # returns an rc, beta or alpha.
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=match,pattern=v(.*),group=1
+            type=match,pattern=v(\d+\.\d+),group=1,enable=${{ !contains(github.ref_name, '-') }}
             type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
       - name: Create manifest
         id: manifest
