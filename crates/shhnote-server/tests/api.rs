@@ -789,7 +789,7 @@ async fn admin_settings_apply_live_and_store_only_overrides() {
     assert_uniform_negative(&send(&app, req).await);
     assert!(
         store.list_api_keys().await.unwrap()[0]
-            .last_used_at
+            .last_used_on
             .is_some()
     );
 
@@ -1228,7 +1228,7 @@ async fn admin_api_bootstraps_keys_settings_and_stats() {
     let keys = admin_api(&app, "GET", "/api/v1/admin/keys", &admin_key, None).await;
     assert_eq!(keys.status, StatusCode::OK);
     assert_eq!(keys.json()["keys"][0]["id"], admin_id);
-    assert!(keys.json()["keys"][0]["last_used_at"].is_number());
+    assert!(keys.json()["keys"][0]["last_used_on"].is_number());
     assert!(
         !text(&keys).contains(&admin_key),
         "keys are never listed in clear"
@@ -1311,9 +1311,16 @@ async fn admin_api_bootstraps_keys_settings_and_stats() {
     assert_eq!(bad.json()["details"].as_array().unwrap().len(), 1);
     assert_eq!(store.setting_overrides().await.unwrap().len(), 3);
 
-    // Reports ledger, then deleting the key in use ends access.
-    let reports = admin_api(&app, "GET", "/api/v1/admin/reports", &admin_key, None).await;
-    assert_eq!(reports.json()["reports"], json!([]));
+    // There is no reports ledger (D-19); reports are a daily counter in the stats.
+    let stats = admin_api(&app, "GET", "/api/v1/admin/stats", &admin_key, None).await;
+    assert_eq!(stats.json()["reports"], 0);
+    assert!(
+        admin_api(&app, "GET", "/api/v1/admin/reports", &admin_key, None)
+            .await
+            .status
+            .is_client_error()
+    );
+    // Deleting the key in use ends access.
     let gone = admin_api(
         &app,
         "POST",

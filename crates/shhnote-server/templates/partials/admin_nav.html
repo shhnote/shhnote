@@ -2,7 +2,6 @@
 <nav class="admin-nav" aria-label="{{ ctx.t("admin-title") }}">
   <a href="{{ ctx.href("/admin") }}"{% if ctx.path == "/admin" %} aria-current="page"{% endif %}>{{ ctx.t("admin-nav-dashboard") }}</a>
   <a href="{{ ctx.href("/admin/settings") }}"{% if ctx.path == "/admin/settings" %} aria-current="page"{% endif %}>{{ ctx.t("admin-nav-settings") }}</a>
-  <a href="{{ ctx.href("/admin/reports") }}"{% if ctx.path == "/admin/reports" %} aria-current="page"{% endif %}>{{ ctx.t("admin-nav-reports") }}</a>
   <a href="{{ ctx.href("/admin/keys") }}"{% if ctx.path == "/admin/keys" %} aria-current="page"{% endif %}>{{ ctx.t("admin-nav-keys") }}</a>
   <form method="post" action="{{ ctx.href("/admin/logout") }}" class="admin-nav__logout">
     <input type="hidden" name="csrf" value="{{ admin.csrf }}">

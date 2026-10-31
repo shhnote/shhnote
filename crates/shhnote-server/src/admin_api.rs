@@ -26,7 +26,6 @@ pub fn routes(state: ApiState) -> Router<ApiState> {
     Router::new()
         .route("/stats", get(stats))
         .route("/settings", get(settings).patch(settings_patch))
-        .route("/reports", get(reports))
         .route("/keys", get(keys).post(keys_create))
         .route("/keys/delete", post(keys_delete))
         .layer(middleware::from_fn_with_state(state, require_admin))
@@ -112,6 +111,7 @@ struct DayOut {
     burned: i64,
     expired: i64,
     removed: i64,
+    reports: i64,
 }
 
 #[derive(Serialize)]
@@ -121,6 +121,7 @@ struct StatsOut {
     burned: i64,
     expired: i64,
     removed: i64,
+    reports: i64,
     active: i64,
     days: Vec<DayOut>,
 }
@@ -141,6 +142,7 @@ async fn stats(State(state): State<ApiState>, Query(query): Query<StatsQuery>) -
         burned: totals.burned,
         expired: totals.expired,
         removed: totals.removed,
+        reports: totals.reports,
         active: totals.active,
         days: daily
             .into_iter()
@@ -152,6 +154,7 @@ async fn stats(State(state): State<ApiState>, Query(query): Query<StatsQuery>) -
                 burned: d.burned,
                 expired: d.expired,
                 removed: d.removed,
+                reports: d.reports,
             })
             .collect(),
     };
@@ -261,39 +264,12 @@ async fn settings_patch(
 }
 
 #[derive(Serialize)]
-struct ReportOut {
-    id: String,
-    count: i64,
-    first_reported_at: i64,
-    last_reported_at: i64,
-    removed_secret: bool,
-}
-
-async fn reports(State(state): State<ApiState>) -> Response {
-    let reports = match state.store.reports().await {
-        Ok(r) => r,
-        Err(e) => return db_error(e),
-    };
-    let out: Vec<ReportOut> = reports
-        .into_iter()
-        .map(|r| ReportOut {
-            id: hex(&r.lookup_key[..8]),
-            count: r.count,
-            first_reported_at: r.first_reported_at,
-            last_reported_at: r.last_reported_at,
-            removed_secret: r.matched,
-        })
-        .collect();
-    Json(serde_json::json!({ "reports": out })).into_response()
-}
-
-#[derive(Serialize)]
 struct KeyOut {
     id: String,
     name: String,
     scope: &'static str,
     created_at: i64,
-    last_used_at: Option<i64>,
+    last_used_on: Option<i64>,
 }
 
 async fn keys(State(state): State<ApiState>) -> Response {
@@ -308,7 +284,7 @@ async fn keys(State(state): State<ApiState>) -> Response {
             name: k.name,
             scope: k.scope.as_str(),
             created_at: k.created_at,
-            last_used_at: k.last_used_at,
+            last_used_on: k.last_used_on,
         })
         .collect();
     Json(serde_json::json!({ "keys": out })).into_response()

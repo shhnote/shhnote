@@ -16,6 +16,7 @@
       <div><dt>{{ ctx.t("admin-stat-burned") }}</dt><dd>{{ stats.burned }}</dd></div>
       <div><dt>{{ ctx.t("admin-stat-expired") }}</dt><dd>{{ stats.expired }}</dd></div>
       <div><dt>{{ ctx.t("admin-stat-removed") }}</dt><dd>{{ stats.removed }}</dd></div>
+      <div><dt>{{ ctx.t("admin-stat-reports") }}</dt><dd>{{ stats.reports }}</dd></div>
     </dl>
 
     <h2>{{ ctx.t("admin-daily-title") }}</h2>
@@ -31,10 +32,11 @@
           <th scope="col">{{ ctx.t("admin-stat-burned") }}</th>
           <th scope="col">{{ ctx.t("admin-stat-expired") }}</th>
           <th scope="col">{{ ctx.t("admin-stat-removed") }}</th>
+          <th scope="col">{{ ctx.t("admin-stat-reports") }}</th>
         </tr></thead>
         <tbody>
           {%- for d in days %}
-          <tr><th scope="row">{{ d.day }}</th><td>{{ d.created }}</td><td>{{ d.viewed }}</td><td>{{ d.burned }}</td><td>{{ d.expired }}</td><td>{{ d.removed }}</td></tr>
+          <tr><th scope="row">{{ d.day }}</th><td>{{ d.created }}</td><td>{{ d.viewed }}</td><td>{{ d.burned }}</td><td>{{ d.expired }}</td><td>{{ d.removed }}</td><td>{{ d.reports }}</td></tr>
           {%- endfor %}
         </tbody>
       </table>

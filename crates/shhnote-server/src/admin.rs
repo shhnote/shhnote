@@ -33,7 +33,6 @@ pub(crate) fn routes() -> Router<PageState> {
         .route("/login", get(login_page).post(login))
         .route("/logout", post(logout))
         .route("/settings", get(settings_page).post(settings_save))
-        .route("/reports", get(reports))
         .route("/keys", get(keys_page).post(keys_create))
         .route("/keys/delete", post(keys_delete))
 }
@@ -274,6 +273,7 @@ struct DayRow {
     burned: i64,
     expired: i64,
     removed: i64,
+    reports: i64,
 }
 
 #[derive(Template)]
@@ -309,6 +309,7 @@ async fn dashboard(State(state): State<PageState>, headers: HeaderMap) -> Respon
             burned: d.burned,
             expired: d.expired,
             removed: d.removed,
+            reports: d.reports,
         })
         .collect();
     render(
@@ -509,51 +510,6 @@ async fn settings_save(
     )
 }
 
-struct ReportRow {
-    id: String,
-    count: i64,
-    first: String,
-    last: String,
-    matched: bool,
-}
-
-#[derive(Template)]
-#[template(path = "admin/reports.html")]
-struct ReportsPage<'a> {
-    ctx: Ctx<'a>,
-    admin: AdminCtx,
-    rows: Vec<ReportRow>,
-}
-
-async fn reports(State(state): State<PageState>, headers: HeaderMap) -> Response {
-    let session = match authenticate(&state, &headers).await {
-        Ok(s) => s,
-        Err(r) => return *r,
-    };
-    let reports = match state.shared.store.reports().await {
-        Ok(reports) => reports,
-        Err(e) => return db_error(&state, e),
-    };
-    let rows = reports
-        .into_iter()
-        .map(|r| ReportRow {
-            id: hex(&r.lookup_key[..8]),
-            count: r.count,
-            first: format_time(r.first_reported_at),
-            last: format_time(r.last_reported_at),
-            matched: r.matched,
-        })
-        .collect();
-    render(
-        &state,
-        ReportsPage {
-            ctx: state.ctx("/admin/reports"),
-            admin: admin_ctx(&state, &session),
-            rows,
-        },
-    )
-}
-
 struct KeyRow {
     hash_hex: String,
     name: String,
@@ -580,7 +536,7 @@ fn key_rows(keys: Vec<ApiKey>) -> Vec<KeyRow> {
             name: k.name,
             scope: k.scope.as_str(),
             created: format_time(k.created_at),
-            last_used: k.last_used_at.map(format_time),
+            last_used: k.last_used_on.map(format_date),
         })
         .collect()
 }
