@@ -78,6 +78,8 @@ jobs:
       - name: Checksums
         run: cat *.sha256 > SHA256SUMS
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        # GitHub stores attestations for public repositories only; skipped while private.
+        if: ${{ !github.event.repository.private }}
         with:
           subject-path: |
             shhnote-*.tar.gz
@@ -130,8 +132,12 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
       - name: Export digest
         run: |
+          # The artifact store refuses a colon in a file name, so the "sha256:" prefix
+          # is dropped here and put back by the manifest job.
           mkdir -p digests
-          touch "digests/${{ steps.push.outputs.digest }}"
+          touch "digests/${DIGEST#sha256:}"
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: digest-${{ matrix.arch }}
@@ -183,6 +189,8 @@ jobs:
           digest=$(docker buildx imagetools inspect "$IMAGE:${DOCKER_METADATA_OUTPUT_VERSION}" --format '{{json .Manifest}}' | jq -r .digest)
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        # GitHub stores attestations for public repositories only; skipped while private.
+        if: ${{ !github.event.repository.private }}
         with:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.manifest.outputs.digest }}
