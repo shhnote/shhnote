@@ -117,7 +117,9 @@ async fn spec_claim_window_lifecycle() {
     );
     assert!(!store.confirm(&lookup, &claim, now + 22).await.unwrap());
 
-    // After the window: no re-download, no confirm, and the sweep destroys it as viewed.
+    // After the window (which ends on the next whole minute, D-18): no re-download, no
+    // confirm, and the sweep destroys it as viewed.
+    let after = now + WINDOW + 60;
     let lookup = key();
     store
         .create(&secret(lookup, Lifetime::SingleView, now + 3600, 100), now)
@@ -131,18 +133,18 @@ async fn spec_claim_window_lifecycle() {
         .unwrap();
     assert!(
         store
-            .redownload(&lookup, &claim, now + WINDOW)
+            .redownload(&lookup, &claim, after)
             .await
             .unwrap()
             .is_none()
     );
-    assert!(!store.confirm(&lookup, &claim, now + WINDOW).await.unwrap());
-    let swept = store.sweep(now + WINDOW).await.unwrap();
+    assert!(!store.confirm(&lookup, &claim, after).await.unwrap());
+    let swept = store.sweep(after).await.unwrap();
     assert_eq!(swept.consumed, 1);
     // Nothing ever reverts: a fresh claim fails too.
     assert!(
         store
-            .claim(&lookup, &key(), now + WINDOW, WINDOW)
+            .claim(&lookup, &key(), after, WINDOW)
             .await
             .unwrap()
             .is_none()

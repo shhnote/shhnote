@@ -354,7 +354,8 @@ async fn create(
     }
 
     let now = now();
-    let expires_at = now + meta.ttl_seconds;
+    // On the expiry grid, so the row never holds the creation second (SPEC §3, D-18).
+    let expires_at = shhnote_core::expiry::expires_at(now, meta.ttl_seconds);
     let secret = |blob, external_ref| NewSecret {
         lookup_key,
         burn_key,

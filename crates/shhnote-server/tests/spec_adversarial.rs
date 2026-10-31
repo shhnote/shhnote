@@ -336,7 +336,7 @@ async fn spec_claim_token_dies_with_the_window() {
     let token = claim_token(&first);
     let lookup_key = credential_hash(&k.lookup);
     let claim_key = credential_hash(&URL_SAFE_NO_PAD.decode(&token).unwrap());
-    // Just inside and just past the default 15-minute window.
+    // Just inside the default 15-minute window, and past the minute it is rounded up to.
     let t = now();
     assert!(
         s.store
@@ -347,7 +347,7 @@ async fn spec_claim_token_dies_with_the_window() {
     );
     assert!(
         s.store
-            .redownload(&lookup_key, &claim_key, t + 901)
+            .redownload(&lookup_key, &claim_key, t + 961)
             .await
             .unwrap()
             .is_none()
@@ -1207,7 +1207,7 @@ async fn spec_pending_delete_is_never_served_and_counts_once() {
             .await
         });
         let store = s.store.clone();
-        let w = tokio::spawn(async move { store.sweep(now() + 901).await.unwrap() });
+        let w = tokio::spawn(async move { store.sweep(now() + 961).await.unwrap() });
         let (c, w) = (c.await.unwrap(), w.await.unwrap());
         assert_eq!(
             stats(&s.store).await.viewed - before,

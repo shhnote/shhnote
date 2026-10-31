@@ -317,7 +317,9 @@ async fn ttl_round_trip_and_burn() {
         .await;
         assert_eq!(reveal.status, StatusCode::OK);
         assert_eq!(reveal.body, blob);
-        assert_eq!(reveal.headers[EXPIRES_IN_HEADER], "24");
+        // A day's TTL lands on the hour grid, so up to one extra hour shows (D-18).
+        let hours = reveal.headers[EXPIRES_IN_HEADER].to_str().unwrap();
+        assert!(hours == "24" || hours == "25", "{hours}");
         assert!(reveal.headers.get(CLAIM_TOKEN_HEADER).is_none());
     }
 

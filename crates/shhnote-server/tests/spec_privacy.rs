@@ -442,6 +442,47 @@ async fn spec_duplicate_create_is_indistinguishable_and_writes_nothing() {
     );
 }
 
+// D-18: `expires_at` sits on the expiry grid, so subtracting a preset never lands on the
+// creation second.
+#[tokio::test]
+async fn spec_expires_at_does_not_reveal_creation_second() {
+    const PRESETS: [i64; 9] = [
+        900, 1800, 3600, 21600, 43200, 86400, 259200, 604800, 1209600,
+    ];
+    let (app, store) = server_with("spec-privacy-grid", UNLIMITED).await;
+    let lookup = random32();
+    let before = now();
+    let r = create(
+        &app,
+        json!({
+            "lookup_key": b64(&secret::credential_hash(&lookup)),
+            "burn_key": b64(&random32()),
+            "lifetime": "ttl",
+            "ttl_seconds": 3 * 86_400,
+        }),
+        None,
+    )
+    .await;
+    let after = now();
+    assert_eq!(r.status, StatusCode::CREATED);
+    let e = store
+        .read_ttl(&secret::credential_hash(&lookup), after)
+        .await
+        .unwrap()
+        .unwrap()
+        .expires_at;
+    // A three-day TTL rounds up to the next whole day.
+    assert_eq!(e % 86_400, 0, "expires_at={e} is not on the grid");
+    assert!(
+        e >= before + 3 * 86_400,
+        "expires_at={e} is below the TTL asked for"
+    );
+    assert!(
+        !PRESETS.iter().any(|p| (before..=after).contains(&(e - p))),
+        "expires_at={e} minus a preset gives the creation second"
+    );
+}
+
 // D-23: a keyed request records the UTC day of use, never the second.
 #[tokio::test]
 async fn spec_keyed_requests_record_only_the_day() {

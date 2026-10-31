@@ -111,7 +111,7 @@ async fn single_view_lifecycle() {
         );
         assert!(
             store
-                .redownload(&s.lookup_key, &claim, now + WINDOW)
+                .redownload(&s.lookup_key, &claim, now + WINDOW + 60)
                 .await
                 .unwrap()
                 .is_none(),
@@ -312,7 +312,7 @@ async fn sweep_destroys_expired_and_lapsed_claims() {
             "{backend}: nothing due yet"
         );
         assert_eq!(
-            store.sweep(now + WINDOW).await.unwrap(),
+            store.sweep(now + WINDOW + 60).await.unwrap(),
             Sweep {
                 expired: 1,
                 consumed: 1
@@ -321,7 +321,7 @@ async fn sweep_destroys_expired_and_lapsed_claims() {
         );
         assert!(
             store
-                .read_ttl(&fine.lookup_key, now + WINDOW)
+                .read_ttl(&fine.lookup_key, now + WINDOW + 60)
                 .await
                 .unwrap()
                 .is_some(),

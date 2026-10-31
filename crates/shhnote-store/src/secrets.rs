@@ -33,6 +33,7 @@ pub struct NewSecret {
     // Exactly one of these is set.
     pub blob: Option<Vec<u8>>,
     pub external_ref: Option<String>,
+    // Already rounded to the expiry grid by the caller (SPEC §3, D-18).
     pub expires_at: i64,
 }
 
@@ -109,7 +110,8 @@ impl Store {
         )
         .bind(lookup_key.to_vec())
         .bind(claim_key.to_vec())
-        .bind(now + window_secs)
+        // Rounded up to the minute, so the row never holds the reveal second (D-18).
+        .bind(shhnote_core::expiry::claim_expires_at(now, window_secs))
         .bind(now)
         .fetch_optional(&mut *tx)
         .await?;

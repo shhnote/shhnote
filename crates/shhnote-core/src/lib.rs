@@ -3,6 +3,7 @@ pub mod chunks;
 pub mod config;
 pub mod container;
 pub mod error;
+pub mod expiry;
 pub mod fragment;
 pub mod kdf;
 pub mod padding;

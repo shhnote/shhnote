@@ -149,30 +149,3 @@ async fn spec_dump_cannot_link_user_key_to_its_secrets() {
     .unwrap();
     assert!(rows.is_empty(), "claim join hits: {}", rows.len());
 }
-
-// `expires_at` sits on the expiry grid (D-18), so subtracting a preset never lands on the
-// creation second.
-#[tokio::test]
-#[ignore = "S-6"]
-async fn spec_expires_at_does_not_reveal_creation_second() {
-    let (store, _, raw) = open("spec-privacy-created").await;
-    let created = 1_800_012_345;
-    store
-        .create(
-            &secret(Lifetime::Ttl, created + 3 * 86_400, random_blob()),
-            created,
-        )
-        .await
-        .unwrap();
-    let e: i64 = sqlx::query("SELECT expires_at FROM secrets")
-        .fetch_one(&raw)
-        .await
-        .unwrap()
-        .get("expires_at");
-    // A three-day TTL rounds up to the next whole day.
-    assert_eq!(e % 86_400, 0, "expires_at={e} is not on the grid");
-    assert!(
-        !PRESETS.iter().any(|p| e - p == created),
-        "expires_at={e} minus a preset gives the creation second"
-    );
-}
