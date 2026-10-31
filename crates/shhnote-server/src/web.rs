@@ -206,6 +206,11 @@ impl Ctx<'_> {
         &self.shared.asset_version
     }
 
+    // The most bytes a reveal can legitimately return; the page script caps downloads at it.
+    pub(crate) fn max_blob_bytes(&self) -> u64 {
+        self.shared.max_blob_bytes
+    }
+
     pub(crate) fn repo_url(&self) -> String {
         self.shared.settings.load().source_url.clone()
     }

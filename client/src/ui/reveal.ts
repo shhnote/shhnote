@@ -1,9 +1,11 @@
+import type { Header } from "../crypto/blob.ts";
 import type { Payload } from "../crypto/container.ts";
 import { ShhError } from "../crypto/error.ts";
 import { decodeFragment } from "../crypto/fragment.ts";
-import { decrypt, lookup } from "../crypto/secret.ts";
-import { collect } from "../crypto/stream.ts";
-import { Api, ApiError } from "./api.ts";
+import { HEADER_LEN } from "../crypto/padding.ts";
+import { decryptBody, lookup, unwrapEk } from "../crypto/secret.ts";
+import { collect, iterateBytes, readHeader } from "../crypto/stream.ts";
+import { Api, ApiError, DEFAULT_MAX_BLOB_BYTES } from "./api.ts";
 import { loadArgon2 } from "./argon2-loader.ts";
 import { $, formatSize, setState, setStatus, show, wireCopy } from "./dom.ts";
 import { t } from "./i18n.ts";
@@ -12,6 +14,8 @@ import { t } from "./i18n.ts";
 // can't consume a single-view secret (SPEC §5).
 export function wireReveal(page: HTMLElement): void {
   const api = Api.fromPage();
+  // The instance's limit: a body past it is refused before it can fill memory.
+  const maxBlobBytes = Number(document.body.dataset["maxBlobBytes"]) || DEFAULT_MAX_BLOB_BYTES;
   const armed = $<HTMLFormElement>("[data-reveal-form]", page);
   const armedStatus = $("[data-form-status]", armed);
   const passForm = $<HTMLFormElement>("[data-passphrase-form]", page);
@@ -27,7 +31,12 @@ export function wireReveal(page: HTMLElement): void {
   }
   show(armed);
 
-  let blob: Uint8Array | null = null;
+  // Kept only for a passphrase-protected secret: the header to retry the passphrase against
+  // and the ciphertext body, so every retry stays in the browser (SPEC §2.10).
+  let locked: { header: Header; body: Promise<Uint8Array> } | null = null;
+  let bodyBytes: Uint8Array | null = null;
+  // Set once a single-view secret is claimed, and kept through failures: the next press
+  // downloads again with it rather than finding the secret gone (SPEC §5.1).
   let claimToken: string | null = null;
   let expiresInHours: number | null = null;
   let shown: Payload | null = null;
@@ -36,8 +45,9 @@ export function wireReveal(page: HTMLElement): void {
   // Best effort (SPEC §10): overwrite what we can once the page is left. Strings cannot be
   // wiped in JavaScript; file bytes and the DOM can.
   window.addEventListener("pagehide", () => {
-    blob?.fill(0);
-    blob = null;
+    bodyBytes?.fill(0);
+    bodyBytes = null;
+    locked = null;
     for (const file of shown?.files ?? []) file.bytes.fill(0);
     shown = null;
     for (const url of objectUrls) URL.revokeObjectURL(url);
@@ -55,62 +65,71 @@ export function wireReveal(page: HTMLElement): void {
     try {
       setState(page, "working");
       setStatus(working, t("reveal-fetching"));
-      const revealed = await api.reveal(await lookup(seed));
-      blob = await collect(revealed.body);
-      claimToken = revealed.claimToken;
+      const revealed = await api.reveal(await lookup(seed), claimToken, maxBlobBytes);
+      claimToken = revealed.claimToken ?? claimToken;
       expiresInHours = revealed.expiresInHours;
+      // The header is enough to know whether a passphrase is needed; the rest of the body
+      // is decrypted as it arrives, so the ciphertext is never held whole.
+      const { header, rest } = await readHeader(revealed.body);
       setStatus(working, t("reveal-decrypting"));
-      await tryDecrypt(null);
+      let ek: CryptoKey;
+      try {
+        ek = await unwrapEk(header, seed);
+      } catch (e) {
+        if (!(e instanceof ShhError && e.code === "passphrase_required")) throw e;
+        // Keep downloading while the passphrase is typed, so the retry loop needs no server.
+        const body = collect(rest).then((bytes) => (bodyBytes = bytes));
+        body.catch(() => {});
+        locked = { header, body };
+        setState(page, "passphrase");
+        passInput.focus();
+        return;
+      }
+      await display(await decryptBody(ek, header, rest, maxBlobBytes));
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) {
         setState(page, "notfound");
       } else {
         setState(page, "armed");
-        setStatus(armedStatus, e instanceof ApiError ? t("reveal-error-network") : t("reveal-error-corrupt"));
+        setStatus(armedStatus, e instanceof ApiError && e.code === "network" ? t("reveal-error-network") : t("reveal-error-corrupt"));
         button.disabled = false;
       }
     }
   });
 
+  // Wrong passphrases are retried against the header already in memory: no server round trip.
   passForm.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (!locked) return;
     const button = $<HTMLButtonElement>("button", passForm);
     button.disabled = true;
     try {
       setStatus(passStatus, t("reveal-decrypting"));
-      await tryDecrypt(passInput.value);
+      const ek = await unwrapEk(locked.header, seed, passInput.value, await loadArgon2());
+      const bytes = await locked.body;
+      await display(await decryptBody(ek, locked.header, iterateBytes(bytes), bytes.length + HEADER_LEN));
     } catch (e) {
-      console.error(e);
-      setStatus(passStatus, t("reveal-error-corrupt"));
+      if (e instanceof ShhError && e.code === "wrong_passphrase") {
+        setStatus(passStatus, t("reveal-wrong-passphrase"));
+        passInput.select();
+      } else if (e instanceof ApiError && e.code === "network") {
+        // The download behind the prompt failed; the next press fetches again with the token.
+        locked = null;
+        setState(page, "armed");
+        setStatus(armedStatus, t("reveal-error-network"));
+        $<HTMLButtonElement>("button", armed).disabled = false;
+      } else {
+        setStatus(passStatus, t("reveal-error-corrupt"));
+      }
     } finally {
       button.disabled = false;
     }
   });
 
-  // Wrong passphrases are retried against the blob already in memory: no server round trip.
-  async function tryDecrypt(passphrase: string | null): Promise<void> {
-    if (!blob) return;
-    try {
-      const argon2 = passphrase ? await loadArgon2() : undefined;
-      const payload = await decrypt(blob, seed, passphrase, argon2);
-      await display(payload);
-    } catch (e) {
-      if (e instanceof ShhError && e.code === "passphrase_required") {
-        setState(page, "passphrase");
-        passInput.focus();
-        return;
-      }
-      if (e instanceof ShhError && e.code === "wrong_passphrase") {
-        setStatus(passStatus, t("reveal-wrong-passphrase"));
-        passInput.select();
-        return;
-      }
-      throw e;
-    }
-  }
-
   async function display(payload: Payload): Promise<void> {
-    blob = null;
+    bodyBytes?.fill(0);
+    bodyBytes = null;
+    locked = null;
     shown = payload;
     // The fragment has done its job; keep the seed out of history and autocomplete.
     history.replaceState(null, "", location.pathname);

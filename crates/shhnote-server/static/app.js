@@ -833,14 +833,6 @@ async function decryptBody(ek, header, body, maxBlobBytes = Infinity) {
   }
   return decoder2.finish();
 }
-async function decryptStream(body, seed, passphrase, argon2, maxBlobBytes = Infinity) {
-  const { header, rest } = await readHeader(body);
-  const ek = await unwrapEk(header, seed, passphrase, argon2);
-  return decryptBody(ek, header, rest, maxBlobBytes);
-}
-function decrypt(blob, seed, passphrase, argon2) {
-  return decryptStream(iterateBytes(blob), seed, passphrase, argon2);
-}
 
 // src/crypto/argon2.ts
 var encoder3 = new TextEncoder();
@@ -1098,6 +1090,7 @@ function wireReport(page) {
 // src/ui/reveal.ts
 function wireReveal(page) {
   const api = Api.fromPage();
+  const maxBlobBytes = Number(document.body.dataset["maxBlobBytes"]) || DEFAULT_MAX_BLOB_BYTES;
   const armed = $("[data-reveal-form]", page);
   const armedStatus = $("[data-form-status]", armed);
   const passForm = $("[data-passphrase-form]", page);
@@ -1111,14 +1104,16 @@ function wireReveal(page) {
     return;
   }
   show(armed);
-  let blob = null;
+  let locked = null;
+  let bodyBytes = null;
   let claimToken = null;
   let expiresInHours = null;
   let shown = null;
   const objectUrls = [];
   window.addEventListener("pagehide", () => {
-    blob?.fill(0);
-    blob = null;
+    bodyBytes?.fill(0);
+    bodyBytes = null;
+    locked = null;
     for (const file of shown?.files ?? []) file.bytes.fill(0);
     shown = null;
     for (const url of objectUrls) URL.revokeObjectURL(url);
@@ -1135,58 +1130,65 @@ function wireReveal(page) {
     try {
       setState(page, "working");
       setStatus(working, t("reveal-fetching"));
-      const revealed = await api.reveal(await lookup(seed));
-      blob = await collect(revealed.body);
-      claimToken = revealed.claimToken;
+      const revealed = await api.reveal(await lookup(seed), claimToken, maxBlobBytes);
+      claimToken = revealed.claimToken ?? claimToken;
       expiresInHours = revealed.expiresInHours;
+      const { header, rest } = await readHeader(revealed.body);
       setStatus(working, t("reveal-decrypting"));
-      await tryDecrypt(null);
+      let ek;
+      try {
+        ek = await unwrapEk(header, seed);
+      } catch (e) {
+        if (!(e instanceof ShhError && e.code === "passphrase_required")) throw e;
+        const body = collect(rest).then((bytes) => bodyBytes = bytes);
+        body.catch(() => {
+        });
+        locked = { header, body };
+        setState(page, "passphrase");
+        passInput.focus();
+        return;
+      }
+      await display(await decryptBody(ek, header, rest, maxBlobBytes));
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) {
         setState(page, "notfound");
       } else {
         setState(page, "armed");
-        setStatus(armedStatus, e instanceof ApiError ? t("reveal-error-network") : t("reveal-error-corrupt"));
+        setStatus(armedStatus, e instanceof ApiError && e.code === "network" ? t("reveal-error-network") : t("reveal-error-corrupt"));
         button.disabled = false;
       }
     }
   });
   passForm.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (!locked) return;
     const button = $("button", passForm);
     button.disabled = true;
     try {
       setStatus(passStatus, t("reveal-decrypting"));
-      await tryDecrypt(passInput.value);
+      const ek = await unwrapEk(locked.header, seed, passInput.value, await loadArgon2());
+      const bytes = await locked.body;
+      await display(await decryptBody(ek, locked.header, iterateBytes(bytes), bytes.length + HEADER_LEN));
     } catch (e) {
-      console.error(e);
-      setStatus(passStatus, t("reveal-error-corrupt"));
+      if (e instanceof ShhError && e.code === "wrong_passphrase") {
+        setStatus(passStatus, t("reveal-wrong-passphrase"));
+        passInput.select();
+      } else if (e instanceof ApiError && e.code === "network") {
+        locked = null;
+        setState(page, "armed");
+        setStatus(armedStatus, t("reveal-error-network"));
+        $("button", armed).disabled = false;
+      } else {
+        setStatus(passStatus, t("reveal-error-corrupt"));
+      }
     } finally {
       button.disabled = false;
     }
   });
-  async function tryDecrypt(passphrase) {
-    if (!blob) return;
-    try {
-      const argon2 = passphrase ? await loadArgon2() : void 0;
-      const payload = await decrypt(blob, seed, passphrase, argon2);
-      await display(payload);
-    } catch (e) {
-      if (e instanceof ShhError && e.code === "passphrase_required") {
-        setState(page, "passphrase");
-        passInput.focus();
-        return;
-      }
-      if (e instanceof ShhError && e.code === "wrong_passphrase") {
-        setStatus(passStatus, t("reveal-wrong-passphrase"));
-        passInput.select();
-        return;
-      }
-      throw e;
-    }
-  }
   async function display(payload) {
-    blob = null;
+    bodyBytes?.fill(0);
+    bodyBytes = null;
+    locked = null;
     shown = payload;
     history.replaceState(null, "", location.pathname);
     const revealed = $("[data-state=revealed]", page);

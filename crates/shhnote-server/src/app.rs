@@ -214,6 +214,7 @@ mod tests {
         let (status, body) = get(&app, "localhost:3000", "/en").await;
         assert_eq!(status, StatusCode::OK);
         assert!(body.contains(r#"data-api="http://localhost:3000/api/v1""#));
+        assert!(body.contains(r#"data-max-blob-bytes=""#));
 
         let (status, body) = get(&app, "localhost:3000", "/api/nope").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
