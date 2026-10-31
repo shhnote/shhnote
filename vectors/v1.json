@@ -26,10 +26,15 @@
     1,
     4
    ]
+  },
+  "fragment_kinds": {
+   "share": 1,
+   "burn": 2
   }
  },
  "notes": [
   "Hex fields are raw bytes. *_base64 fields are standard base64; fragments are base64url without padding.",
+  "fragment starts with the share kind byte and burn_fragment with the burn kind byte; each must be refused where the other is expected.",
   "Encryption tests must use the manifest string exactly as given, not re-serialise it.",
   "Argon2 memory (m) is in KiB. pass_key is the 32-byte Argon2id output.",
   "Decryption tests must recover text and files exactly; reject cases must fail for the stated reason."
@@ -59,7 +64,7 @@
    },
    "expected": {
     "fragment": "Afsl-DLuUkEcK3F5AcIpVv0qHigNiPXXxQcoGolrYURG",
-    "burn_fragment": "Af18BLVUaBYawB678Cd6oPLbSlrbTVFP4Xg8yIMvwlGh",
+    "burn_fragment": "Av18BLVUaBYawB678Cd6oPLbSlrbTVFP4Xg8yIMvwlGh",
     "lookup": "1ce86c6b8e415abf1b8cb022982e2793cf78779bc5dbb6eb9814f2227a2a5a10",
     "lookup_key": "6234a0c49576afdfe7de6bb49a86aa33b4625e7ed0090d7097f8d44a74aa7a82",
     "burn_key": "8f231c24509462d026e553bb027f495d1ae337986f04632394028a54e0d4eb6c",
@@ -101,7 +106,7 @@
    },
    "expected": {
     "fragment": "AYeYyg91-Q0t2mx2dyDgUYric4shJP17Iq86u0Nn1z8b",
-    "burn_fragment": "AaduOnD-WRHtkEghgTDoZOjJq-6iV42KV9Scke_hH-rA",
+    "burn_fragment": "AqduOnD-WRHtkEghgTDoZOjJq-6iV42KV9Scke_hH-rA",
     "lookup": "73b8d422fb405ba262e48ab6ea95c2ffc7e74517c25b7245969ad0dab2dddd5a",
     "lookup_key": "c2ed3496091e99cfd049c451ccb570fa8355504b9efdb679e000b4dbf5ed4683",
     "burn_key": "ffda9bbe01c53dcc405cf49ec8aecd3e1a4d8e97b7a0ea6914045309bca1a254",
@@ -154,7 +159,7 @@
    },
    "expected": {
     "fragment": "AdhYEtEg00tkpWxK-3SCl2gqHyrgNQCxUW4BSDQE7Ftm",
-    "burn_fragment": "AZN_HbTy3lE55hf9tWgtd9oA1ZwjlPnz2Y7vfjd7D3s_",
+    "burn_fragment": "ApN_HbTy3lE55hf9tWgtd9oA1ZwjlPnz2Y7vfjd7D3s_",
     "lookup": "264ac807138801f9dd2005be8f1a91c19bd13c761847e7bfbe3fae5de5b0ba9b",
     "lookup_key": "65f3ae162a600bd0dab98b9114d5247daea463e2bd18f977900271cad31ac204",
     "burn_key": "cef4d457a18e5242fc2f43152c51cd5d6f038a6413654e5df3785f1e7e68b107",
@@ -202,7 +207,7 @@
    },
    "expected": {
     "fragment": "AUT9XfZ1idS_fbErx0ElObXhzTwA_7GBGGxWqysH0i_7",
-    "burn_fragment": "AYUxSnC_gBZ7s9kZenhYgn3cMjk9S-RPTBcO4WPL8TL6",
+    "burn_fragment": "AoUxSnC_gBZ7s9kZenhYgn3cMjk9S-RPTBcO4WPL8TL6",
     "lookup": "bf19663a041fd210457c222978d3c1ec56a61486a19e53d854090f3a7fb5d26f",
     "lookup_key": "3796406ca456e1c0b6241a31e3ab2f9257d4b253b425977e9af8b5f6928e6c0c",
     "burn_key": "c40e8a7e9bfbcfdcfb345f4a4315f8c6af2d687192131df1c6442be4b3a0a77a",
@@ -248,7 +253,7 @@
    },
    "expected": {
     "fragment": "AfBM1BJggmf3FuF51VnGXP0K0o1yHwSkAEJtwDW9WbjK",
-    "burn_fragment": "AbfWPu1gQN4CbThcVUQNQhCKrl7TN7WCl_nvVv1pA2CR",
+    "burn_fragment": "ArfWPu1gQN4CbThcVUQNQhCKrl7TN7WCl_nvVv1pA2CR",
     "lookup": "45f7cc2c9d2eaa1e7c277216b76788f4b4b281112d787493a965d98bc7d415b6",
     "lookup_key": "a2d4ac959f6eb025c8b24f942911c3426e5622f2e90ec8537d870dac68a62851",
     "burn_key": "32f28d383f15ae28977e28f473c601e2766d36c177083a19aeef22fc196d44ff",
@@ -290,7 +295,7 @@
    },
    "expected": {
     "fragment": "Ab-ECCtini_V-oyTVzEdkyArWBn_6gKtQx6Ee5IKPaAD",
-    "burn_fragment": "AdgBSpXjoep6NSiEq1QqH5culEu6zChWQBOUEUxXIqxn",
+    "burn_fragment": "AtgBSpXjoep6NSiEq1QqH5culEu6zChWQBOUEUxXIqxn",
     "lookup": "1575acf801111eab38b17d3396b5d98186fefe7ce0dd64944bd46cd5e870ab4c",
     "lookup_key": "32dc5936fa75a190d44a7edee13983a2e2cfd71a964874c50a1c6574b0632577",
     "burn_key": "416d878210b70d7cef82959d61effb22498802d2fad9bd78a02c4cc3d51de273",
@@ -338,7 +343,7 @@
    },
    "expected": {
     "fragment": "AehBPb9YX7fC42OniVMYHDVTORGmgDBzi3WuZq4tvOcs",
-    "burn_fragment": "Aa7EnJ6TVVa-dwEwfzUP6BZLFxJA8kH0zKxSOF_Jpi18",
+    "burn_fragment": "Aq7EnJ6TVVa-dwEwfzUP6BZLFxJA8kH0zKxSOF_Jpi18",
     "lookup": "1148ef225812ac0a97656aaba1761c42a37186c25f16fcf6e88f2ea413047850",
     "lookup_key": "466e36bf6b9586fd71efd969217dbd18b8f7b3e43e4baad3336da2915969dfa1",
     "burn_key": "4eaa1086854026700bcb25e13a357c6feb8cd768b629958bd4fd61aa13902ce5",
@@ -380,7 +385,7 @@
    },
    "expected": {
     "fragment": "AWjKZmdMRKJeFKTlGbRZWeO8we-rg4R5JpeTrPiVRMaS",
-    "burn_fragment": "AZfP1WiEyoHiPtSPB-zpbvR65OAzgupO8wssQNMX6Iaz",
+    "burn_fragment": "ApfP1WiEyoHiPtSPB-zpbvR65OAzgupO8wssQNMX6Iaz",
     "lookup": "11a2efad186db77f754ce708db9dcf93b7bd4edce5fa770cf70029840c4b689e",
     "lookup_key": "7d12ce2cacdf4c4f5e48862738d8c0d2492da53ee8fe0976d901710ca51ffff0",
     "burn_key": "3b182a8f64a18004544f4af52b8baf702fbb3de9c48cbeda41c191dfb2c5c6b7",
@@ -422,7 +427,7 @@
    },
    "expected": {
     "fragment": "AX2gwFMhb9tQFcBIu8lVl51UCl-F-03ItlpUiIKkvhYn",
-    "burn_fragment": "Ae3-6HdU-S0fhweaqL-Yhw5F0c-aw4FhSlmWiELqDSkq",
+    "burn_fragment": "Au3-6HdU-S0fhweaqL-Yhw5F0c-aw4FhSlmWiELqDSkq",
     "lookup": "79c5393c4a2d851ec719f031b661e896f2fad81345accd9524f099baa3b5f0a4",
     "lookup_key": "494ea23ddd4010a9a3afc9a42f270ebaa599ba265cd12a564adb535c4691d78c",
     "burn_key": "64cd5d57844f6d5171d2634c1a79844752a7d0a834ea8cb489545ec412214511",

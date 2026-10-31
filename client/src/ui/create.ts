@@ -111,7 +111,7 @@ function showResult(api: Api, result: HTMLElement, fragment: string, burnFragmen
   destroy.addEventListener("click", async () => {
     destroy.disabled = true;
     try {
-      await api.burn(decodeFragment(burnFragment));
+      await api.burn(decodeFragment(burnFragment, "burn"));
       setStatus(status, t("result-destroyed"));
     } catch (e) {
       setStatus(status, messageFor(e));

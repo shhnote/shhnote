@@ -15,7 +15,7 @@ export { Api, ApiError, type Fetch, type InstanceConfig, type Lifetime } from ".
 export { fromBase64Url, toBase64Url } from "./crypto/bytes.ts";
 export type { Payload, PayloadFile } from "./crypto/container.ts";
 export { type ErrorCode, ShhError } from "./crypto/error.ts";
-export { VERSION, decodeFragment, encodeFragment } from "./crypto/fragment.ts";
+export { type Kind, VERSION, decodeFragment, encodeFragment } from "./crypto/fragment.ts";
 export { ARGON2_DEFAULT, type Argon2Params } from "./crypto/kdf.ts";
 export { type PaddingPolicy, blobLen, isValidPaddedSize, padme } from "./crypto/padding.ts";
 export {

@@ -9,6 +9,9 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
 
 VERSION = 1
+# Fragment kind bytes: the share link carries the seed, the burn link the burn token (SPEC §2.2).
+KIND_SHARE = 0x01
+KIND_BURN = 0x02
 CHUNK_SIZE = 65536
 HEADER_LEN = 95
 INFO_LOOKUP = b"shhnote/lookup/v1"
@@ -141,8 +144,8 @@ def make_vector(name, *, text, files, passphrase, argon, policy):
             "padding": policy,
         },
         "expected": {
-            "fragment": b64url(bytes([VERSION]) + seed),
-            "burn_fragment": b64url(bytes([VERSION]) + burn_token),
+            "fragment": b64url(bytes([KIND_SHARE]) + seed),
+            "burn_fragment": b64url(bytes([KIND_BURN]) + burn_token),
             "lookup": lookup.hex(),
             "lookup_key": hashlib.sha256(lookup).hexdigest(),
             "burn_key": hashlib.sha256(burn_token).hexdigest(),
@@ -259,9 +262,11 @@ def main():
             "hkdf_info": {"lookup": INFO_LOOKUP.decode(), "kek_direct": INFO_KEK_DIRECT.decode(), "kek_pass": INFO_KEK_PASS.decode()},
             "argon2_defaults": {"m": DEFAULT_ARGON[0], "t": DEFAULT_ARGON[1], "p": DEFAULT_ARGON[2]},
             "argon2_bounds": ARGON_BOUNDS,
+            "fragment_kinds": {"share": KIND_SHARE, "burn": KIND_BURN},
         },
         "notes": [
             "Hex fields are raw bytes. *_base64 fields are standard base64; fragments are base64url without padding.",
+            "fragment starts with the share kind byte and burn_fragment with the burn kind byte; each must be refused where the other is expected.",
             "Encryption tests must use the manifest string exactly as given, not re-serialise it.",
             "Argon2 memory (m) is in KiB. pass_key is the 32-byte Argon2id output.",
             "Decryption tests must recover text and files exactly; reject cases must fail for the stated reason.",

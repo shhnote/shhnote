@@ -5,7 +5,7 @@ use shhnote_core::{
     Error,
     blob::Header,
     container::{File, Payload},
-    fragment::Fragment,
+    fragment::{Fragment, Kind},
     kdf::{self, Argon2Params},
     padding::PaddingPolicy,
     secret::{self, Randomness},
@@ -170,15 +170,33 @@ fn derivations_match() {
         let seed: [u8; 32] = arr(&v.inputs.seed);
         let name = &v.name;
 
-        assert_eq!(Fragment::new(seed).encode(), v.expected.fragment, "{name}");
         assert_eq!(
-            Fragment::new(arr(&v.inputs.burn_token)).encode(),
+            Fragment::share(seed).encode(),
+            v.expected.fragment,
+            "{name}"
+        );
+        assert_eq!(
+            Fragment::burn(arr(&v.inputs.burn_token)).encode(),
             v.expected.burn_fragment,
             "{name}"
         );
         assert_eq!(
-            Fragment::decode(&v.expected.fragment).unwrap().bytes,
+            Fragment::decode_as(&v.expected.fragment, Kind::Share).unwrap(),
             seed,
+            "{name}"
+        );
+        assert_eq!(
+            Fragment::decode_as(&v.expected.burn_fragment, Kind::Burn).unwrap(),
+            arr::<32>(&v.inputs.burn_token),
+            "{name}"
+        );
+        // Each kind is refused where the other is expected (SPEC §2.2).
+        assert!(
+            Fragment::decode_as(&v.expected.burn_fragment, Kind::Share).is_err(),
+            "{name}"
+        );
+        assert!(
+            Fragment::decode_as(&v.expected.fragment, Kind::Burn).is_err(),
             "{name}"
         );
 

@@ -19,7 +19,7 @@ export function wireReveal(page: HTMLElement): void {
 
   let seed: Uint8Array;
   try {
-    seed = decodeFragment(location.hash);
+    seed = decodeFragment(location.hash, "share");
   } catch {
     setState(page, "notfound");
     return;

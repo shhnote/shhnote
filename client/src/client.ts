@@ -1,7 +1,7 @@
 import type { Argon2 } from "./crypto/argon2.ts";
 import type { Payload } from "./crypto/container.ts";
 import { ShhError } from "./crypto/error.ts";
-import { decodeFragment } from "./crypto/fragment.ts";
+import { type Kind, decodeFragment } from "./crypto/fragment.ts";
 import { decrypt, encrypt, generateRandomness, lookup } from "./crypto/secret.ts";
 import { Api, type Fetch, type Lifetime } from "./ui/api.ts";
 
@@ -51,10 +51,12 @@ export interface ParsedFragment {
   seed: Uint8Array;
 }
 
-// Accepts a full link, a bare fragment or "#fragment"; throws `invalid_fragment` otherwise.
-export function parseFragment(linkOrFragment: string): ParsedFragment {
+// Accepts a full link, a bare fragment or "#fragment"; throws `invalid_fragment` otherwise, and
+// `wrong_kind` when the fragment belongs to the other link (a burn link where a share link was
+// expected, or the other way round).
+export function parseFragment(linkOrFragment: string, kind: Kind = "share"): ParsedFragment {
   const hash = linkOrFragment.includes("#") ? linkOrFragment.slice(linkOrFragment.indexOf("#")) : linkOrFragment;
-  return { seed: decodeFragment(hash) };
+  return { seed: decodeFragment(hash, kind) };
 }
 
 export interface RevealOptions extends ClientOptions {
@@ -84,7 +86,8 @@ export async function revealSecret(linkOrFragment: string, opts: RevealOptions):
 }
 
 // Takes the burn link or its fragment; resolves on success, throws `ApiError` 404 otherwise.
+// A share link is refused (`wrong_kind`) so the seed can never be sent as a burn token.
 export async function burnSecret(linkOrBurnFragment: string, opts: ClientOptions): Promise<void> {
-  const { seed: token } = parseFragment(linkOrBurnFragment);
+  const { seed: token } = parseFragment(linkOrBurnFragment, "burn");
   await new Api(opts.apiBase, opts.fetch).burn(token);
 }

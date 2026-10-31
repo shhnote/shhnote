@@ -136,8 +136,8 @@ pub fn encrypt(
     Ok(Encrypted {
         blob,
         bucket,
-        fragment: Fragment::new(*rand.seed).encode(),
-        burn_fragment: Fragment::new(*rand.burn_token).encode(),
+        fragment: Fragment::share(*rand.seed).encode(),
+        burn_fragment: Fragment::burn(*rand.burn_token).encode(),
         lookup_key: credential_hash(&lookup(&rand.seed)),
         burn_key: credential_hash(&*rand.burn_token),
     })
@@ -162,7 +162,7 @@ pub fn decrypt(blob: &[u8], seed: &[u8; 32], passphrase: Option<&str>) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::container::File;
+    use crate::{container::File, fragment::Kind};
 
     fn randomness() -> Randomness {
         let mut r = Randomness::generate().unwrap();
@@ -191,15 +191,20 @@ mod tests {
         assert_eq!(direct.blob.len(), with_pass.blob.len());
         assert_eq!(direct.bucket, 4096);
 
-        let seed = Fragment::decode(&direct.fragment).unwrap().bytes;
+        let seed = Fragment::decode_as(&direct.fragment, Kind::Share).unwrap();
         assert_eq!(decrypt(&direct.blob, &seed, None).unwrap(), payload());
+        // The burn link is a different kind, so it cannot be mistaken for a share link.
+        assert!(matches!(
+            Fragment::decode_as(&direct.burn_fragment, Kind::Share),
+            Err(Error::WrongKind { .. })
+        ));
         // A passphrase offered to a direct-mode blob is simply unused.
         assert_eq!(
             decrypt(&direct.blob, &seed, Some("ignored")).unwrap(),
             payload()
         );
 
-        let seed = Fragment::decode(&with_pass.fragment).unwrap().bytes;
+        let seed = Fragment::decode_as(&with_pass.fragment, Kind::Share).unwrap();
         assert_eq!(
             decrypt(&with_pass.blob, &seed, None),
             Err(Error::PassphraseRequired)

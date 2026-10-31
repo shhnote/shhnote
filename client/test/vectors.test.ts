@@ -93,9 +93,13 @@ describe("conformance vectors", () => {
   it("derivations match", async () => {
     for (const v of doc.vectors) {
       const seed = fromHex(v.inputs.seed);
-      assert.equal(encodeFragment(seed), v.expected.fragment, v.name);
-      assert.equal(encodeFragment(fromHex(v.inputs.burn_token)), v.expected.burn_fragment, v.name);
-      assert.ok(equal(decodeFragment(v.expected.fragment), seed), v.name);
+      assert.equal(encodeFragment(seed, "share"), v.expected.fragment, v.name);
+      assert.equal(encodeFragment(fromHex(v.inputs.burn_token), "burn"), v.expected.burn_fragment, v.name);
+      assert.ok(equal(decodeFragment(v.expected.fragment, "share"), seed), v.name);
+      assert.ok(equal(decodeFragment(v.expected.burn_fragment, "burn"), fromHex(v.inputs.burn_token)), v.name);
+      // Each kind is refused where the other is expected (SPEC §2.2).
+      assert.throws(() => decodeFragment(v.expected.burn_fragment, "share"), (e: unknown) => e instanceof ShhError && e.code === "wrong_kind", v.name);
+      assert.throws(() => decodeFragment(v.expected.fragment, "burn"), (e: unknown) => e instanceof ShhError && e.code === "wrong_kind", v.name);
 
       const lk = await lookup(seed);
       assert.equal(toHex(lk), v.expected.lookup, v.name);

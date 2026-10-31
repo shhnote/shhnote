@@ -11,7 +11,7 @@ export function wireBurn(page: HTMLElement): void {
 
   let token: Uint8Array;
   try {
-    token = decodeFragment(location.hash);
+    token = decodeFragment(location.hash, "burn");
   } catch {
     setState(page, "notfound");
     return;

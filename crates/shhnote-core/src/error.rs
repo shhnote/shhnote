@@ -1,10 +1,15 @@
 use std::fmt;
 
+use crate::fragment::Kind;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
     // The fragment is not 44 base64url characters decoding to 33 bytes.
     InvalidFragment,
+    // The first byte names no known suite or role.
     UnsupportedVersion(u8),
+    // A share fragment where a burn fragment was expected, or the other way round.
+    WrongKind { expected: Kind, found: Kind },
     // The blob's length does not match any valid padded size.
     InvalidBlobLength,
     // Argon2 parameters in the header are outside the client bounds (a hostile or corrupt blob).
@@ -27,6 +32,12 @@ impl fmt::Display for Error {
         match self {
             Self::InvalidFragment => f.write_str("the link fragment is malformed"),
             Self::UnsupportedVersion(v) => write!(f, "unsupported fragment version {v}"),
+            Self::WrongKind { expected, found } => write!(
+                f,
+                "a {} link was given where a {} link was expected",
+                found.as_str(),
+                expected.as_str()
+            ),
             Self::InvalidBlobLength => f.write_str("blob length matches no valid padded size"),
             Self::Argon2OutOfBounds => f.write_str("Argon2 parameters are out of bounds"),
             Self::PassphraseRequired => f.write_str("a passphrase is required"),

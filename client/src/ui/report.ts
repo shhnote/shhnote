@@ -25,7 +25,7 @@ export function wireReport(page: HTMLElement): void {
     let seed: Uint8Array;
     try {
       const hash = input.value.trim().split("#")[1] ?? "";
-      seed = decodeFragment(`#${hash}`);
+      seed = decodeFragment(`#${hash}`, "share");
     } catch {
       setStatus(status, t("report-error-invalid"));
       return;

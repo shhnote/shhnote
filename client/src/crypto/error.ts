@@ -1,6 +1,7 @@
 export type ErrorCode =
   | "invalid_fragment"
   | "unsupported_version"
+  | "wrong_kind"
   | "invalid_blob_length"
   | "argon2_out_of_bounds"
   | "argon2_unavailable"

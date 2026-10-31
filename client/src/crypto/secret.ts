@@ -108,8 +108,8 @@ export async function encrypt(opts: EncryptOptions): Promise<Encrypted> {
   return {
     blob,
     bucket: padded.length,
-    fragment: encodeFragment(r.seed),
-    burnFragment: encodeFragment(r.burnToken),
+    fragment: encodeFragment(r.seed, "share"),
+    burnFragment: encodeFragment(r.burnToken, "burn"),
     lookupKey: await credentialHash(await lookup(r.seed)),
     burnKey: await credentialHash(r.burnToken),
   };
