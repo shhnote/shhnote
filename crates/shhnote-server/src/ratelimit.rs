@@ -60,9 +60,11 @@ pub struct RateLimiter {
     table: Mutex<Table>,
 }
 
-// Bounded memory without tracking anyone: if the table ever grows past this, it is simply
-// cleared and everyone starts fresh (fail open, never fail closed).
+// Bounded memory without tracking anyone: past this, individual buckets are evicted (SPEC §4).
 const MAX_BUCKETS: usize = 200_000;
+
+// What a 429 says to wait. A constant: the real wait would give away the threshold (SPEC §4).
+pub const RETRY_AFTER_SECS: u64 = 60;
 
 impl RateLimiter {
     pub fn new(settings: Arc<SettingsCell>, trusted_proxies: Vec<Cidr>) -> Self {
@@ -111,12 +113,13 @@ impl RateLimiter {
         let now = Instant::now();
         let rotation = Duration::from_secs(self.settings.load().salt_rotation_secs.max(60) as u64);
         let mut table = self.table.lock().unwrap_or_else(|e| e.into_inner());
-        if now.duration_since(table.rotated_at) >= rotation || table.buckets.len() > MAX_BUCKETS {
+        if now.duration_since(table.rotated_at) >= rotation {
             // Rotation drops every key at once: nothing from before can be correlated with anything after.
             table.salt = fresh_salt();
             table.rotated_at = now;
             table.buckets.clear();
         }
+        self.bound(&mut table, now);
         let subject = Subject::Ip(keyed_hash(&table.salt, &ip_prefix(ip)));
         self.take(&mut table, endpoint, subject, self.per_hour(endpoint), now)
     }
@@ -124,6 +127,7 @@ impl RateLimiter {
     pub fn check_key(&self, endpoint: Endpoint, key_hash: [u8; 32]) -> Result<(), u64> {
         let now = Instant::now();
         let mut table = self.table.lock().unwrap_or_else(|e| e.into_inner());
+        self.bound(&mut table, now);
         let per_hour = self.per_hour(endpoint) * self.limits().user_multiplier;
         self.take(
             &mut table,
@@ -139,14 +143,36 @@ impl RateLimiter {
     }
 
     fn per_hour(&self, endpoint: Endpoint) -> u32 {
+        per_hour_of(&self.limits(), endpoint)
+    }
+
+    // Keeps the table under its bound by evicting individual buckets, never by clearing it:
+    // a flood of fresh addresses must not reset anyone else's limit. Full buckets carry no
+    // state and go first; then the newest, so the flood pays with its own entries while
+    // established buckets stay.
+    fn bound(&self, table: &mut Table, now: Instant) {
+        if table.buckets.len() <= MAX_BUCKETS {
+            return;
+        }
         let limits = self.limits();
-        match endpoint {
-            Endpoint::Create => limits.create_per_hour,
-            Endpoint::Reveal => limits.reveal_per_hour,
-            Endpoint::Confirm => limits.confirm_per_hour,
-            Endpoint::Burn => limits.burn_per_hour,
-            Endpoint::Report => limits.report_per_hour,
-            Endpoint::Login => limits.login_per_hour,
+        table.buckets.retain(|(endpoint, subject), bucket| {
+            let capacity = f64::from(capacity_of(&limits, *endpoint, subject));
+            let refilled = bucket.tokens
+                + now.duration_since(bucket.updated).as_secs_f64() * capacity / 3600.0;
+            refilled < capacity
+        });
+        let target = MAX_BUCKETS / 2;
+        if table.buckets.len() > target {
+            let mut by_age: Vec<(Instant, (Endpoint, Subject))> = table
+                .buckets
+                .iter()
+                .map(|(key, bucket)| (bucket.updated, *key))
+                .collect();
+            by_age.sort_unstable_by_key(|(updated, _)| std::cmp::Reverse(*updated));
+            let surplus = by_age.len() - target;
+            for (_, key) in by_age.into_iter().take(surplus) {
+                table.buckets.remove(&key);
+            }
         }
     }
 
@@ -175,8 +201,27 @@ impl RateLimiter {
             bucket.tokens -= 1.0;
             Ok(())
         } else {
-            Err(((1.0 - bucket.tokens) / rate).ceil() as u64)
+            Err(RETRY_AFTER_SECS)
         }
+    }
+}
+
+fn per_hour_of(limits: &RateLimits, endpoint: Endpoint) -> u32 {
+    match endpoint {
+        Endpoint::Create => limits.create_per_hour,
+        Endpoint::Reveal => limits.reveal_per_hour,
+        Endpoint::Confirm => limits.confirm_per_hour,
+        Endpoint::Burn => limits.burn_per_hour,
+        Endpoint::Report => limits.report_per_hour,
+        Endpoint::Login => limits.login_per_hour,
+    }
+}
+
+fn capacity_of(limits: &RateLimits, endpoint: Endpoint, subject: &Subject) -> u32 {
+    let base = per_hour_of(limits, endpoint);
+    match subject {
+        Subject::Ip(_) => base,
+        Subject::ApiKey(_) => base.saturating_mul(limits.user_multiplier),
     }
 }
 
@@ -328,7 +373,7 @@ mod tests {
         assert_eq!(limiter.check(Endpoint::Create, ip), Ok(()));
         assert_eq!(limiter.check(Endpoint::Create, ip), Ok(()));
         let wait = limiter.check(Endpoint::Create, ip).unwrap_err();
-        assert!((1..=1800).contains(&wait), "{wait}");
+        assert_eq!(wait, RETRY_AFTER_SECS);
         // Other endpoints and other clients are unaffected.
         assert_eq!(limiter.check(Endpoint::Reveal, ip), Ok(()));
         assert_eq!(

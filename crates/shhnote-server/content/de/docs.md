@@ -12,7 +12,7 @@ Jeder Fehler ist ein JSON-Objekt:
 
 Jede Operation, die ein Geheimnis-Credential entgegennimmt, antwortet bei jedem Fehlschlag mit **404 `not_found`** und identischem Körper, egal ob das Geheimnis nie existierte, abgelaufen ist, bereits geöffnet oder gebrannt wurde oder das Credential ungültig ist. Nichts unterscheidet diese Fälle, mit Absicht.
 
-Ratenlimits antworten mit **429 `rate_limited`** und einem `Retry-After`-Header in Sekunden. Limits gelten pro Endpunkt und pro Client; die Schwelle wird nicht verraten.
+Ratenlimits antworten mit **429 `rate_limited`** und einem `Retry-After`-Header in Sekunden. Limits gelten pro Endpunkt und pro Client; der Header ist eine Konstante, die Schwelle wird also nicht verraten.
 
 ## `GET /health`
 

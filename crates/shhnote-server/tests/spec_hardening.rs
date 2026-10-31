@@ -143,7 +143,6 @@ fn spec_ipv4_mapped_peers_are_canonicalised() {
 
 // SPEC §4: a full bucket table evicts individual subjects; it is never cleared by load.
 #[test]
-#[ignore = "S-28"]
 fn spec_bucket_flood_does_not_reset_other_limits() {
     let limiter = limiter(1, &[]);
     let victim: IpAddr = "203.0.113.5".parse().unwrap();

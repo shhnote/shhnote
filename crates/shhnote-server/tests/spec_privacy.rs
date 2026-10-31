@@ -523,7 +523,6 @@ async fn spec_keyed_requests_record_only_the_day() {
 
 // SPEC §4: `Retry-After` is a constant that does not depend on the threshold.
 #[tokio::test]
-#[ignore = "S-27"]
 async fn spec_retry_after_does_not_reveal_the_threshold() {
     let mut seen = Vec::new();
     for per_hour in [10u32, 37, 60] {

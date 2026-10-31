@@ -12,7 +12,7 @@ Every error is a JSON object:
 
 Every operation that takes a secret credential answers **404 `not_found`** with an identical body for every failure, whether the secret never existed, has expired, was already opened, was burned or the credential is malformed. Nothing distinguishes those cases, on purpose.
 
-Rate limits answer **429 `rate_limited`** with a `Retry-After` header in seconds. Limits are per endpoint and per client; nothing about the threshold is revealed.
+Rate limits answer **429 `rate_limited`** with a `Retry-After` header in seconds. Limits are per endpoint and per client; the header is a constant, so nothing about the threshold is revealed.
 
 ## `GET /health`
 
