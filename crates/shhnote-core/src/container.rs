@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::Error;
 
@@ -9,8 +9,15 @@ pub const MAX_MANIFEST_LEN: usize = 1024 * 1024;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
     pub v: u32,
+    // Present as a string or null; a missing key is refused so every client reads the same thing.
+    #[serde(deserialize_with = "present")]
     pub text: Option<String>,
     pub files: Vec<FileMeta>,
+}
+
+// `Option` alone would treat a missing key as `null`; with `deserialize_with` serde requires the key.
+fn present<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    Option::deserialize(d)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

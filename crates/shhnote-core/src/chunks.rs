@@ -68,7 +68,8 @@ impl ChunkCipher {
     pub fn open_all(&self, body: &[u8]) -> Result<Vec<u8>, Error> {
         let sealed_len = (CHUNK_SIZE + TAG_LEN) as usize;
         let count = body.len().div_ceil(sealed_len);
-        if count == 0 || body.len() < count * TAG_LEN as usize {
+        // Every sealed chunk carries a tag, so the final one cannot be shorter than that.
+        if count == 0 || body.len() - (count - 1) * sealed_len < TAG_LEN as usize {
             return Err(Error::InvalidBlobLength);
         }
         let mut out = Vec::with_capacity(body.len() - count * TAG_LEN as usize);

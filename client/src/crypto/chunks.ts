@@ -44,7 +44,8 @@ export async function sealAll(ek: CryptoKey, prefix: Uint8Array, padded: Uint8Ar
 export async function openAll(ek: CryptoKey, prefix: Uint8Array, body: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
   const sealedLen = CHUNK_SIZE + TAG_LEN;
   const count = Math.ceil(body.length / sealedLen);
-  if (count === 0 || body.length < count * TAG_LEN) throw new ShhError("invalid_blob_length");
+  // Every sealed chunk carries a tag, so the final one cannot be shorter than that.
+  if (count === 0 || body.length - (count - 1) * sealedLen < TAG_LEN) throw new ShhError("invalid_blob_length");
   const out = new Uint8Array(body.length - count * TAG_LEN);
   let at = 0;
   for (let i = 0; i < count; i++) {

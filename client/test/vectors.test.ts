@@ -7,7 +7,7 @@ import { parseHeader, serializeHeader } from "../src/crypto/blob.ts";
 import { concat, equal, fromHex, toHex } from "../src/crypto/bytes.ts";
 import { type Payload, decodePayload, encodePayload, manifestJson } from "../src/crypto/container.ts";
 import { ShhError } from "../src/crypto/error.ts";
-import { VERSION, decodeFragment, encodeFragment } from "../src/crypto/fragment.ts";
+import { type Kind, VERSION, decodeFragment, encodeFragment } from "../src/crypto/fragment.ts";
 import { INFO, hkdfBits } from "../src/crypto/kdf.ts";
 import { type PaddingPolicy, blobLen, chunkCount, isValidPaddedSize, padme } from "../src/crypto/padding.ts";
 import { credentialHash, decrypt, encrypt, importEk, lookup } from "../src/crypto/secret.ts";
@@ -50,7 +50,8 @@ interface Vector {
 interface Doc {
   version: number;
   vectors: Vector[];
-  reject: { name: string; base: string; blob_base64: string }[];
+  reject: { name: string; base: string; expect: string; blob_base64: string }[];
+  reject_fragments: { name: string; fragment: string; as: Kind; expect: string }[];
 }
 
 const doc: Doc = JSON.parse(readFileSync(new URL("../../vectors/v1.json", import.meta.url), "utf8"));
@@ -181,31 +182,25 @@ describe("conformance vectors", () => {
   });
 
   it("reject cases are rejected", async () => {
-    const expectedCode: Record<string, ShhError["code"] | "server"> = {
-      "tag-tampered": "corrupt",
-      "wrapped-ek-tampered": "passphrase_required",
-      truncated: "server",
-      "argon-m-below-bounds": "argon2_out_of_bounds",
-      "argon-m-above-bounds": "argon2_out_of_bounds",
-      "argon-t-above-bounds": "argon2_out_of_bounds",
-      "last-flag-missing": "corrupt",
-      "payload-len-too-large": "corrupt",
-    };
     for (const r of doc.reject) {
       const base = byName(r.base);
       const blob = b64(r.blob_base64);
-      const expected = expectedCode[r.name];
-      assert.ok(expected, `no expectation for ${r.name}`);
-      if (expected === "server") {
+      if (r.expect === "server") {
         // The server refuses this length; the client would never see it.
         assert.ok(!isValidPaddedSize(blob.length - 95 - 16, policyOf(base)), r.name);
         continue;
       }
       await assert.rejects(
         decrypt(blob, fromHex(base.inputs.seed), base.inputs.passphrase, argon2),
-        (e: ShhError) => e instanceof ShhError && e.code === expected,
+        (e: unknown) => e instanceof ShhError && e.code === r.expect,
         r.name,
       );
+    }
+  });
+
+  it("reject fragments are refused", () => {
+    for (const r of doc.reject_fragments) {
+      assert.throws(() => decodeFragment(r.fragment, r.as), (e: unknown) => e instanceof ShhError && e.code === r.expect, r.name);
     }
   });
 });

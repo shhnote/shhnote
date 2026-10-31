@@ -19,6 +19,7 @@ struct Doc {
     version: u8,
     vectors: Vec<Vector>,
     reject: Vec<Reject>,
+    reject_fragments: Vec<RejectFragment>,
 }
 
 #[derive(Deserialize)]
@@ -89,7 +90,17 @@ struct Expected {
 struct Reject {
     name: String,
     base: String,
+    expect: String,
     blob_base64: String,
+}
+
+#[derive(Deserialize)]
+struct RejectFragment {
+    name: String,
+    fragment: String,
+    #[serde(rename = "as")]
+    kind: String,
+    expect: String,
 }
 
 fn hex(s: &str) -> Vec<u8> {
@@ -368,18 +379,35 @@ fn reject_cases_are_rejected() {
             r.name
         );
 
-        let expected_client = match r.name.as_str() {
-            "argon-m-below-bounds" | "argon-m-above-bounds" | "argon-t-above-bounds" => {
-                Some(Error::Argon2OutOfBounds)
-            }
-            "wrapped-ek-tampered" => Some(Error::PassphraseRequired),
-            "truncated" => None,
-            _ => Some(Error::Corrupt("")),
+        // `expect` names the error the client must report; "server" means the length check
+        // refuses the blob before any client sees it.
+        match (r.expect.as_str(), client_result) {
+            ("server", _) => assert_eq!(server_check, Err(Error::InvalidBlobLength), "{}", r.name),
+            ("invalid_blob_length", Err(Error::InvalidBlobLength)) => {}
+            ("argon2_out_of_bounds", Err(Error::Argon2OutOfBounds)) => {}
+            ("passphrase_required", Err(Error::PassphraseRequired)) => {}
+            ("corrupt", Err(Error::Corrupt(_))) => {}
+            ("manifest", Err(Error::Manifest(_))) => {}
+            ("empty_payload", Err(Error::EmptyPayload)) => {}
+            (expect, actual) => panic!("{}: expected {expect}, got {actual:?}", r.name),
+        }
+    }
+}
+
+#[test]
+fn reject_fragments_are_refused() {
+    for r in doc().reject_fragments {
+        let kind = match r.kind.as_str() {
+            "share" => Kind::Share,
+            "burn" => Kind::Burn,
+            other => panic!("{}: unknown kind {other}", r.name),
         };
-        match (expected_client, client_result) {
-            (None, _) => assert_eq!(server_check, Err(Error::InvalidBlobLength), "{}", r.name),
-            (Some(Error::Corrupt(_)), Err(Error::Corrupt(_))) => {}
-            (Some(expected), actual) => assert_eq!(actual, Err(expected), "{}", r.name),
+        let actual = Fragment::decode_as(&r.fragment, kind);
+        match (r.expect.as_str(), actual) {
+            ("wrong_kind", Err(Error::WrongKind { expected, .. })) => assert_eq!(expected, kind),
+            ("unsupported_version", Err(Error::UnsupportedVersion(_))) => {}
+            ("invalid_fragment", Err(Error::InvalidFragment)) => {}
+            (expect, actual) => panic!("{}: expected {expect}, got {actual:?}", r.name),
         }
     }
 }

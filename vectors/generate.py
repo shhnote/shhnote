@@ -232,27 +232,124 @@ def main():
 
     rejects = []
 
-    def reject(name, base, blob, reason):
-        rejects.append({"name": name, "base": base["name"], "reason": reason, "blob_len": len(blob), "blob_base64": b64(blob)})
+    def reject(name, base, blob, expect, reason):
+        rejects.append(
+            {"name": name, "base": base["name"], "expect": expect, "reason": reason, "blob_len": len(blob), "blob_base64": b64(blob)}
+        )
 
+    # Re-wraps a padded plaintext (or ready-made chunks) in the base vector's header.
+    def with_body(base, padded=None, chunks=None):
+        if chunks is None:
+            chunks = encrypt_chunks(base["_ek"], base["_nonce_prefix"], padded)
+        return base["_blob"][:HEADER_LEN] + b"".join(chunks)
+
+    # Pads an arbitrary payload into the base vector's bucket.
+    def padded_for(base, payload):
+        bucket = base["expected"]["bucket"]
+        out = struct.pack(">I", len(payload)) + payload
+        assert len(out) <= bucket
+        return out + b"\x00" * (bucket - len(out))
+
+    def payload_of(manifest_bytes, file_bytes=b""):
+        return struct.pack(">I", len(manifest_bytes)) + manifest_bytes + file_bytes
+
+    multi = next(v for v in vectors if v["name"] == "multi-chunk")
+
+    # Tampering and the header.
     blob = direct["_blob"]
-    reject("tag-tampered", direct, flip(blob, len(blob) - 1), "last chunk tag fails to authenticate")
-    reject("wrapped-ek-tampered", direct, flip(blob, 40), "wrapped_EK fails to unwrap in direct mode; the client would prompt for a passphrase that does not exist")
-    reject("truncated", direct, blob[:-16], "length matches no valid padded size; the server refuses it and the client's final chunk fails to authenticate")
+    reject("tag-tampered", direct, flip(blob, len(blob) - 1), "corrupt", "last chunk tag fails to authenticate")
+    reject(
+        "wrapped-ek-tampered",
+        direct,
+        flip(blob, 40),
+        "passphrase_required",
+        "wrapped_EK fails to unwrap in direct mode; the client would prompt for a passphrase that does not exist",
+    )
+    reject(
+        "truncated",
+        direct,
+        blob[:-16],
+        "server",
+        "length matches no valid padded size; the server refuses it and the client's final chunk fails to authenticate",
+    )
+    reject("header-too-short", direct, blob[:50], "invalid_blob_length", "shorter than the 95-byte header")
+    reject("header-only", direct, blob[:HEADER_LEN], "invalid_blob_length", "a header with no chunks at all")
 
+    # Argon2 parameters outside the client bounds; reject before running the KDF.
     pblob = passphrase["_blob"]
-    reject("argon-m-below-bounds", passphrase, pblob[:16] + struct.pack(">I", 4096) + pblob[20:], "argon_m below the client bound; reject before running the KDF")
-    reject("argon-m-above-bounds", passphrase, pblob[:16] + struct.pack(">I", 1 << 30) + pblob[20:], "argon_m above the client bound; reject before running the KDF")
-    reject("argon-t-above-bounds", passphrase, pblob[:20] + struct.pack(">I", 9) + pblob[24:], "argon_t above the client bound; reject before running the KDF")
+    for name, offset, value in [
+        ("argon-m-below-bounds", 16, 4096),
+        ("argon-m-above-bounds", 16, 1 << 30),
+        ("argon-t-below-bounds", 20, 0),
+        ("argon-t-above-bounds", 20, 9),
+        ("argon-p-below-bounds", 24, 0),
+        ("argon-p-above-bounds", 24, 5),
+    ]:
+        reject(name, passphrase, pblob[:offset] + struct.pack(">I", value) + pblob[offset + 4 :], "argon2_out_of_bounds", f"{name[6]} outside the client bound")
 
+    # The chunk layer: order, the last flag and truncation (SPEC §2.7).
     no_last = encrypt_chunks(direct["_ek"], direct["_nonce_prefix"], direct["_padded"], last_flag_on_final=False)
-    reject("last-flag-missing", direct, blob[:HEADER_LEN] + b"".join(no_last), "the final chunk was sealed without the last flag, so it fails to authenticate as the final chunk; this is how a truncated stream is detected")
+    reject(
+        "last-flag-missing",
+        direct,
+        with_body(direct, chunks=no_last),
+        "corrupt",
+        "the final chunk was sealed without the last flag, so it fails to authenticate as the final chunk; this is how a truncated stream is detected",
+    )
+    mchunks = encrypt_chunks(multi["_ek"], multi["_nonce_prefix"], multi["_padded"])
+    assert len(mchunks) == 2
+    reject("chunks-out-of-order", multi, with_body(multi, chunks=[mchunks[1], mchunks[0]]), "corrupt", "chunk 1 presented first fails to authenticate under index 0")
+    early_last = AESGCM(multi["_ek"]).encrypt(multi["_nonce_prefix"] + struct.pack(">I", 0) + b"\x01", multi["_padded"][:CHUNK_SIZE], None)
+    reject("last-flag-on-middle-chunk", multi, with_body(multi, chunks=[early_last, mchunks[1]]), "corrupt", "chunk 0 carries the last flag although a chunk follows")
+    reject("last-chunk-missing", multi, with_body(multi, chunks=[mchunks[0]]), "corrupt", "the length is a valid padded size, but the only chunk was sealed as a middle chunk, so it fails as the final one")
+    reject("truncated-mid-chunk", multi, multi["_blob"][:-100], "server", "cut inside the final chunk; the length matches no padded size")
+    reject("short-final-fragment", multi, with_body(multi, chunks=[mchunks[0], mchunks[1][:5]]), "invalid_blob_length", "the final sealed chunk is shorter than a tag")
 
-    # Same content, but the length prefix claims the whole bucket, which is more than bucket - 4.
+    # The padding prefix (SPEC §2.6).
     bucket = direct["expected"]["bucket"]
-    padded = struct.pack(">I", bucket) + direct["_padded"][4:]
-    chunks = encrypt_chunks(direct["_ek"], direct["_nonce_prefix"], padded)
-    reject("payload-len-too-large", direct, blob[:HEADER_LEN] + b"".join(chunks), "payload_len exceeds bucket - 4; reject after decryption")
+    reject("payload-len-too-large", direct, with_body(direct, struct.pack(">I", bucket) + direct["_padded"][4:]), "corrupt", "payload_len exceeds bucket - 4; reject after decryption")
+    mbucket = multi["expected"]["bucket"]
+    reject("payload-len-too-large-multi-chunk", multi, with_body(multi, struct.pack(">I", mbucket) + multi["_padded"][4:]), "corrupt", "payload_len exceeds bucket - 4 on a two-chunk blob")
+    reject("payload-len-zero", direct, with_body(direct, struct.pack(">I", 0) + b"\x00" * (bucket - 4)), "corrupt", "an empty payload cannot hold a manifest length")
+
+    # The container (SPEC §2.5): bounds, sizes and the shapes both implementations must refuse identically.
+    good_manifest = b'{"v":1,"text":"hi","files":[]}'
+    container_cases = [
+        ("manifest-len-over-1mib", struct.pack(">I", 2 * 1024 * 1024) + b"\x00" * 8, "corrupt", "manifest_len above 1 MiB"),
+        ("manifest-len-past-payload", struct.pack(">I", 100) + good_manifest, "corrupt", "manifest_len reaches past the payload"),
+        ("manifest-invalid-utf8", payload_of(b'{"v":1,"text":"\xff","files":[]}'), "manifest", "manifest is not UTF-8"),
+        ("manifest-wrong-version", payload_of(b'{"v":2,"text":"hi","files":[]}'), "manifest", "unknown manifest version"),
+        ("manifest-not-an-object", payload_of(b"[1]"), "manifest", "manifest is not a JSON object"),
+        ("manifest-zero-files-null-text", payload_of(b'{"v":1,"text":null,"files":[]}'), "empty_payload", "neither text nor a file"),
+        ("file-size-too-large", payload_of(b'{"v":1,"text":null,"files":[{"name":"a","type":"t","size":10}]}', b"12345"), "corrupt", "file size reaches past the payload"),
+        ("file-size-too-small", payload_of(b'{"v":1,"text":null,"files":[{"name":"a","type":"t","size":3}]}', b"12345"), "corrupt", "bytes left over after the last file"),
+        ("file-size-negative", payload_of(b'{"v":1,"text":null,"files":[{"name":"a","type":"t","size":-1}]}'), "manifest", "negative file size"),
+        ("file-size-fractional", payload_of(b'{"v":1,"text":null,"files":[{"name":"a","type":"t","size":2.5}]}', b"12"), "manifest", "fractional file size"),
+        ("file-entry-null", payload_of(b'{"v":1,"text":"hi","files":[null]}'), "manifest", "a file entry that is not an object"),
+        ("file-entry-missing-name", payload_of(b'{"v":1,"text":null,"files":[{"type":"t","size":0}]}'), "manifest", "a file entry without a name"),
+        ("manifest-bom", payload_of(b"\xef\xbb\xbf" + good_manifest), "manifest", "a UTF-8 byte order mark before the JSON"),
+        ("manifest-duplicate-key", payload_of(b'{"v":1,"text":"a","text":"b","files":[]}'), "manifest", "a duplicated key; lenient parsers would keep one of the two values"),
+        ("manifest-non-integer-number", payload_of(b'{"v":1.0,"text":"hi","files":[]}'), "manifest", "1.0 is not the integer 1"),
+        ("manifest-lone-surrogate", payload_of(b'{"v":1,"text":"\\ud800","files":[]}'), "manifest", "a lone surrogate escape is not a Unicode string"),
+        ("manifest-missing-text", payload_of(b'{"v":1,"files":[{"name":"a","type":"t","size":1}]}', b"x"), "manifest", "text must be present, as a string or null"),
+    ]
+    for name, payload, expect, reason in container_cases:
+        reject(name, direct, with_body(direct, padded_for(direct, payload)), expect, reason)
+
+    # Fragments (SPEC §2.2): each kind is refused where the other is expected, plus the shapes
+    # that are not ours at all. `as` says which kind the decoder was asked for.
+    share_fragment = direct["expected"]["fragment"]
+    burn_fragment = direct["expected"]["burn_fragment"]
+    reject_fragments = [
+        {"name": "share-fragment-as-burn", "fragment": share_fragment, "as": "burn", "expect": "wrong_kind", "reason": "a share link given to the burn page or burnSecret must not send the seed"},
+        {"name": "burn-fragment-as-share", "fragment": burn_fragment, "as": "share", "expect": "wrong_kind", "reason": "a burn link given to the reveal page must not derive anything"},
+        {"name": "unknown-kind-byte", "fragment": b64url(bytes([0x03]) + fixed("unknown-kind", 32)), "as": "share", "expect": "unsupported_version", "reason": "no suite or role is named 0x03"},
+        {"name": "fragment-too-short", "fragment": share_fragment[:43], "as": "share", "expect": "invalid_fragment", "reason": "43 characters"},
+        {"name": "fragment-too-long", "fragment": share_fragment + "A", "as": "share", "expect": "invalid_fragment", "reason": "45 characters"},
+        {"name": "fragment-padded", "fragment": share_fragment[:43] + "=", "as": "share", "expect": "invalid_fragment", "reason": "base64 padding is not accepted"},
+        {"name": "fragment-standard-alphabet", "fragment": b64url(bytes([KIND_SHARE]) + bytes([0xfb, 0xff] * 16)).replace("-", "+").replace("_", "/"), "as": "share", "expect": "invalid_fragment", "reason": "the standard base64 alphabet is not base64url"},
+    ]
+    assert "+" in reject_fragments[-1]["fragment"] or "/" in reject_fragments[-1]["fragment"]
 
     doc = {
         "version": VERSION,
@@ -269,13 +366,15 @@ def main():
             "fragment starts with the share kind byte and burn_fragment with the burn kind byte; each must be refused where the other is expected.",
             "Encryption tests must use the manifest string exactly as given, not re-serialise it.",
             "Argon2 memory (m) is in KiB. pass_key is the 32-byte Argon2id output.",
-            "Decryption tests must recover text and files exactly; reject cases must fail for the stated reason.",
+            "Decryption tests must recover text and files exactly; reject cases must fail with the error named in expect (server: the length check refuses the blob before any client sees it).",
+            "reject_fragments must be refused by a decoder asked for the kind in `as`, with the error named in expect.",
         ],
         "vectors": [strip_private(v) for v in vectors],
         "reject": rejects,
+        "reject_fragments": reject_fragments,
     }
     OUT.write_text(json.dumps(doc, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"wrote {OUT} with {len(vectors)} vectors and {len(rejects)} reject cases")
+    print(f"wrote {OUT} with {len(vectors)} vectors, {len(rejects)} reject cases and {len(reject_fragments)} fragment reject cases")
     for v in vectors:
         e = v["expected"]
         print(f"  {v['name']:32} bucket={e['bucket']:7} chunks={e['chunk_count']} blob_len={e['blob_len']}")
