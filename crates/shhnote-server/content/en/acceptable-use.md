@@ -23,7 +23,7 @@ Do not use the service as:
 
 We cannot look inside a secret, and we do not keep records of who created or opened one. Enforcement therefore works like this:
 
-- **Reports.** Anyone who holds a link can [report it]({{site_url}}/report). If the secret is still active, it is removed at once; a record that a report was received is kept, nothing else.
+- **Reports.** Anyone who holds a link can [report it]({{site_url}}/report). If the secret is still active, it is removed at once. We count how many reports arrive each day, nothing else; there is no record of which secret was reported.
 - **Limits.** Rate limits and size limits apply to everyone equally and are enforced automatically.
 - **Removal on notice.** When we receive a valid legal notice about a link, we remove the secret it points to, if it still exists. We cannot identify its creator or its recipients, because that information is never stored.
 

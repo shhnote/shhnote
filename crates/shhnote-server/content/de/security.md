@@ -5,6 +5,13 @@
 - **Optionale Passphrase.** Sie schützt zusätzlich, sodass ein weitergegebener Link allein nicht reicht.
 - **Strenge Schutzmaßnahmen im Browser.** Unsere Seiten laden Code nur von unserem eigenen Server, können nicht in andere Websites eingebettet werden und verraten anderen Websites nie, woher du kommst.
 
+## Was wir nicht versprechen können
+
+- **Speicher in deinem Browser.** Nachdem ein Geheimnis angezeigt wurde, überschreibt die Seite beim Verlassen, was sie kann. JavaScript kann das nicht garantieren, dein Browser kann entschlüsselte Daten also im Speicher behalten, bis der Tab geschlossen wird. Schließ den Tab, wenn du fertig bist.
+- **Automatisierte Klicks.** Die Anzeigeseite lädt nichts, bevor jemand wirklich klickt oder eine Taste drückt. Ein Link-Scanner oder eine Browser-Erweiterung, die echte Eingaben erzeugt, wie ein Mensch es täte, kann ein einmaliges Geheimnis öffnen. Die Empfängerin sieht dann, dass es bereits geöffnet wurde, und das ist das ehrliche Ergebnis: Etwas anderes hat es gelesen.
+- **Reste nach dem Löschen.** Löschen entfernt den Eintrag. Verschlüsselte Reste können in Datenbank-Journalen, freiem Speicherplatz oder Backups verbleiben, bis sie überschrieben werden. Es ist Chiffretext ohne Schlüssel.
+- **Zeitstempel großer Dateien.** Große Geheimnisse, die außerhalb der Datenbank liegen, tragen den Zeitpunkt, zu dem die Datei geschrieben wurde; das hält der Speicher von sich aus fest.
+
 ## Tipps zum sicheren Teilen
 
 - Schick die Passphrase auf einem anderen Weg als den Link, zum Beispiel den Link per E-Mail und die Passphrase am Telefon.

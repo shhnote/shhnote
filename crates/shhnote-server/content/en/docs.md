@@ -96,7 +96,7 @@ Destroys an active secret. Only the creator holds the burn token; the share link
 {"lookup": "<base64url of the lookup value>"}
 ```
 
-Anyone holding a link may report it. If the secret is active it is removed immediately. Always **200** with `{"status": "received"}`, whatever happened, and a ledger row that a report was received is kept.
+Anyone holding a link may report it. If the secret is active it is removed immediately. Always **200** with `{"status": "received"}`, whatever happened. The report is counted in that day's statistics; no record of which secret was reported exists.
 
 ## API keys
 
@@ -108,10 +108,9 @@ The admin panel's operations are available as JSON under `/admin`, for operators
 
 | Request | Body | Response |
 |---|---|---|
-| `GET /admin/stats?days=30` | – | lifetime totals, the live `active` count and the last `days` days (1–400) |
+| `GET /admin/stats?days=30` | – | lifetime totals, the live `active` count and the last `days` days (1–400), daily report counts included |
 | `GET /admin/settings` | – | `values`, `defaults` and the list of `overridden` keys, all values as strings |
 | `PATCH /admin/settings` | `{key: value, …}` | the same shape after saving; strings, numbers, booleans and lists of scalars are accepted, `null` resets a key to its default |
-| `GET /admin/reports` | – | the reports ledger |
 | `GET /admin/keys` | – | keys with `id` (hex of the key's hash), `name`, `scope`, `created_at`, `last_used_at` |
 | `POST /admin/keys` | `{"name": …, "scope": "admin" \| "user"}` | **201** with the key itself, shown this once |
 | `POST /admin/keys/delete` | `{"id": …}` | **204**; deleting the key you are using ends your access |

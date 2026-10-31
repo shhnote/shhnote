@@ -5,6 +5,13 @@
 - **Optional passphrase.** Add one for a second layer of protection, so a leaked link alone isn't enough.
 - **Strict browser protections.** Our pages only load code from our own server, can't be embedded in other sites, and never tell other sites where you came from.
 
+## What we can't promise
+
+- **Memory in your browser.** After a secret is shown, the page overwrites what it can when you leave. JavaScript can't guarantee that, so your browser may keep decrypted data in memory until the tab is closed. Close the tab when you're done.
+- **Automated clicks.** The reveal page fetches nothing until a real click or key press. A link scanner or browser extension that injects real input, as a person would, can open a single-view secret. The recipient then sees that it was already opened, which is the honest outcome: something else read it.
+- **Leftovers after deletion.** Deleting a secret removes the record. Encrypted leftovers may linger in database journals, free disk space or backups until they are overwritten. They are ciphertext without a key.
+- **Timestamps on large files.** Large secrets stored outside the database carry the time the file was written, which the storage system records on its own.
+
 ## Tips for sharing safely
 
 - Send the passphrase a different way from the link, for example the link by email and the passphrase by phone.

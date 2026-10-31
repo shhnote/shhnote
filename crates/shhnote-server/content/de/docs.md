@@ -96,7 +96,7 @@ Zerstört ein aktives Geheimnis. Nur wer es erstellt hat, besitzt das Brenn-Toke
 {"lookup": "<base64url des Lookup-Werts>"}
 ```
 
-Wer einen Link hat, darf ihn melden. Ist das Geheimnis aktiv, wird es sofort entfernt. Immer **200** mit `{"status": "received"}`, was auch immer geschah; vermerkt wird nur, dass eine Meldung eingegangen ist.
+Wer einen Link hat, darf ihn melden. Ist das Geheimnis aktiv, wird es sofort entfernt. Immer **200** mit `{"status": "received"}`, was auch immer geschah. Die Meldung wird in der Statistik des Tages gezählt; welches Geheimnis gemeldet wurde, wird nicht festgehalten.
 
 ## API-Schlüssel
 
@@ -108,10 +108,9 @@ Die Operationen des Admin-Bereichs stehen als JSON unter `/admin` bereit, für B
 
 | Anfrage | Körper | Antwort |
 |---|---|---|
-| `GET /admin/stats?days=30` | – | Gesamtsummen, die aktuelle Zahl `active` und die letzten `days` Tage (1–400) |
+| `GET /admin/stats?days=30` | – | Gesamtsummen, die aktuelle Zahl `active` und die letzten `days` Tage (1–400), einschließlich der Meldungen pro Tag |
 | `GET /admin/settings` | – | `values`, `defaults` und die Liste der `overridden` Schlüssel, alle Werte als Strings |
 | `PATCH /admin/settings` | `{key: value, …}` | dieselbe Form nach dem Speichern; Strings, Zahlen, Booleans und Listen von Skalaren werden angenommen, `null` setzt einen Schlüssel auf den Standard zurück |
-| `GET /admin/reports` | – | das Meldungsverzeichnis |
 | `GET /admin/keys` | – | Schlüssel mit `id` (Hex des Hashes), `name`, `scope`, `created_at`, `last_used_at` |
 | `POST /admin/keys` | `{"name": …, "scope": "admin" \| "user"}` | **201** mit dem Schlüssel selbst, dieses eine Mal |
 | `POST /admin/keys/delete` | `{"id": …}` | **204**; wer den gerade verwendeten Schlüssel löscht, verliert den Zugang |

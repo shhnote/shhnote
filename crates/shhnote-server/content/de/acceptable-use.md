@@ -23,7 +23,7 @@ Nutze den Dienst nicht als:
 
 Wir können nicht in ein Geheimnis hineinschauen und führen keine Aufzeichnungen darüber, wer eines erstellt oder geöffnet hat. Durchsetzung funktioniert deshalb so:
 
-- **Meldungen.** Wer einen Link hat, kann [ihn melden]({{site_url}}/report). Ist das Geheimnis noch aktiv, wird es sofort entfernt; vermerkt wird nur, dass eine Meldung eingegangen ist.
+- **Meldungen.** Wer einen Link hat, kann [ihn melden]({{site_url}}/report). Ist das Geheimnis noch aktiv, wird es sofort entfernt. Wir zählen nur, wie viele Meldungen pro Tag eingehen; welches Geheimnis gemeldet wurde, wird nicht festgehalten.
 - **Limits.** Raten- und Größenlimits gelten für alle gleich und werden automatisch durchgesetzt.
 - **Entfernung auf Hinweis.** Erhalten wir einen gültigen rechtlichen Hinweis zu einem Link, entfernen wir das Geheimnis, auf das er zeigt, falls es noch existiert. Wer es erstellt oder empfangen hat, können wir nicht feststellen, weil diese Information nie gespeichert wird.
 
