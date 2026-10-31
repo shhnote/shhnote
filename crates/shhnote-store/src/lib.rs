@@ -18,6 +18,8 @@ pub use stats::{Day, Stats};
 
 pub type Error = sqlx::Error;
 
+const PING_ACQUIRE: std::time::Duration = std::time::Duration::from_secs(2);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Backend {
     Sqlite,
@@ -60,12 +62,18 @@ impl Store {
         }
     }
 
-    // Takes a `sqlite://` or `postgres://` URL. Runs the engine's migrations before returning.
     // Is the database there and answering? Used by the health endpoint and `shhnote check`.
+    // Waits for a connection only briefly: a pool saturated by stalled writers is itself a
+    // degraded state worth reporting, not something to queue behind for 30 s.
     pub async fn ping(&self) -> Result<(), Error> {
-        sqlx::query("SELECT 1").execute(&self.pool).await?;
+        let mut conn = tokio::time::timeout(PING_ACQUIRE, self.pool.acquire())
+            .await
+            .map_err(|_| Error::PoolTimedOut)??;
+        sqlx::query("SELECT 1").execute(&mut *conn).await?;
         Ok(())
     }
+
+    // Takes a `sqlite://` or `postgres://` URL. Runs the engine's migrations before returning.
 
     pub async fn connect_url(url: &str) -> Result<Self, Error> {
         sqlx::any::install_default_drivers();

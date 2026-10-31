@@ -72,7 +72,7 @@ impl RateLimiter {
             settings,
             trusted_proxies,
             table: Mutex::new(Table {
-                salt: fresh_salt(),
+                salt: fresh_salt().expect("the OS random generator must work at startup"),
                 rotated_at: Instant::now(),
                 buckets: HashMap::new(),
             }),
@@ -111,14 +111,8 @@ impl RateLimiter {
     // Returns `Ok(())` to proceed, or the number of seconds until a token is available.
     pub fn check(&self, endpoint: Endpoint, ip: IpAddr) -> Result<(), u64> {
         let now = Instant::now();
-        let rotation = Duration::from_secs(self.settings.load().salt_rotation_secs.max(60) as u64);
         let mut table = self.table.lock().unwrap_or_else(|e| e.into_inner());
-        if now.duration_since(table.rotated_at) >= rotation {
-            // Rotation drops every key at once: nothing from before can be correlated with anything after.
-            table.salt = fresh_salt();
-            table.rotated_at = now;
-            table.buckets.clear();
-        }
+        self.rotate_if_due(&mut table, now);
         self.bound(&mut table, now);
         let subject = Subject::Ip(keyed_hash(&table.salt, &ip_prefix(ip)));
         self.take(&mut table, endpoint, subject, self.per_hour(endpoint), now)
@@ -146,6 +140,7 @@ impl RateLimiter {
     pub fn check_key(&self, endpoint: Endpoint, key_hash: [u8; 32]) -> Result<(), u64> {
         let now = Instant::now();
         let mut table = self.table.lock().unwrap_or_else(|e| e.into_inner());
+        self.rotate_if_due(&mut table, now);
         self.bound(&mut table, now);
         let per_hour = self
             .per_hour(endpoint)
@@ -157,6 +152,26 @@ impl RateLimiter {
             per_hour,
             now,
         )
+    }
+
+    // Rotation drops every key at once, whoever triggers it: nothing from before can be
+    // correlated with anything after. Without a fresh salt the old one stays, and with it the
+    // buckets: linkable within a longer window, never under a known salt.
+    fn rotate_if_due(&self, table: &mut Table, now: Instant) {
+        let rotation = Duration::from_secs(self.settings.load().salt_rotation_secs.max(60) as u64);
+        if now.duration_since(table.rotated_at) < rotation {
+            return;
+        }
+        match fresh_salt() {
+            Some(salt) => {
+                table.salt = salt;
+                table.rotated_at = now;
+                table.buckets.clear();
+            }
+            None => {
+                crate::log_error!("ratelimit: the OS random generator failed; salt not rotated")
+            }
+        }
     }
 
     fn limits(&self) -> RateLimits {
@@ -246,12 +261,10 @@ fn capacity_of(limits: &RateLimits, endpoint: Endpoint, subject: &Subject) -> u3
     }
 }
 
-fn fresh_salt() -> [u8; 32] {
+fn fresh_salt() -> Option<[u8; 32]> {
     let mut salt = [0u8; 32];
-    // If the OS generator fails we keep the zero salt rather than refuse service; the limiter
-    // still works, it is just linkable within this rotation.
-    let _ = getrandom::fill(&mut salt);
-    salt
+    getrandom::fill(&mut salt).ok()?;
+    Some(salt)
 }
 
 fn keyed_hash(salt: &[u8; 32], data: &[u8]) -> [u8; 32] {

@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use sqlx::Row;
 
 use crate::{Error, Store};
@@ -42,9 +40,12 @@ impl Store {
         )
         .fetch_one(&self.pool)
         .await?;
-        let active = sqlx::query("SELECT COUNT(*) AS n FROM secrets WHERE status = 'active'")
-            .fetch_one(&self.pool)
-            .await?;
+        // A claimed secret still exists until it is confirmed or its window lapses, so it is
+        // counted: the number moves on the terminal transition, not on the reveal itself.
+        let active =
+            sqlx::query("SELECT COUNT(*) AS n FROM secrets WHERE status IN ('active', 'claimed')")
+                .fetch_one(&self.pool)
+                .await?;
         Ok(Stats {
             created: totals.try_get("created")?,
             viewed: totals.try_get("viewed")?,
@@ -70,23 +71,37 @@ impl Store {
     // Consolidates every bucket older than `before` into its year's 1 January row, so totals
     // survive forever while old days lose their resolution. Returns how many rows were folded.
     pub async fn rollup_daily(&self, before: i64) -> Result<u64, Error> {
-        let rows = sqlx::query(
-            "SELECT day, created, viewed, burned, expired, removed, reports FROM stats_daily WHERE day < $1",
-        )
-        .bind(before)
-        .fetch_all(&self.pool)
-        .await?;
-        let old: Vec<Day> = rows.iter().map(day_from_row).collect::<Result<_, _>>()?;
+        // Which years have days to fold. Read inside the transaction, and the sums below come
+        // from the rows this transaction actually removes (`DELETE ... RETURNING`), so two
+        // schedulers running at once (a rolling deploy) cannot both add the same days.
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query("SELECT day FROM stats_daily WHERE day < $1")
+            .bind(before)
+            .fetch_all(&mut *tx)
+            .await?;
+        let mut years: Vec<i64> = rows
+            .iter()
+            .map(|row| row.try_get::<i64, _>("day").map(year_start))
+            .collect::<Result<_, _>>()?;
+        years.sort_unstable();
+        years.dedup();
 
-        let mut by_year: BTreeMap<i64, Day> = BTreeMap::new();
         let mut folded = 0u64;
-        for day in old {
-            let year = year_start(day.day);
-            if day.day == year {
-                // Already the accumulator row; nothing to move.
+        for year in years {
+            // Every day of that year except the accumulator, bounded by `before`.
+            let removed = sqlx::query(
+                "DELETE FROM stats_daily WHERE day > $1 AND day < $2 AND day < $3 \
+                 RETURNING day, created, viewed, burned, expired, removed, reports",
+            )
+            .bind(year)
+            .bind(year_start(year + 366 * DAY))
+            .bind(before)
+            .fetch_all(&mut *tx)
+            .await?;
+            if removed.is_empty() {
                 continue;
             }
-            let acc = by_year.entry(year).or_insert(Day {
+            let mut sum = Day {
                 day: year,
                 created: 0,
                 viewed: 0,
@@ -94,21 +109,17 @@ impl Store {
                 expired: 0,
                 removed: 0,
                 reports: 0,
-            });
-            acc.created += day.created;
-            acc.viewed += day.viewed;
-            acc.burned += day.burned;
-            acc.expired += day.expired;
-            acc.removed += day.removed;
-            acc.reports += day.reports;
-            folded += 1;
-        }
-        if by_year.is_empty() {
-            return Ok(0);
-        }
-
-        let mut tx = self.pool.begin().await?;
-        for (year, sum) in by_year {
+            };
+            for row in &removed {
+                let day = day_from_row(row)?;
+                sum.created += day.created;
+                sum.viewed += day.viewed;
+                sum.burned += day.burned;
+                sum.expired += day.expired;
+                sum.removed += day.removed;
+                sum.reports += day.reports;
+                folded += 1;
+            }
             sqlx::query(
                 "INSERT INTO stats_daily (day, created, viewed, burned, expired, removed, reports) \
                  VALUES ($1, $2, $3, $4, $5, $6, $7) \
@@ -126,13 +137,6 @@ impl Store {
             .bind(sum.reports)
             .execute(&mut *tx)
             .await?;
-            // Every day of that year except the accumulator, bounded by `before`.
-            sqlx::query("DELETE FROM stats_daily WHERE day > $1 AND day < $2 AND day < $3")
-                .bind(year)
-                .bind(year_start(year + 366 * DAY))
-                .bind(before)
-                .execute(&mut *tx)
-                .await?;
         }
         tx.commit().await?;
         Ok(folded)

@@ -252,28 +252,53 @@ impl Store {
     // Scheduler duty: expired secrets are destroyed, and lapsed claims are destroyed too,
     // because their bytes were already served (SPEC §5.1 step 4).
     pub async fn sweep(&self, now: i64) -> Result<Sweep, Error> {
-        let mut tx = self.pool.begin().await?;
-        let consumed = destroy(
-            &mut tx,
-            "status = 'claimed' AND claim_expires_at <= $1",
-            &[],
-            now,
-        )
-        .await?;
-        if consumed > 0 {
-            count(&mut tx, now, Counter::Viewed, consumed).await?;
-        }
-        let expired = destroy(&mut tx, "status = 'active' AND expires_at <= $1", &[], now).await?;
-        if expired > 0 {
-            count(&mut tx, now, Counter::Expired, expired).await?;
-        }
-        tx.commit().await?;
+        let consumed = self
+            .sweep_batches(
+                "status = 'claimed' AND claim_expires_at <= $1",
+                Counter::Viewed,
+                now,
+            )
+            .await?;
+        let expired = self
+            .sweep_batches(
+                "status = 'active' AND expires_at <= $1",
+                Counter::Expired,
+                now,
+            )
+            .await?;
         // Every terminal transition since the last tick is in the WAL; fold and truncate it.
         self.checkpoint().await?;
         Ok(Sweep {
             expired: expired as u64,
             consumed: consumed as u64,
         })
+    }
+
+    // Destroys matching rows a batch at a time, each batch in its own transaction, so a large
+    // backlog never holds the SQLite write lock past `busy_timeout` and stalls every claim,
+    // burn and create meanwhile. The counter moves with each batch, in the same transaction.
+    async fn sweep_batches(
+        &self,
+        predicate: &str,
+        counter: Counter,
+        now: i64,
+    ) -> Result<i64, Error> {
+        let batch = format!(
+            "lookup_key IN (SELECT lookup_key FROM secrets WHERE {predicate} LIMIT {SWEEP_BATCH})"
+        );
+        let mut total = 0i64;
+        loop {
+            let mut tx = self.pool.begin().await?;
+            let n = destroy(&mut tx, &batch, &[], now).await?;
+            if n > 0 {
+                count(&mut tx, now, counter, n).await?;
+            }
+            tx.commit().await?;
+            total += n;
+            if n < SWEEP_BATCH {
+                return Ok(total);
+            }
+        }
     }
 
     // External objects still to delete; each row goes once the object is confirmed gone.
@@ -369,6 +394,10 @@ async fn destroy(
     }
     Ok(total)
 }
+
+// Rows destroyed per sweep transaction (suspicion 4): about a second of work on a slow disk
+// at the largest inline size, so other writers wait well under `busy_timeout`.
+const SWEEP_BATCH: i64 = 200;
 
 #[derive(Clone, Copy)]
 enum Counter {

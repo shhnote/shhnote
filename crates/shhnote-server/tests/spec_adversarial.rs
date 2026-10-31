@@ -515,9 +515,10 @@ async fn spec_report_answer_is_identical_for_every_target() {
         assert_eq!(header_shape(&v.headers), header_shape(&variants[0].headers));
     }
 
-    // One secret was reported twice: removed once, nothing else touched.
+    // One secret was reported twice: removed once, nothing else touched. The claimed one
+    // still exists (and counts) until it is confirmed or its window lapses.
     assert_eq!(stats(&s.store).await.removed, 1);
-    assert_eq!(stats(&s.store).await.active as usize, N - 1);
+    assert_eq!(stats(&s.store).await.active as usize, N);
 }
 
 // ============================================================================================

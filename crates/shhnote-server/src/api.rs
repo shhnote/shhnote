@@ -344,6 +344,11 @@ async fn create(
         Sink::Memory(buf) => buf.len() as u64,
         Sink::Spool(spool) => spool.bytes_written(),
     };
+    // A fresh snapshot: a setting changed while the body was uploading applies to it.
+    let settings = state.settings.load();
+    if !(settings.min_ttl_secs..=settings.max_ttl_secs).contains(&meta.ttl_seconds) {
+        return Err(ApiError::bad_request("invalid_ttl"));
+    }
     let bucket = settings
         .padding
         .bucket_for_blob_len(len)
