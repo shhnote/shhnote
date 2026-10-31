@@ -51,6 +51,17 @@ pub struct TtlServed {
     pub expires_at: i64,
 }
 
+// A claim held open until the blob is known to be servable.
+pub struct PendingClaim {
+    tx: Transaction<'static, Any>,
+}
+
+impl PendingClaim {
+    pub async fn commit(self) -> Result<(), Error> {
+        self.tx.commit().await
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Sweep {
     pub expired: u64,
@@ -99,6 +110,28 @@ impl Store {
         now: i64,
         window_secs: i64,
     ) -> Result<Option<Served>, Error> {
+        match self
+            .begin_claim(lookup_key, claim_key, now, window_secs)
+            .await?
+        {
+            Some((pending, served)) => {
+                pending.commit().await?;
+                Ok(Some(served))
+            }
+            None => Ok(None),
+        }
+    }
+
+    // The claim before it is committed: the caller opens the blob first and commits only
+    // once it can be served, so a missing object leaves the row untouched (SPEC §5.1).
+    // Dropping the `PendingClaim` rolls the claim back.
+    pub async fn begin_claim(
+        &self,
+        lookup_key: &[u8; 32],
+        claim_key: &[u8; 32],
+        now: i64,
+        window_secs: i64,
+    ) -> Result<Option<(PendingClaim, Served)>, Error> {
         let mut tx = self.pool.begin().await?;
         // SECURITY: the lifetime and status predicates are load-bearing. Without `lifetime`
         // this would lock TTL secrets away from other readers; without `status = 'active'`
@@ -119,8 +152,7 @@ impl Store {
             Some(row) => served(&row)?,
             None => return Ok(None),
         };
-        tx.commit().await?;
-        Ok(Some(served))
+        Ok(Some((PendingClaim { tx }, served)))
     }
 
     // The claimant, and only the claimant, may fetch the blob again while the window is open.

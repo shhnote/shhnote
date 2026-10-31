@@ -487,7 +487,6 @@ async fn spec_fifty_concurrent_reveals_have_one_winner() {
 // SPEC §5.1: a row whose object is gone yields the uniform negative, and a single-view row is
 // left untouched by the attempt (the object is opened before the claim is committed).
 #[tokio::test]
-#[ignore = "S-30"]
 async fn spec_missing_object_is_the_uniform_negative() {
     let (app, _store, _blobs, root) = local("missing-object", "1000000000").await;
     let ttl = keys();
@@ -761,7 +760,6 @@ async fn spec_hung_s3_does_not_hang_scheduler_reveal_or_create() {
 
 // SPEC §6.1: an http:// S3 endpoint is refused in production unless it is loopback or private.
 #[test]
-#[ignore = "S-32"]
 fn spec_production_refuses_plain_http_s3_endpoint() {
     let mut vars = base_vars();
     for (k, v) in [
@@ -793,7 +791,6 @@ fn spec_production_refuses_plain_http_s3_endpoint() {
 
 // SPEC §7.1: only `*.part` files are removed from SHH_SPOOL_PATH at start.
 #[tokio::test]
-#[ignore = "S-31"]
 async fn spec_spool_path_is_not_wiped_recursively() {
     let dir = std::env::temp_dir().join("shhnote-spec-resources-spool-wipe");
     let _ = tokio::fs::remove_dir_all(&dir).await;

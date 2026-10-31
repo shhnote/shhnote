@@ -13,7 +13,7 @@ mod settings;
 mod stats;
 
 pub use api_keys::{ApiKey, Scope};
-pub use secrets::{Lifetime, NewSecret, Served, Sweep, TtlServed};
+pub use secrets::{Lifetime, NewSecret, PendingClaim, Served, Sweep, TtlServed};
 pub use stats::{Day, Stats};
 
 pub type Error = sqlx::Error;

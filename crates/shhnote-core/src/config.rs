@@ -422,7 +422,7 @@ impl Config {
             default_locale,
             trusted_proxies,
             database: Database::from_vars(&vars)?,
-            storage: Storage::from_vars(&vars)?,
+            storage: Storage::from_vars(&vars, env)?,
             max_uploads,
             admin_token,
         })
@@ -451,8 +451,31 @@ impl Database {
     }
 }
 
+// An `http://` object store is only acceptable on the same machine or a private network:
+// uploads are sent unsigned (SPEC §6.1).
+fn endpoint_is_private(endpoint: &str) -> bool {
+    let Some(rest) = endpoint.strip_prefix("http://") else {
+        return true;
+    };
+    let host = rest.trim_end_matches('/');
+    let host = host
+        .strip_prefix('[')
+        .and_then(|h| h.split(']').next())
+        .unwrap_or_else(|| host.rsplit_once(':').map_or(host, |(h, _)| h));
+    if host == "localhost" {
+        return true;
+    }
+    match host.parse::<IpAddr>() {
+        Ok(IpAddr::V4(v4)) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+        Ok(IpAddr::V6(v6)) => {
+            v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local()
+        }
+        Err(_) => false,
+    }
+}
+
 impl Storage {
-    fn from_vars(vars: &Vars) -> Result<Self, ConfigError> {
+    fn from_vars(vars: &Vars, env: AppEnv) -> Result<Self, ConfigError> {
         let inline_max = vars.parse_or("SHH_INLINE_MAX", DEFAULT_INLINE_MAX)?;
         if inline_max < MIN_INLINE_MAX {
             return Err(invalid(
@@ -483,6 +506,15 @@ impl Storage {
             }
             "s3" => {
                 vars.reject_tier("SHH_STORAGE", LOCAL_VARS)?;
+                if let Some(endpoint) = vars.get("SHH_S3_ENDPOINT")
+                    && env == AppEnv::Production
+                    && !endpoint_is_private(endpoint)
+                {
+                    return Err(invalid(
+                        "SHH_S3_ENDPOINT",
+                        "must be https:// in production unless it is a loopback or private address",
+                    ));
+                }
                 Some(ExternalStorage::S3 {
                     bucket: vars.required("SHH_S3_BUCKET")?.to_string(),
                     region: vars.required("SHH_S3_REGION")?.to_string(),

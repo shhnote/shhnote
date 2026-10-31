@@ -242,7 +242,8 @@ pub fn object_bytes(bucket: u64) -> u64 {
 // escape the directory, since keys come back from the database.
 fn object_name(key: &str) -> io::Result<&str> {
     let name = key.strip_prefix(KEY_PREFIX).unwrap_or("");
-    let valid = !name.is_empty()
+    // Exactly the shape `new_key` makes: 16 random bytes in base64url, 22 characters.
+    let valid = name.len() == 22
         && name
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
@@ -270,17 +271,45 @@ pub struct Spooled {
     pub len: u64,
 }
 
+// Directories the tier creates are private to the service user (SPEC §6.1).
+async fn create_private_dir(dir: &Path) -> io::Result<()> {
+    let mut builder = tokio::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    builder.mode(0o700);
+    builder.create(dir).await
+}
+
+// Makes a rename durable: the directory entry itself is flushed, not only the file.
+async fn sync_dir(dir: &Path) -> io::Result<()> {
+    tokio::fs::File::open(dir).await?.sync_all().await
+}
+
+// Removes what an earlier run left in a spool directory: its `.part` files and nothing else,
+// since SHH_SPOOL_PATH may be a directory an operator also uses for other things.
+async fn clear_parts(dir: &Path) -> io::Result<()> {
+    let mut entries = tokio::fs::read_dir(dir).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+        if path.extension().is_some_and(|ext| ext == "part") && entry.file_type().await?.is_file() {
+            tokio::fs::remove_file(path).await?;
+        }
+    }
+    Ok(())
+}
+
 impl Spool {
     async fn create(dir: &Path) -> io::Result<Self> {
-        tokio::fs::create_dir_all(dir).await?;
+        create_private_dir(dir).await?;
         let mut random = [0u8; 8];
         getrandom::fill(&mut random).map_err(|e| io::Error::other(e.to_string()))?;
         let path = dir.join(format!("{}.part", URL_SAFE_NO_PAD.encode(random)));
-        let file = tokio::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-            .await?;
+        let mut options = tokio::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        // Spool files, and the blobs they become, are readable by the service user only.
+        #[cfg(unix)]
+        options.mode(0o600);
+        let file = options.open(&path).await?;
         Ok(Self {
             path,
             file: Some(file),
@@ -348,13 +377,13 @@ pub struct Local {
 impl Local {
     async fn open(root: &Path, max_total_bytes: u64) -> Result<Self, String> {
         let describe = |e: io::Error| format!("SHH_LOCAL_PATH {}: {e}", root.display());
-        tokio::fs::create_dir_all(root.join("blobs"))
+        create_private_dir(&root.join("blobs"))
             .await
             .map_err(describe)?;
         // Spool files from an earlier run are partial uploads nobody will finish.
         let tmp = root.join("tmp");
-        let _ = tokio::fs::remove_dir_all(&tmp).await;
-        tokio::fs::create_dir_all(&tmp).await.map_err(describe)?;
+        create_private_dir(&tmp).await.map_err(describe)?;
+        clear_parts(&tmp).await.map_err(describe)?;
         let probe = tmp.join(".write-check");
         tokio::fs::write(&probe, b"").await.map_err(describe)?;
         tokio::fs::remove_file(&probe).await.map_err(describe)?;
@@ -369,8 +398,10 @@ impl Local {
     }
 
     async fn put(&self, key: &str, spooled: Spooled) -> io::Result<()> {
-        // Same filesystem as the spool, so this is an atomic move, never a copy.
-        tokio::fs::rename(&spooled.path, self.path_of(key)?).await
+        // Same filesystem as the spool, so this is an atomic move, never a copy. The
+        // directory is flushed too, so the row written next never outlives its object.
+        tokio::fs::rename(&spooled.path, self.path_of(key)?).await?;
+        sync_dir(&self.root.join("blobs")).await
     }
 
     async fn get(&self, key: &str) -> io::Result<Body> {
@@ -474,11 +505,11 @@ impl S3 {
             max_total_bytes,
             spool_dir: spool_dir.to_path_buf(),
         };
-        // Spool files from an earlier run are partial uploads nobody will finish.
-        let _ = tokio::fs::remove_dir_all(&s3.spool_dir).await;
-        tokio::fs::create_dir_all(&s3.spool_dir)
-            .await
-            .map_err(|e| format!("SHH_SPOOL_PATH {}: {e}", s3.spool_dir.display()))?;
+        // Spool files from an earlier run are partial uploads nobody will finish. Only those
+        // go: SHH_SPOOL_PATH is the operator's directory, not ours to wipe (SPEC §7.1).
+        let describe = |e: io::Error| format!("SHH_SPOOL_PATH {}: {e}", s3.spool_dir.display());
+        create_private_dir(&s3.spool_dir).await.map_err(describe)?;
+        clear_parts(&s3.spool_dir).await.map_err(describe)?;
         s3.check_versioning().await?;
         Ok(s3)
     }
@@ -905,7 +936,8 @@ mod tests {
 
     #[test]
     fn rejects_keys_that_are_not_ours() {
-        assert!(object_name("blobs/abc-DEF_123").is_ok());
+        assert!(object_name("blobs/abc-DEF_123-abc-DEF_12").is_ok());
+        assert!(object_name(&Blobs::new_key().unwrap()).is_ok());
         for bad in [
             "",
             "blobs/",
@@ -913,6 +945,8 @@ mod tests {
             "other/abc",
             "blobs/a/b",
             "blobs/a.b",
+            "blobs/abc-DEF_123",
+            "blobs/abc-DEF_123-abc-DEF_123",
         ] {
             assert!(object_name(bad).is_err(), "{bad}");
         }

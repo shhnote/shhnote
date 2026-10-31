@@ -498,7 +498,10 @@ async fn reveal(
     if let Some(token) = &body.claim_token {
         let claim_key = credential_hash(&decode32_or_random(token)?);
         return match state.store.redownload(&lookup_key, &claim_key, now).await {
-            Ok(Some(served)) => blob_response(&state, served, HeaderMap::new()).await,
+            Ok(Some(served)) => {
+                let body = open_blob(&state, &served).await?;
+                Ok(blob_response(served.bucket, body, HeaderMap::new()))
+            }
             Ok(None) => Err(ApiError::NotFound),
             Err(e) => Err(ApiError::internal(e)),
         };
@@ -510,16 +513,20 @@ async fn reveal(
     let window = state.settings.load().claim_window_secs;
     match state
         .store
-        .claim(&lookup_key, &claim_key, now, window)
+        .begin_claim(&lookup_key, &claim_key, now, window)
         .await
     {
-        Ok(Some(served)) => {
+        Ok(Some((pending, served))) => {
+            // The object is opened first; if it cannot be served the claim is rolled back and
+            // the row stays as it was (SPEC §5.1).
+            let body = open_blob(&state, &served).await?;
+            pending.commit().await.map_err(ApiError::internal)?;
             let mut headers = HeaderMap::new();
             headers.insert(
                 CLAIM_TOKEN_HEADER,
                 header_value(&URL_SAFE_NO_PAD.encode(token)),
             );
-            return blob_response(&state, served, headers).await;
+            return Ok(blob_response(served.bucket, body, headers));
         }
         Ok(None) => {}
         Err(e) => return Err(ApiError::internal(e)),
@@ -527,12 +534,13 @@ async fn reveal(
 
     match state.store.read_ttl(&lookup_key, now).await {
         Ok(Some(ttl)) => {
+            let body = open_blob(&state, &ttl.served).await?;
             // Whole hours, rounded up: coarse on purpose, and never an absolute time.
             let remaining = (ttl.expires_at - now).max(1);
             let hours = (remaining + 3599) / 3600;
             let mut headers = HeaderMap::new();
             headers.insert(EXPIRES_IN_HEADER, header_value(&hours.to_string()));
-            blob_response(&state, ttl.served, headers).await
+            Ok(blob_response(ttl.served.bucket, body, headers))
         }
         Ok(None) => Err(ApiError::NotFound),
         Err(e) => Err(ApiError::internal(e)),
@@ -541,21 +549,29 @@ async fn reveal(
 
 // Inline blobs come from the row; external ones are streamed through the server, never
 // linked to directly (SPEC §6).
-async fn blob_response(
-    state: &ApiState,
-    served: Served,
-    mut headers: HeaderMap,
-) -> Result<Response, ApiError> {
-    let body = match (served.blob, served.external_ref) {
-        (Some(blob), _) => Body::from(blob),
+// The bytes to serve. A row whose object cannot be opened (gone, or the store is unreachable)
+// is answered like a secret that does not exist (SPEC §4); the fault is logged without the key.
+async fn open_blob(state: &ApiState, served: &Served) -> Result<Body, ApiError> {
+    match (&served.blob, &served.external_ref) {
+        (Some(blob), _) => Ok(Body::from(blob.clone())),
         (None, Some(key)) => {
-            let storage = state.storage.as_ref().ok_or_else(|| {
-                ApiError::internal("external blob requested but no external tier is configured")
-            })?;
-            storage.get(&key).await.map_err(ApiError::internal)?
+            let Some(storage) = state.storage.as_ref() else {
+                crate::log_error!("external blob requested but no external tier is configured");
+                return Err(ApiError::NotFound);
+            };
+            storage.get(key).await.map_err(|e| {
+                crate::log_error!("storage: object could not be opened: {e}");
+                ApiError::NotFound
+            })
         }
-        (None, None) => return Err(ApiError::internal("row has neither blob nor object")),
-    };
+        (None, None) => {
+            crate::log_error!("row has neither blob nor object");
+            Err(ApiError::NotFound)
+        }
+    }
+}
+
+fn blob_response(bucket: u64, body: Body, mut headers: HeaderMap) -> Response {
     headers.insert(
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/octet-stream"),
@@ -563,9 +579,9 @@ async fn blob_response(
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     headers.insert(
         header::CONTENT_LENGTH,
-        header_value(&blob_len(served.bucket).to_string()),
+        header_value(&blob_len(bucket).to_string()),
     );
-    Ok((StatusCode::OK, headers, body).into_response())
+    (StatusCode::OK, headers, body).into_response()
 }
 
 #[derive(Deserialize, Default)]

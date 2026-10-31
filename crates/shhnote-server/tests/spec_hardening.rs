@@ -202,7 +202,6 @@ fn spec_trusted_proxies_refuse_trust_everyone_equivalents() {
 // SPEC §6.1: spool files are 0600 in a 0700 directory, and the blob keeps that mode.
 #[cfg(unix)]
 #[tokio::test]
-#[ignore = "S-33"]
 async fn spec_blob_files_are_private() {
     use std::os::unix::fs::PermissionsExt;
     let root = std::env::temp_dir().join(format!("spec-hardening-perms-{}", std::process::id()));
