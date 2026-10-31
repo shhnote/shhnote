@@ -191,7 +191,7 @@ secrets  (SQLite: WITHOUT ROWID)
   claim_expires_at  unix seconds NULL, rounded up to the next minute
 ```
 
-**Expiry grid (D-18).** On write, `expires_at = ceil((now + ttl) / g) × g` where `g` is 300 s for `ttl < 3600`, 3600 s for `ttl < 3 × 86400`, and 86400 s otherwise. The recipient-facing remaining time is already in whole hours, so nothing visible changes; the creator receives at least the TTL asked for. The grid is part of the schema contract: a refactor that stores the exact second reintroduces a per-secret timestamp.
+**Expiry grid (D-18).** On write, `expires_at = ceil((now + ttl) / g) × g` where `g` is 300 s for `ttl < 3600`, 3600 s for `ttl < 3 × 86400`, and 86400 s otherwise. The recipient is told nothing about remaining time (§5.2), so nothing visible changes; the creator receives at least the TTL asked for. The grid is part of the schema contract: a refactor that stores the exact second reintroduces a per-secret timestamp.
 
 No `created_at`, no IPs, no counters, no foreign keys to anything, and in SQLite no rowid, so a dump cannot order secrets by creation (Principle 5, 8). Daily counters (`stats_daily`: created, viewed, burned, expired, removed, **reports** per UTC day), settings, and API keys live in their own tables and are never joined to `secrets`. There is no reports table (D-19). Lifetime totals are the sum of the daily rows; the number of active secrets is counted live. One table per migration.
 
@@ -206,7 +206,7 @@ All identifiers travel in POST bodies (or multipart fields), never in URLs. Base
 | `GET /health` | – | `200 {"status":"ok"}` or `503 {"status":"degraded"}` | Readiness: the database answers. `GET /` is liveness only. Never rate-limited, `no-store`. |
 | `GET /config` | – | JSON: `fragment_version`, `padding` policy, `inline_max`, `max_blob_bytes`, `claim_window_secs`, TTL bounds, default and presets, `text_max_bytes`, `files_enabled`, `regions` | Instance policy for clients and integrators. Nothing per-secret. |
 | `POST /secrets` | multipart: `meta` JSON `{lookup_key, burn_key, lifetime, ttl_seconds}` then `blob` | `201`, empty | `meta` precedes `blob` so the server can validate before streaming; `meta` is read in bounded chunks and refused past 4 KiB. Blob length must match a ladder entry exactly. A `lookup_key` that already exists returns `201` and writes nothing (D-21). |
-| `POST /secrets/reveal` | `{lookup, claim_token?}` | `200` blob stream; headers `X-Shh-Claim-Token` (single-view) or `X-Shh-Expires-In-Hours` (TTL, rounded up; **OPEN**, see §5.2) | Single-view: one conditional UPDATE claims the row; with `claim_token`, re-download within the window (§5). TTL: pure read. |
+| `POST /secrets/reveal` | `{lookup, claim_token?}` | `200` blob stream; header `X-Shh-Claim-Token` on a single-view secret, nothing else on a TTL secret | Single-view: one conditional UPDATE claims the row; with `claim_token`, re-download within the window (§5). TTL: pure read. |
 | `POST /secrets/confirm` | `{lookup, claim_token}` | `204` | Destroys the secret and increments `viewed`. |
 | `POST /secrets/burn` | `{burn_token}` | `204` | Creator only (D-2). Increments `burned`. |
 | `POST /reports` | `{lookup}` | `200`, fixed body | Automatic takedown; increments `reports`, and `removed` when a secret was destroyed (D-19). Uniform response. |
@@ -236,7 +236,7 @@ The window is per claimant, so its length does not delay anyone else; 15 minutes
 
 ### 5.2 TTL
 
-A pure read: `status = 'active'`, `lifetime = 'ttl'`, not expired. No claim, no write, no counter. The response carries the remaining lifetime in whole hours, rounded up, never an absolute time. **OPEN** (`docs/security-review/spec-revision.md`): whether the reveal page keeps showing remaining time at all; if not, this sentence, the `X-Shh-Expires-In-Hours` header in §4 and the copy rules in §11 change together.
+A pure read: `status = 'active'`, `lifetime = 'ttl'`, not expired. No claim, no write, no counter. The response says nothing about the remaining lifetime, and neither does the reveal page: a recipient is told only that a single-view secret is now destroyed, so everyone learns to keep what they were sent on the first read. That a TTL secret can be opened again is discovered, not announced.
 
 ### 5.3 Burn, report, expiry
 
@@ -360,7 +360,7 @@ Routes under `/{locale}/`: `/` (create), `/s` (reveal interstitial, static), `/b
 
 Headers on every response, including API, redirect, error and drain responses: CSP as above, HSTS (production), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, restrictive `Permissions-Policy`. All assets self-hosted; zero external-origin requests. No inline `style=` attributes (the CSP already blocks them). Startup prints nothing but through the log macros.
 
-The visual layer lives in `templates/` (Askama) and `static/app.css`: a CSS-variable token system with four themes (light, dark, and a high-contrast variant of each, chosen per visitor and stored locally), semantic markup, self-hosted fonts, no inline scripts or styles. Copy rules that follow from the principles: fragment-only URLs (`/s#…`, `/burn#…`), no pricing or upgrade elements, no view-count or exact-size wording, no pre-reveal expiry information on the interstitial, and lifecycle wording that matches §5 ("revealed once, then gone"). **OPEN** (see §5.2): if remaining time is removed from the reveal page, add "no expiry information on the reveal page".
+The visual layer lives in `templates/` (Askama) and `static/app.css`: a CSS-variable token system with four themes (light, dark, and a high-contrast variant of each, chosen per visitor and stored locally), semantic markup, self-hosted fonts, no inline scripts or styles. Copy rules that follow from the principles: fragment-only URLs (`/s#…`, `/burn#…`), no pricing or upgrade elements, no view-count or exact-size wording, no expiry information on the interstitial or on the reveal page (§5.2), and lifecycle wording that matches §5 ("revealed once, then gone").
 
 ---
 

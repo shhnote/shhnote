@@ -7,7 +7,7 @@ import { decryptBody, lookup, unwrapEk } from "../crypto/secret.ts";
 import { collect, iterateBytes, readHeader } from "../crypto/stream.ts";
 import { Api, ApiError, DEFAULT_MAX_BLOB_BYTES } from "./api.ts";
 import { loadArgon2, prefetchArgon2 } from "./argon2-loader.ts";
-import { $, formatSize, setState, setStatus, show, wireCopy } from "./dom.ts";
+import { $, formatSize, hide, setState, setStatus, show, wireCopy } from "./dom.ts";
 import { sanitiseFileName } from "./filename.ts";
 import { t } from "./i18n.ts";
 
@@ -40,7 +40,6 @@ export function wireReveal(page: HTMLElement): void {
   // Set once a single-view secret is claimed, and kept through failures: the next press
   // downloads again with it rather than finding the secret gone (SPEC §5.1).
   let claimToken: string | null = null;
-  let expiresInHours: number | null = null;
   let shown: Payload | null = null;
   const objectUrls: string[] = [];
 
@@ -85,7 +84,6 @@ export function wireReveal(page: HTMLElement): void {
       setStatus(working, t("reveal-fetching"));
       const revealed = await api.reveal(await lookup(seed), claimToken, maxBlobBytes);
       claimToken = revealed.claimToken ?? claimToken;
-      expiresInHours = revealed.expiresInHours;
       // The header is enough to know whether a passphrase is needed; the rest of the body
       // is decrypted as it arrives, so the ciphertext is never held whole.
       const { header, rest } = await readHeader(revealed.body);
@@ -161,14 +159,14 @@ export function wireReveal(page: HTMLElement): void {
     // The fragment has done its job; keep the seed out of history and autocomplete.
     history.replaceState(null, "", location.pathname);
 
+    // Only a single-view secret announces its fate. A TTL secret says nothing about whether
+    // or how long it stays readable, so every recipient learns to keep what they were sent.
     const revealed = $("[data-state=revealed]", page);
     const lifetime = $("[data-lifetime]", revealed);
-    const lifetimeText = $("[data-lifetime-text]", lifetime);
     if (claimToken !== null) {
-      lifetimeText.textContent = t("reveal-single-view");
-    } else if (expiresInHours !== null) {
-      lifetime.classList.remove("badge--danger");
-      lifetimeText.textContent = expiresInHours <= 1 ? t("reveal-expires-one") : t("reveal-expires-many", { hours: expiresInHours });
+      $("[data-lifetime-text]", lifetime).textContent = t("reveal-single-view");
+    } else {
+      hide(lifetime);
     }
 
     if (payload.text !== null) {

@@ -9,8 +9,9 @@ Decisions taken (2026-10-30, @Rene):
 - S-6: `expires_at` is rounded up on store; `claim_expires_at` to the minute.
 - S-7: `api_keys.last_used_at` becomes `last_used_on` (UTC date).
 - S-8: the reports ledger is removed; reports are a daily counter.
-- OPEN: whether the reveal page keeps "hours remaining" on TTL secrets
-  (see §5.2 / §11 below). Apply the rest regardless.
+- Decided (step 32): the reveal page shows no remaining time on TTL secrets
+  and the API sends no `X-Shh-Expires-In-Hours`; single-view secrets keep
+  their "destroyed" message.
 
 Apply the edits below to `SPEC.md`, then the listed follow-ups.
 

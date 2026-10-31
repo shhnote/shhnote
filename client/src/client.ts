@@ -73,8 +73,9 @@ export interface RevealOptions extends ClientOptions {
 
 export interface RevealedSecret {
   payload: Payload;
+  // True when this call consumed the secret. A TTL secret says nothing about how long it
+  // stays readable; treat every secret as if this were the only read.
   singleView: boolean;
-  expiresInHours: number | null;
   // For a single-view secret that was not confirmed: lets the caller download it again
   // (`claimToken` in the options) or confirm later. Null otherwise.
   claimToken: string | null;
@@ -99,9 +100,9 @@ export async function revealSecret(linkOrFragment: string, opts: RevealOptions):
   }
   if (claimToken !== null && opts.confirm !== false) {
     await api.confirm(await lookup(seed), claimToken);
-    return { payload, singleView: true, expiresInHours: null, claimToken: null };
+    return { payload, singleView: true, claimToken: null };
   }
-  return { payload, singleView: claimToken !== null, expiresInHours: revealed.expiresInHours, claimToken };
+  return { payload, singleView: claimToken !== null, claimToken };
 }
 
 // Takes the burn link or its fragment; resolves on success, throws `ApiError` 404 otherwise.

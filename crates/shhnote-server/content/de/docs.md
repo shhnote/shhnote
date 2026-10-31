@@ -72,7 +72,7 @@ Liefert den Blob als `application/octet-stream` mit `Cache-Control: no-store`.
 
 Bei einem **einmaligen** Geheimnis verbraucht der erste erfolgreiche Aufruf es und liefert den Header `X-Shh-Claim-Token`. Innerhalb von `claim_window_secs` darf derselbe Client den Blob erneut laden, indem er `{"lookup": …, "claim_token": "<dieser Header>"}` sendet; ein abgebrochener Download lässt sich so wiederholen. Niemand sonst kann das.
 
-Bei einem **TTL**-Geheimnis trägt die Antwort `X-Shh-Expires-In-Hours`, volle Stunden aufgerundet, nie eine absolute Zeit.
+Bei einem **TTL**-Geheimnis ist die Antwort der Blob und sonst nichts: kein Claim-Token und nichts über die verbleibende Lebensdauer.
 
 ## `POST /secrets/confirm`
 

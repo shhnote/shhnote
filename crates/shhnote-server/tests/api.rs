@@ -18,7 +18,7 @@ use shhnote_core::{
     settings::Settings,
 };
 use shhnote_server::{
-    api::{ApiState, CLAIM_TOKEN_HEADER, EXPIRES_IN_HEADER, now},
+    api::{ApiState, CLAIM_TOKEN_HEADER, now},
     app, scheduler,
     storage::Blobs,
 };
@@ -233,7 +233,6 @@ async fn single_view_round_trip_with_raw_bytes() {
         "application/octet-stream"
     );
     assert_eq!(reveal.headers[header::CACHE_CONTROL], "no-store");
-    assert!(reveal.headers.get(EXPIRES_IN_HEADER).is_none());
     let token = reveal.headers[CLAIM_TOKEN_HEADER]
         .to_str()
         .unwrap()
@@ -319,10 +318,16 @@ async fn ttl_round_trip_and_burn() {
         .await;
         assert_eq!(reveal.status, StatusCode::OK);
         assert_eq!(reveal.body, blob);
-        // A day's TTL lands on the hour grid, so up to one extra hour shows (D-18).
-        let hours = reveal.headers[EXPIRES_IN_HEADER].to_str().unwrap();
-        assert!(hours == "24" || hours == "25", "{hours}");
+        // A TTL read carries no claim token and nothing about remaining time (SPEC §5.2).
         assert!(reveal.headers.get(CLAIM_TOKEN_HEADER).is_none());
+        assert!(
+            reveal
+                .headers
+                .keys()
+                .all(|k| !k.as_str().starts_with("x-shh-")),
+            "{:?}",
+            reveal.headers
+        );
     }
 
     let burn = post_json(

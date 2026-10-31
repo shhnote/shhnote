@@ -547,12 +547,10 @@ var Api = class _Api {
     const length = response.headers.get("content-length");
     const contentLength = length === null ? null : Number(length);
     if (contentLength !== null && contentLength > maxBytes) throw new ApiError(0, "too_large");
-    const hours = response.headers.get("x-shh-expires-in-hours");
     return {
       body: cappedBody(response, Math.min(maxBytes, contentLength ?? maxBytes)),
       contentLength,
-      claimToken: response.headers.get("x-shh-claim-token"),
-      expiresInHours: hours === null ? null : Number(hours)
+      claimToken: response.headers.get("x-shh-claim-token")
     };
   }
   async confirm(lookup2, claimToken) {
@@ -1138,7 +1136,6 @@ function wireReveal(page) {
   let locked = null;
   let bodyBytes = null;
   let claimToken = null;
-  let expiresInHours = null;
   let shown = null;
   const objectUrls = [];
   window.addEventListener("pagehide", () => {
@@ -1174,7 +1171,6 @@ function wireReveal(page) {
       setStatus(working, t("reveal-fetching"));
       const revealed = await api.reveal(await lookup(seed), claimToken, maxBlobBytes);
       claimToken = revealed.claimToken ?? claimToken;
-      expiresInHours = revealed.expiresInHours;
       const { header, rest } = await readHeader(revealed.body);
       setStatus(working, t("reveal-decrypting"));
       let ek;
@@ -1242,12 +1238,10 @@ function wireReveal(page) {
     history.replaceState(null, "", location.pathname);
     const revealed = $("[data-state=revealed]", page);
     const lifetime = $("[data-lifetime]", revealed);
-    const lifetimeText = $("[data-lifetime-text]", lifetime);
     if (claimToken !== null) {
-      lifetimeText.textContent = t("reveal-single-view");
-    } else if (expiresInHours !== null) {
-      lifetime.classList.remove("badge--danger");
-      lifetimeText.textContent = expiresInHours <= 1 ? t("reveal-expires-one") : t("reveal-expires-many", { hours: expiresInHours });
+      $("[data-lifetime-text]", lifetime).textContent = t("reveal-single-view");
+    } else {
+      hide(lifetime);
     }
     if (payload.text !== null) {
       const block = $("[data-text-block]", revealed);

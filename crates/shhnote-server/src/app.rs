@@ -119,7 +119,7 @@ async fn cors(State(site): State<HeaderValue>, req: Request, next: Next) -> Resp
     headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, site);
     headers.insert(
         header::ACCESS_CONTROL_EXPOSE_HEADERS,
-        HeaderValue::from_static("x-shh-claim-token, x-shh-expires-in-hours, retry-after"),
+        HeaderValue::from_static("x-shh-claim-token, retry-after"),
     );
     headers.append(header::VARY, HeaderValue::from_static("Origin"));
     response

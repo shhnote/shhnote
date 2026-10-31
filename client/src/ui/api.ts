@@ -24,12 +24,12 @@ export type Lifetime = "single_view" | "ttl";
 
 // The reveal answer with its headers read and the blob still to come: a single-view secret
 // is claimed the moment the headers arrive, so the token is known before any byte of body.
+// A TTL secret comes with no claim token and nothing else (SPEC §5.2).
 export interface Revealed {
   body: AsyncIterable<Uint8Array>;
   // The bytes the server says it will send, when it says so.
   contentLength: number | null;
   claimToken: string | null;
-  expiresInHours: number | null;
 }
 
 // Thrown for anything other than a successful response. `status` 0 means the request never
@@ -138,12 +138,10 @@ export class Api {
     const length = response.headers.get("content-length");
     const contentLength = length === null ? null : Number(length);
     if (contentLength !== null && contentLength > maxBytes) throw new ApiError(0, "too_large");
-    const hours = response.headers.get("x-shh-expires-in-hours");
     return {
       body: cappedBody(response, Math.min(maxBytes, contentLength ?? maxBytes)),
       contentLength,
       claimToken: response.headers.get("x-shh-claim-token"),
-      expiresInHours: hours === null ? null : Number(hours),
     };
   }
 

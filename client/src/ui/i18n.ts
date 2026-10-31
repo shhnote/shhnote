@@ -18,8 +18,6 @@ export type UiKey =
   | "reveal-decrypting"
   | "reveal-wrong-passphrase"
   | "reveal-single-view"
-  | "reveal-expires-one"
-  | "reveal-expires-many"
   | "reveal-download"
   | "reveal-error-network"
   | "reveal-error-corrupt"

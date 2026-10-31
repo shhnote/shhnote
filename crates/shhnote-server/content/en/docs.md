@@ -72,7 +72,7 @@ Returns the blob as `application/octet-stream` with `Cache-Control: no-store`.
 
 For a **single-view** secret the first successful call consumes it and returns a `X-Shh-Claim-Token` header. Within `claim_window_secs` the same client may fetch the blob again by sending `{"lookup": …, "claim_token": "<that header>"}`, so an interrupted download can be retried. Nobody else can.
 
-For a **TTL** secret the response carries `X-Shh-Expires-In-Hours`, whole hours rounded up, never an absolute time.
+For a **TTL** secret the response is the blob and nothing else: no claim token, and nothing about the remaining lifetime.
 
 ## `POST /secrets/confirm`
 

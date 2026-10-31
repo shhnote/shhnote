@@ -32,7 +32,6 @@ use crate::{
 };
 
 pub const CLAIM_TOKEN_HEADER: HeaderName = HeaderName::from_static("x-shh-claim-token");
-pub const EXPIRES_IN_HEADER: HeaderName = HeaderName::from_static("x-shh-expires-in-hours");
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -541,15 +540,12 @@ async fn reveal(
         Err(e) => return Err(ApiError::internal(e)),
     }
 
+    // A TTL read says nothing about remaining lifetime (SPEC §5.2): the recipient is told
+    // only what they need, which is to keep what they were sent.
     match state.store.read_ttl(&lookup_key, now).await {
         Ok(Some(ttl)) => {
             let body = open_blob(&state, &ttl.served).await?;
-            // Whole hours, rounded up: coarse on purpose, and never an absolute time.
-            let remaining = (ttl.expires_at - now).max(1);
-            let hours = (remaining + 3599) / 3600;
-            let mut headers = HeaderMap::new();
-            headers.insert(EXPIRES_IN_HEADER, header_value(&hours.to_string()));
-            Ok(blob_response(ttl.served.bucket, body, headers))
+            Ok(blob_response(ttl.served.bucket, body, HeaderMap::new()))
         }
         Ok(None) => Err(ApiError::NotFound),
         Err(e) => Err(ApiError::internal(e)),
