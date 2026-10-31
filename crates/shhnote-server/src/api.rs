@@ -1,9 +1,12 @@
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use axum::{
     Json, Router,
-    body::Body,
-    extract::{DefaultBodyLimit, Multipart, State},
+    body::{Body, Bytes},
+    extract::{DefaultBodyLimit, Multipart, State, multipart::Field},
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
     middleware,
     response::{IntoResponse, Response},
@@ -20,6 +23,7 @@ use shhnote_core::{
     settings::{Region, Settings, SettingsCell},
 };
 use shhnote_store::{Lifetime, NewSecret, Served, Store};
+use tokio::sync::Semaphore;
 
 use crate::{
     ratelimit::{Endpoint, RateLimiter, limit},
@@ -37,6 +41,8 @@ pub struct ApiState {
     pub limiter: Arc<RateLimiter>,
     // The external tier, if `SHH_STORAGE` enables one.
     pub storage: Option<Arc<Blobs>>,
+    // One permit per upload in flight (`SHH_MAX_UPLOADS`), so stalled uploads cannot pile up.
+    pub uploads: Arc<Semaphore>,
     // SHA-256 of SHH_ADMIN_TOKEN; honoured only while no admin key exists (SPEC §8).
     pub admin_token_hash: Option<[u8; 32]>,
 }
@@ -56,6 +62,7 @@ impl ApiState {
             limits: Limits::from_config(config),
             limiter: Arc::new(limiter),
             storage,
+            uploads: Arc::new(Semaphore::new(config.max_uploads as usize)),
             admin_token_hash: config
                 .admin_token
                 .as_ref()
@@ -212,12 +219,29 @@ struct CreateMeta {
 
 // The `meta` part is tiny; anything bigger is not a client of ours.
 const META_MAX_BYTES: usize = 4096;
+// A body chunk must arrive within this; a client that goes quiet is cut (SPEC §7.1).
+const BODY_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+// The whole upload must finish at this rate or better, with a floor for small instances.
+const UPLOAD_MIN_BYTES_PER_SEC: u64 = 32 * 1024;
+const UPLOAD_MIN_DEADLINE: Duration = Duration::from_secs(60);
+
+fn upload_deadline(max_blob_bytes: u64) -> Instant {
+    let needed = Duration::from_secs(max_blob_bytes / UPLOAD_MIN_BYTES_PER_SEC);
+    Instant::now() + needed.max(UPLOAD_MIN_DEADLINE)
+}
 
 // `meta` comes first so the request can be refused before the blob is read.
 async fn create(
     State(state): State<ApiState>,
     mut multipart: Multipart,
 ) -> Result<StatusCode, ApiError> {
+    // Held until the row is written, so the cap counts the whole upload.
+    let _slot = state
+        .uploads
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| ApiError::TooBusy)?;
+    let deadline = upload_deadline(state.limits.max_blob_bytes());
     let meta_field = next_field(&mut multipart, "meta").await?;
     let meta_bytes = read_capped(meta_field, META_MAX_BYTES).await?;
     let meta: CreateMeta =
@@ -242,7 +266,7 @@ async fn create(
         0
     };
     let mut sink = Sink::Memory(Vec::new());
-    while let Some(chunk) = blob_field.chunk().await.map_err(multipart_error)? {
+    while let Some(chunk) = next_chunk(&mut blob_field, deadline).await? {
         if let (Sink::Memory(buf), Some(storage)) = (&mut sink, &state.storage)
             && buf.len() + chunk.len() > memory_limit
         {
@@ -494,18 +518,25 @@ async fn report(
 // Reads a small part in chunks and refuses the moment the cap is passed, so an oversized
 // part costs no more memory than the cap (SPEC §4). Takes the field by value: the multipart
 // stream only moves on once the field is dropped.
-async fn read_capped(
-    mut field: axum::extract::multipart::Field<'_>,
-    cap: usize,
-) -> Result<Vec<u8>, ApiError> {
+async fn read_capped(mut field: Field<'_>, cap: usize) -> Result<Vec<u8>, ApiError> {
+    let deadline = Instant::now() + BODY_IDLE_TIMEOUT;
     let mut bytes = Vec::new();
-    while let Some(chunk) = field.chunk().await.map_err(multipart_error)? {
+    while let Some(chunk) = next_chunk(&mut field, deadline).await? {
         if bytes.len() + chunk.len() > cap {
             return Err(ApiError::bad_request("invalid_meta"));
         }
         bytes.extend_from_slice(&chunk);
     }
     Ok(bytes)
+}
+
+// Each chunk must arrive within the idle timeout, and the whole part before `deadline`.
+async fn next_chunk(field: &mut Field<'_>, deadline: Instant) -> Result<Option<Bytes>, ApiError> {
+    let wait = BODY_IDLE_TIMEOUT.min(deadline.saturating_duration_since(Instant::now()));
+    match tokio::time::timeout(wait, field.chunk()).await {
+        Ok(chunk) => chunk.map_err(multipart_error),
+        Err(_) => Err(ApiError::Timeout),
+    }
 }
 
 async fn next_field<'a>(
@@ -563,6 +594,10 @@ pub enum ApiError {
     TooLarge,
     // The external tier's ceiling is reached; small secrets still work.
     StorageFull,
+    // Every upload slot is taken (`SHH_MAX_UPLOADS`).
+    TooBusy,
+    // The client stopped sending mid-body.
+    Timeout,
     // The one response every failed secret operation gets (SPEC §4).
     NotFound,
     Internal,
@@ -616,6 +651,22 @@ impl IntoResponse for ApiError {
                 StatusCode::INSUFFICIENT_STORAGE,
                 "storage_full",
                 "This instance has no room for large secrets right now.",
+            ),
+            Self::TooBusy => {
+                let mut response = error_response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "too_busy",
+                    "Too many uploads are in progress; try again shortly.",
+                );
+                response
+                    .headers_mut()
+                    .insert(header::RETRY_AFTER, HeaderValue::from_static("60"));
+                response
+            }
+            Self::Timeout => error_response(
+                StatusCode::REQUEST_TIMEOUT,
+                "request_timeout",
+                "The request body did not arrive in time.",
             ),
             Self::NotFound => uniform_negative(),
             Self::Internal => error_response(

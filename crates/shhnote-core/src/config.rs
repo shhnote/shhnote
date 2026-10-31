@@ -13,6 +13,7 @@ const MIB: u64 = 1024 * KIB;
 // Nothing smaller than the padding minimum can ever be stored, so inline must hold at least that.
 const MIN_INLINE_MAX: u64 = 64 * KIB;
 const DEFAULT_INLINE_MAX: u64 = 2 * MIB;
+const DEFAULT_MAX_UPLOADS: u32 = 64;
 const DEFAULT_EXTERNAL_MAX_OBJECT: u64 = 64 * MIB;
 
 // Every variable the server understands. Anything else with the prefix fails startup,
@@ -48,6 +49,7 @@ const KNOWN: &[&str] = &[
     "SHH_S3_SECRET_ACCESS_KEY",
     "SHH_S3_MAX_TOTAL_BYTES",
     "SHH_SPOOL_PATH",
+    "SHH_MAX_UPLOADS",
     "SHH_ADMIN_TOKEN",
 ];
 const LOCAL_VARS: &[&str] = &["SHH_LOCAL_PATH", "SHH_LOCAL_MAX_TOTAL_BYTES"];
@@ -78,6 +80,8 @@ pub struct Config {
     pub trusted_proxies: Vec<Cidr>,
     pub database: Database,
     pub storage: Storage,
+    // Uploads in flight at once; further creates are refused until one finishes (SPEC §7.1).
+    pub max_uploads: u32,
     // Only valid until the first admin API key exists (SPEC §8).
     pub admin_token: Option<Secret>,
 }
@@ -352,6 +356,10 @@ impl Config {
             None => None,
             Some(_) => Some(vars.key("SHH_ADMIN_TOKEN")?),
         };
+        let max_uploads: u32 = vars.parse_or("SHH_MAX_UPLOADS", DEFAULT_MAX_UPLOADS)?;
+        if max_uploads == 0 {
+            return Err(invalid("SHH_MAX_UPLOADS", "must be at least 1"));
+        }
 
         Ok(Self {
             env,
@@ -367,6 +375,7 @@ impl Config {
             trusted_proxies,
             database: Database::from_vars(&vars)?,
             storage: Storage::from_vars(&vars)?,
+            max_uploads,
             admin_token,
         })
     }
@@ -830,6 +839,19 @@ mod tests {
             invalid_name(Config::from_vars(&with(&changes))),
             "SHH_EXTERNAL_MAX_OBJECT"
         );
+    }
+
+    #[test]
+    fn max_uploads_defaults_and_rejects_zero() {
+        assert_eq!(Config::from_vars(&with(&[])).unwrap().max_uploads, 64);
+        assert_eq!(
+            Config::from_vars(&with(&[("SHH_MAX_UPLOADS", "8")]))
+                .unwrap()
+                .max_uploads,
+            8
+        );
+        let vars = with(&[("SHH_MAX_UPLOADS", "0")]);
+        assert_eq!(invalid_name(Config::from_vars(&vars)), "SHH_MAX_UPLOADS");
     }
 
     #[test]

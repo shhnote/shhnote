@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use shhnote_core::{config::Config, settings::Settings};
 use shhnote_server::{api::ApiState, app, drain::Drain, health, log, scheduler, storage::Blobs};
@@ -122,14 +122,14 @@ async fn main() {
         .unwrap();
     println!("listening on http://{}", listener.local_addr().unwrap());
     println!("site at {}, API at {}/v1", config.url, config.api_url);
-    // The socket address is what rate limiting keys on (behind SHH_TRUSTED_PROXIES, the forwarded one).
-    axum::serve(
+    shhnote_server::serve::serve(
         listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
+        app,
+        drain,
+        shutdown_signal(),
+        Duration::from_secs(30),
     )
-    .with_graceful_shutdown(drain.wait_for(shutdown_signal(), Duration::from_secs(30)))
-    .await
-    .unwrap();
+    .await;
     shhnote_server::log_info!("stopped");
 }
 

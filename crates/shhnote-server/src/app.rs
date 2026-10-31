@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use axum::{
     Router,
     extract::{Request, State},
@@ -30,6 +32,27 @@ pub fn router(config: &Config, state: ApiState) -> Router {
         }
     };
     app.layer(middleware::from_fn(redirect_trailing_slash))
+        .layer(middleware::from_fn(request_timeout))
+}
+
+// Time a handler may take to produce its response head (SPEC §7.1). Uploads are the exception:
+// `api::create` bounds them chunk by chunk, since a large blob takes longer than this.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+async fn request_timeout(req: Request, next: Next) -> Response {
+    let is_upload = req.method() == Method::POST
+        && req.uri().path().trim_end_matches('/').ends_with("/secrets");
+    if is_upload {
+        return next.run(req).await;
+    }
+    match tokio::time::timeout(REQUEST_TIMEOUT, next.run(req)).await {
+        Ok(response) => response,
+        Err(_) => api::error_response(
+            StatusCode::REQUEST_TIMEOUT,
+            "request_timeout",
+            "The request took too long.",
+        ),
+    }
 }
 
 // Gives every page one URL, so `/api/v1/` and `/api/v1` don't count as different pages.

@@ -10,5 +10,6 @@ pub mod i18n;
 pub mod log;
 pub mod ratelimit;
 pub mod scheduler;
+pub mod serve;
 pub mod storage;
 pub mod web;

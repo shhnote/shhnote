@@ -518,17 +518,17 @@ async fn spec_missing_object_is_the_uniform_negative() {
     }
 }
 
+// The real accept loop, with its timeouts.
 async fn serve(app: Router) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        axum::serve(
-            listener,
-            app.into_make_service_with_connect_info::<SocketAddr>(),
-        )
-        .await
-        .unwrap();
-    });
+    tokio::spawn(shhnote_server::serve::serve(
+        listener,
+        app,
+        Arc::new(shhnote_server::drain::Drain::default()),
+        std::future::pending(),
+        Duration::from_secs(1),
+    ));
     addr
 }
 
@@ -615,7 +615,6 @@ async fn spec_object_shorter_or_longer_than_bucket() {
 // SPEC §7.1: header, idle and request timeouts close a connection that sends half a request
 // line and one that stalls mid-upload, and the stalled upload's spool goes with it.
 #[tokio::test]
-#[ignore = "S-2"]
 async fn spec_stalled_clients_are_timed_out() {
     let (app, _store, _blobs, root) = local("slow", "1000000000").await;
     let addr = serve(app).await;
@@ -875,7 +874,6 @@ async fn spec_orphan_objects_are_collected_at_startup() {
 // SPEC §7.1: shutdown is bounded; a stalled upload cannot keep the process alive past the
 // grace period, and its spool is removed on the way out.
 #[tokio::test]
-#[ignore = "S-2"]
 async fn spec_stalled_upload_does_not_block_shutdown() {
     use shhnote_server::drain::{Drain, track};
     let (app, _store, _blobs, root) = local("shutdown", "1000000000").await;
@@ -884,20 +882,15 @@ async fn spec_stalled_upload_does_not_block_shutdown() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
-    let server = tokio::spawn(async move {
-        axum::serve(
-            listener,
-            app.into_make_service_with_connect_info::<SocketAddr>(),
-        )
-        .with_graceful_shutdown(drain.wait_for(
-            async {
-                let _ = stop_rx.await;
-            },
-            Duration::from_secs(1),
-        ))
-        .await
-        .unwrap();
-    });
+    let server = tokio::spawn(shhnote_server::serve::serve(
+        listener,
+        app,
+        drain,
+        async {
+            let _ = stop_rx.await;
+        },
+        Duration::from_secs(1),
+    ));
 
     let mut upload = TcpStream::connect(addr).await.unwrap();
     let mut body = meta_part(&meta(&keys(), "ttl").to_string()).into_bytes();
