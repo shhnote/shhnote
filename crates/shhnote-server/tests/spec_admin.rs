@@ -304,7 +304,6 @@ async fn spec_session_cookie_attributes() {
 
 // SPEC §8: logout requires the CSRF token.
 #[tokio::test]
-#[ignore = "S-40"]
 async fn spec_logout_requires_csrf() {
     let (app, _) = build("spec-admin-logout-csrf").await;
     let cookie = login(&app, BOOTSTRAP).await;
@@ -320,7 +319,6 @@ async fn spec_logout_requires_csrf() {
 // SPEC §8: a bootstrap session is invalid once any admin key exists, and `reset-admin` does
 // not revive it.
 #[tokio::test]
-#[ignore = "S-39"]
 async fn spec_bootstrap_session_does_not_come_back() {
     let (app, store) = build("spec-admin-bootstrap-revive").await;
     let old = login(&app, BOOTSTRAP).await;
@@ -330,7 +328,10 @@ async fn spec_bootstrap_session_does_not_come_back() {
         StatusCode::SEE_OTHER
     );
     // What `shhnote reset-admin` does.
-    store.delete_admin_keys().await.unwrap();
+    store
+        .delete_admin_keys(shhnote_server::clock::now())
+        .await
+        .unwrap();
     let _ = admin_key;
     let revived = get(&app, "/en/admin", &old).await;
     assert_eq!(
@@ -342,7 +343,6 @@ async fn spec_bootstrap_session_does_not_come_back() {
 
 // SPEC §8: a bootstrap session is bound to the hash of the token that created it.
 #[tokio::test]
-#[ignore = "S-39"]
 async fn spec_bootstrap_cookie_dies_with_token_rotation() {
     let name = "spec-admin-token-rotation";
     let (app, _) = build(name).await;
@@ -363,6 +363,39 @@ async fn spec_bootstrap_cookie_dies_with_token_rotation() {
         StatusCode::SEE_OTHER,
         "cookie for the old token still works"
     );
+}
+
+// SPEC §8: an operator can end a key's sessions without deleting it; the key still works.
+#[tokio::test]
+async fn spec_ending_a_keys_sessions_keeps_the_key() {
+    let (app, store) = build("spec-admin-end-sessions").await;
+    let boot = login(&app, BOOTSTRAP).await;
+    let admin_key = mint(&app, &bearer(BOOTSTRAP), "admin").await;
+    let _ = boot;
+    let cookie = login(&app, &admin_key).await;
+    let page = get(&app, "/en/admin/keys", &cookie).await;
+    assert_eq!(page.status, StatusCode::OK);
+    let csrf = csrf_of(&page);
+    let hash_hex: String = store.list_api_keys().await.unwrap()[0]
+        .key_hash
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let ended = post_form(
+        &app,
+        "/en/admin/keys/sessions",
+        &cookie,
+        &[("csrf", csrf.as_str()), ("key_hash", hash_hex.as_str())],
+    )
+    .await;
+    assert_eq!(ended.status, StatusCode::SEE_OTHER, "{}", ended.text());
+    assert_eq!(
+        get(&app, "/en/admin", &cookie).await.status,
+        StatusCode::SEE_OTHER,
+        "the ended session still works"
+    );
+    let api = admin_api(&app, Method::GET, "/stats", &bearer(&admin_key), None).await;
+    assert_eq!(api.status, StatusCode::OK, "the key itself stopped working");
 }
 
 // SPEC §8: every admin response carries `Cache-Control: no-store`, the page that shows a new

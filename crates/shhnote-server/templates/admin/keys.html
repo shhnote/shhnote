@@ -52,7 +52,7 @@
           <th scope="col">{{ ctx.t("admin-keys-scope") }}</th>
           <th scope="col">{{ ctx.t("admin-keys-col-created") }}</th>
           <th scope="col">{{ ctx.t("admin-keys-col-last-used") }}</th>
-          <th scope="col"><span class="visually-hidden">{{ ctx.t("admin-keys-delete") }}</span></th>
+          <th scope="col"><span class="visually-hidden">{{ ctx.t("admin-keys-actions") }}</span></th>
         </tr></thead>
         <tbody>
           {%- for k in rows %}
@@ -61,7 +61,14 @@
             <td><code>{{ k.scope }}</code></td>
             <td>{{ k.created }}</td>
             <td>{% if let Some(t) = k.last_used %}{{ t }}{% else %}{{ ctx.t("admin-keys-never") }}{% endif %}</td>
-            <td>
+            <td class="btn-row">
+              {%- if k.scope == "admin" %}
+              <form method="post" action="{{ ctx.href("/admin/keys/sessions") }}">
+                <input type="hidden" name="csrf" value="{{ admin.csrf }}">
+                <input type="hidden" name="key_hash" value="{{ k.hash_hex }}">
+                <button type="submit" class="btn btn--quiet btn--sm">{{ ctx.t("admin-keys-end-sessions") }}</button>
+              </form>
+              {%- endif %}
               <form method="post" action="{{ ctx.href("/admin/keys/delete") }}">
                 <input type="hidden" name="csrf" value="{{ admin.csrf }}">
                 <input type="hidden" name="key_hash" value="{{ k.hash_hex }}">

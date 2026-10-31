@@ -149,6 +149,18 @@ const MIGRATIONS: &[(i64, &str, &str, &str)] = &[
         include_str!("../../../migrations/sqlite/0004_api_keys.sql"),
         include_str!("../../../migrations/postgres/0004_api_keys.sql"),
     ),
+    (
+        5,
+        "api_key_sessions",
+        include_str!("../../../migrations/sqlite/0005_api_key_sessions.sql"),
+        include_str!("../../../migrations/postgres/0005_api_key_sessions.sql"),
+    ),
+    (
+        6,
+        "admin_state",
+        include_str!("../../../migrations/sqlite/0006_admin_state.sql"),
+        include_str!("../../../migrations/postgres/0006_admin_state.sql"),
+    ),
 ];
 
 fn migrator(backend: Backend) -> Migrator {
@@ -199,7 +211,13 @@ pub fn sqlite_path_for_tests(name: &str) -> std::path::PathBuf {
 impl Store {
     // Test helper: empties every table and resets the counters. Never called by the server.
     pub async fn wipe_for_tests(&self) -> Result<(), Error> {
-        for table in ["secrets", "stats_daily", "settings", "api_keys"] {
+        for table in [
+            "secrets",
+            "stats_daily",
+            "settings",
+            "api_keys",
+            "admin_state",
+        ] {
             // Table names come from the fixed list above, never from input.
             sqlx::query(AssertSqlSafe(format!("DELETE FROM {table}")))
                 .execute(&self.pool)

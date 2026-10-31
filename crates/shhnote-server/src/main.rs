@@ -52,7 +52,7 @@ async fn main() {
             return;
         }
         Some("reset-admin") => {
-            match store.delete_admin_keys().await {
+            match store.delete_admin_keys(shhnote_server::clock::now()).await {
                 Ok(n) => println!(
                     "deleted {n} admin key(s); SHH_ADMIN_TOKEN works again until a new one is created"
                 ),

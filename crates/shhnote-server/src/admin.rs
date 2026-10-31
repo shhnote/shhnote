@@ -35,6 +35,7 @@ pub(crate) fn routes() -> Router<PageState> {
         .route("/settings", get(settings_page).post(settings_save))
         .route("/keys", get(keys_page).post(keys_create))
         .route("/keys/delete", post(keys_delete))
+        .route("/keys/sessions", post(keys_end_sessions))
         .layer(axum::middleware::map_response(no_store))
 }
 
@@ -49,12 +50,18 @@ pub(crate) async fn no_store(mut response: Response) -> Response {
 // A signed, stateless session: who is logged in and until when. Every request re-checks that
 // the key still exists, so deleting a key ends its sessions.
 #[derive(Clone, Copy)]
+// Stateless and signed; `key_hash` is the admin key's hash, or the bootstrap token's hash
+// for a bootstrap session, so both kinds are bound to the credential that made them.
+// `issued_at` is what revocation is measured against (SPEC §8).
 struct Session {
     key_hash: [u8; 32],
     bootstrap: bool,
     nonce: [u8; 16],
+    issued_at: i64,
     expires: i64,
 }
+
+const SESSION_LEN: usize = 1 + 32 + 8 + 8 + 16;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -77,9 +84,10 @@ pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 
 impl Session {
     fn encode(&self, secret: &[u8]) -> String {
-        let mut payload = Vec::with_capacity(57);
+        let mut payload = Vec::with_capacity(SESSION_LEN);
         payload.push(u8::from(self.bootstrap));
         payload.extend_from_slice(&self.key_hash);
+        payload.extend_from_slice(&self.issued_at.to_be_bytes());
         payload.extend_from_slice(&self.expires.to_be_bytes());
         payload.extend_from_slice(&self.nonce);
         let tag = mac(secret, &payload);
@@ -94,14 +102,15 @@ impl Session {
         let (payload, tag) = text.split_once('.')?;
         let payload = URL_SAFE_NO_PAD.decode(payload).ok()?;
         let tag = URL_SAFE_NO_PAD.decode(tag).ok()?;
-        if payload.len() != 57 || !constant_time_eq(&mac(secret, &payload), &tag) {
+        if payload.len() != SESSION_LEN || !constant_time_eq(&mac(secret, &payload), &tag) {
             return None;
         }
         Some(Self {
             bootstrap: payload[0] == 1,
             key_hash: payload[1..33].try_into().ok()?,
-            expires: i64::from_be_bytes(payload[33..41].try_into().ok()?),
-            nonce: payload[41..57].try_into().ok()?,
+            issued_at: i64::from_be_bytes(payload[33..41].try_into().ok()?),
+            expires: i64::from_be_bytes(payload[41..49].try_into().ok()?),
+            nonce: payload[49..65].try_into().ok()?,
         })
     }
 
@@ -150,10 +159,16 @@ async fn authenticate(state: &PageState, headers: &HeaderMap) -> Result<Session,
     if session.expires <= now() {
         return Err(login);
     }
+    // Revocation is strict: a session issued in the same second as a reset or an
+    // "end sessions" is dead too, and the operator simply logs in again.
     let valid = if session.bootstrap {
-        bootstrap_allowed(state).await
+        let bound = matches!(state.shared.admin_token_hash, Some(token) if constant_time_eq(&token, &session.key_hash));
+        bound
+            && bootstrap_allowed(state).await
+            && matches!(state.shared.store.bootstrap_sessions_valid_after().await, Ok(after) if session.issued_at > after)
     } else {
-        matches!(state.shared.store.find_api_key(&session.key_hash).await, Ok(Some(key)) if key.scope == Scope::Admin)
+        matches!(state.shared.store.find_api_key(&session.key_hash).await,
+            Ok(Some(key)) if key.scope == Scope::Admin && session.issued_at > key.sessions_valid_after)
     };
     if valid { Ok(session) } else { Err(login) }
 }
@@ -249,11 +264,13 @@ async fn login(
     if getrandom::fill(&mut nonce).is_err() {
         return error_page(&state, StatusCode::INTERNAL_SERVER_ERROR);
     }
+    let issued_at = now();
     let session = Session {
         key_hash: hash,
         bootstrap,
         nonce,
-        expires: now() + SESSION_SECS,
+        issued_at,
+        expires: issued_at + SESSION_SECS,
     };
     let mut response = Redirect::to(&state.href("/admin")).into_response();
     response.headers_mut().insert(
@@ -267,7 +284,20 @@ async fn login(
     response
 }
 
-async fn logout(State(state): State<PageState>) -> Response {
+// Logging out needs the CSRF token like every other form (SPEC §8), so a cross-site page
+// cannot end an operator's session either.
+async fn logout(
+    State(state): State<PageState>,
+    headers: HeaderMap,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    let session = match authenticate(&state, &headers).await {
+        Ok(s) => s,
+        Err(r) => return *r,
+    };
+    if let Err(r) = check_csrf(&session, &state, &form) {
+        return *r;
+    }
     let mut response = Redirect::to(&state.href("/admin/login")).into_response();
     response
         .headers_mut()
@@ -625,6 +655,28 @@ async fn keys_delete(
     Redirect::to(&state.href("/admin/keys")).into_response()
 }
 
+// Ends the key's sessions without deleting it (SPEC §8); the key keeps working for the API.
+async fn keys_end_sessions(
+    State(state): State<PageState>,
+    headers: HeaderMap,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    let session = match authenticate(&state, &headers).await {
+        Ok(s) => s,
+        Err(r) => return *r,
+    };
+    if let Err(r) = check_csrf(&session, &state, &form) {
+        return *r;
+    }
+    let Some(hash) = form.get("key_hash").and_then(|h| unhex(h)) else {
+        return error_page(&state, StatusCode::BAD_REQUEST);
+    };
+    if let Err(e) = state.shared.store.end_api_key_sessions(&hash, now()).await {
+        return db_error(&state, e);
+    }
+    Redirect::to(&state.href("/admin/keys")).into_response()
+}
+
 pub(crate) enum SaveError {
     Invalid(Vec<String>),
     Db(shhnote_store::Error),
@@ -703,13 +755,20 @@ mod tests {
             key_hash: [3; 32],
             bootstrap: true,
             nonce: [9; 16],
+            issued_at: 1_799_956_800,
             expires: 1_800_000_000,
         };
         let text = session.encode(secret);
         let back = Session::decode(&text, secret).unwrap();
         assert_eq!(
-            (back.key_hash, back.bootstrap, back.nonce, back.expires),
-            ([3; 32], true, [9; 16], 1_800_000_000)
+            (
+                back.key_hash,
+                back.bootstrap,
+                back.nonce,
+                back.issued_at,
+                back.expires
+            ),
+            ([3; 32], true, [9; 16], 1_799_956_800, 1_800_000_000)
         );
         assert!(Session::decode(&text, b"another secret key of some length").is_none());
         let mut forged = text.clone();

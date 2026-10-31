@@ -12,7 +12,11 @@ pub struct ApiKey {
     pub scope: Scope,
     pub created_at: i64,
     pub last_used_on: Option<i64>,
+    // Sessions issued at or before this instant are dead; 0 means none were ended.
+    pub sessions_valid_after: i64,
 }
+
+const BOOTSTRAP_VALID_AFTER: &str = "bootstrap_sessions_valid_after";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scope {
@@ -60,7 +64,8 @@ impl Store {
     // A keyed lookup by the hash of the presented key: nothing to compare, nothing to time.
     pub async fn find_api_key(&self, key_hash: &[u8; 32]) -> Result<Option<ApiKey>, Error> {
         let row = sqlx::query(
-            "SELECT key_hash, name, scopes, created_at, last_used_on FROM api_keys WHERE key_hash = $1",
+            "SELECT key_hash, name, scopes, created_at, last_used_on, sessions_valid_after \
+             FROM api_keys WHERE key_hash = $1",
         )
         .bind(key_hash.to_vec())
         .fetch_optional(&self.pool)
@@ -84,7 +89,8 @@ impl Store {
 
     pub async fn list_api_keys(&self) -> Result<Vec<ApiKey>, Error> {
         let rows = sqlx::query(
-            "SELECT key_hash, name, scopes, created_at, last_used_on FROM api_keys ORDER BY created_at DESC",
+            "SELECT key_hash, name, scopes, created_at, last_used_on, sessions_valid_after \
+             FROM api_keys ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -99,6 +105,28 @@ impl Store {
         Ok(result.rows_affected() > 0)
     }
 
+    // Ends every session of the key issued up to `now`; the key itself stays (SPEC §8).
+    pub async fn end_api_key_sessions(&self, key_hash: &[u8; 32], now: i64) -> Result<bool, Error> {
+        let result =
+            sqlx::query("UPDATE api_keys SET sessions_valid_after = $2 WHERE key_hash = $1")
+                .bind(key_hash.to_vec())
+                .bind(now)
+                .execute(&self.pool)
+                .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    // Bootstrap sessions issued at or before this instant are dead (0 if never reset).
+    pub async fn bootstrap_sessions_valid_after(&self) -> Result<i64, Error> {
+        let row = sqlx::query("SELECT value FROM admin_state WHERE key = $1")
+            .bind(BOOTSTRAP_VALID_AFTER)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.map(|row| row.try_get("value"))
+            .transpose()
+            .map(|v| v.unwrap_or(0))
+    }
+
     pub async fn admin_key_count(&self) -> Result<i64, Error> {
         let row = sqlx::query("SELECT COUNT(*) AS n FROM api_keys WHERE scopes = 'admin'")
             .fetch_one(&self.pool)
@@ -106,11 +134,23 @@ impl Store {
         row.try_get("n")
     }
 
-    // Lockout recovery (`shhnote reset-admin`): with no admin keys left, the bootstrap token works again.
-    pub async fn delete_admin_keys(&self) -> Result<u64, Error> {
+    // Lockout recovery (`shhnote reset-admin`): with no admin keys left, the bootstrap token
+    // works again. Bootstrap sessions from before the reset do not (SPEC §8), so the reset
+    // instant is recorded in the same transaction.
+    pub async fn delete_admin_keys(&self, now: i64) -> Result<u64, Error> {
+        let mut tx = self.pool.begin().await?;
         let result = sqlx::query("DELETE FROM api_keys WHERE scopes = 'admin'")
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
+        sqlx::query(
+            "INSERT INTO admin_state (key, value) VALUES ($1, $2) \
+             ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(BOOTSTRAP_VALID_AFTER)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
         Ok(result.rows_affected())
     }
 }
@@ -123,5 +163,6 @@ fn api_key(row: &sqlx::any::AnyRow) -> Result<ApiKey, Error> {
         scope: Scope::parse(&scopes).unwrap_or(Scope::User),
         created_at: row.try_get("created_at")?,
         last_used_on: row.try_get("last_used_on")?,
+        sessions_valid_after: row.try_get("sessions_valid_after")?,
     })
 }

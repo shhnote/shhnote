@@ -497,7 +497,11 @@ async fn api_keys_round_trip() {
         );
         assert!(store.delete_api_key(&user).await.unwrap(), "{backend}");
         assert!(!store.delete_api_key(&user).await.unwrap(), "{backend}");
-        assert_eq!(store.delete_admin_keys().await.unwrap(), 1, "{backend}");
+        assert_eq!(
+            store.delete_admin_keys(1_700_000_000).await.unwrap(),
+            1,
+            "{backend}"
+        );
         assert!(store.list_api_keys().await.unwrap().is_empty(), "{backend}");
     }
 }
