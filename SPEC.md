@@ -9,7 +9,7 @@
 | ID | Decision | Why |
 |---|---|---|
 | D-1 | A single-view secret is consumed when its bytes are served. The claim token lets the same client re-download within a 15-minute window; unconfirmed claims are destroyed, never reverted. | An intercepted or scanned link must always show as "already viewed" to the intended recipient. Reverting hides interception. |
-| D-2 | A separate random burn token, hashed at rest. Burn = creator only; report = any link holder. Stats distinguish `burned` from `removed`. | Accurate attribution of why a secret was destroyed; the share link carries no burn authority. |
+| D-2 | A separate random burn token, hashed at rest, carried in a fragment whose first byte differs from the share fragment's so the two links can be told apart before anything is sent. Burn = creator only; report = any link holder. Stats distinguish `burned` from `removed`. | Accurate attribution of why a secret was destroyed; the share link carries no burn authority. |
 | D-3 | The server stores `SHA-256(lookup)`, never the raw lookup value. | A database dump must not let anyone consume, report, or otherwise act on secrets. |
 | D-4 | Content is encrypted in 64 KiB chunks (STREAM construction). | Streaming upload and download with bounded memory; large files for self-hosted instances. |
 | D-5 | One secret carries optional text plus zero or more files, described by a JSON manifest inside the encrypted payload. | Text only, text + files, or files only with one payload structure. |
@@ -25,6 +25,12 @@
 | D-15 | The passphrase KEK takes the seed directly; no intermediate derivation. | HKDF's info strings already separate the derivations. |
 | D-16 | Not in v1: external cache, compile-time feature flags, nonce-based CSP, runtime content overlay, sqlx compile-time query macros. One binary builds every tier. | Minimal attack surface and build friction. |
 | D-17 | API keys have scopes `admin` and `user`; `user` keys raise rate limits and are never linked to secrets. | Integrators and trusted users get higher limits without identity touching secrets. |
+| D-18 | `expires_at` is stored rounded up to a grid that scales with the TTL (§3); `claim_expires_at` is stored rounded up to the next minute. | `expires_at − preset` and `claim_expires_at − window` would otherwise be creation and reveal timestamps to the second, which §13 rejects. |
+| D-19 | Reports are counted per UTC day in `stats_daily`. No per-report row exists. | A ledger keyed by the secret's hash is a joinable tombstone (§13); the operator question ("how many, when") is answered by the daily count. |
+| D-20 | Storage ceilings count bytes being spooled as well as stored objects; a create that would cross the ceiling is refused mid-stream. | Principle 7: the ceiling must bound disk, not only committed objects. |
+| D-21 | `POST /secrets` answers a duplicate `lookup_key` exactly like a success and writes nothing. | A distinguishable duplicate response is an existence oracle for anyone holding a hash. |
+| D-22 | The client fetches `argon2.wasm` on every create and reveal, whether or not a passphrase is involved. | Fetching it only when needed marks passphrase use to the server and the network. |
+| D-23 | API keys record the UTC day of last use (`last_used_on`), never the time. | Enough for an operator to see that a key is dead; too coarse to join with anything. |
 
 ---
 
@@ -47,8 +53,15 @@ No public-key cryptography. There is nothing to migrate for post-quantum: AES-25
 ### 2.2 Seed and fragment
 
 - `seed`: 32 random bytes. Lives only in the URL fragment.
-- Fragment = `version(1) ‖ seed(32)` = 33 bytes = 44 base64url characters. Share link: `https://host/s#<fragment>`; the server redirects `/s` to the visitor's language and the browser carries the fragment across.
-- The version byte names the whole suite (KDF, AEAD, chunking, blob layout, container format). The blob carries no version and no flags.
+- Fragment = `kind(1) ‖ payload(32)` = 33 bytes = 44 base64url characters. Share link: `https://host/s#<fragment>`; the server redirects `/s` to the visitor's language and the browser carries the fragment across.
+- The kind byte names both the suite (KDF, AEAD, chunking, blob layout, container format) and the fragment's role:
+
+  | kind | fragment | payload |
+  |---|---|---|
+  | `0x01` | share link `https://host/s#…` | seed |
+  | `0x02` | burn link `https://host/burn#…` | burn token |
+
+  A client given a fragment of the wrong kind for the page or function it is on refuses before deriving or sending anything. Future suites allocate a new pair of kind bytes. The blob carries no version and no flags.
 
 ### 2.3 Derivations
 
@@ -65,7 +78,7 @@ The three info strings are frozen; changing one is a version bump. `lookup` is s
 
 - `EK`: 32 random bytes, fresh per secret, never derived from the seed.
 - `wrapped_EK = AES-256-GCM(EK, key = KEK, iv = wrap_iv)` where `wrap_iv` is 12 random bytes and KEK is `KEK_direct` or `KEK_pass`.
-- In the browser, use Web Crypto `deriveKey`/`wrapKey`/`unwrapKey` so KEK and EK are non-extractable keys and never exist as raw bytes in JavaScript. The seed is the only key material that does.
+- In the browser, use Web Crypto `deriveKey`/`wrapKey`/`unwrapKey` so KEK and EK are non-extractable keys and never exist as raw bytes in JavaScript. The seed, and for passphrase secrets the Argon2 output until it is consumed by `deriveKey`, are the only raw key material in JavaScript; both are overwritten when the page is left (best effort).
 
 ### 2.5 Payload container (inside the encryption)
 
@@ -145,7 +158,7 @@ Wrong-passphrase retries cost no server round-trip. A false mode detection or fa
 ### 2.11 Burn token
 
 - `burn_token`: 32 random bytes, generated at creation, independent of the seed.
-- Burn link: `https://host/burn#version(1) ‖ burn_token(32)` (44 chars, same shape as the share link, same locale redirect). Shown once; not recoverable.
+- Burn link: `https://host/burn#0x02 ‖ burn_token(32)` (44 chars, same locale redirect). The kind byte makes a burn fragment distinguishable from a share fragment on sight; the `/burn` page and `burnSecret` reject a `0x01` fragment, and the `/s` page and `revealSecret` reject a `0x02` fragment, without contacting the server. Shown once; not recoverable.
 - The client sends `SHA-256(burn_token)` at creation; the server stores only the hash and resolves burns by hashing the presented token and looking up a unique index (a keyed lookup, no comparison, nothing to time).
 
 ### 2.12 Credential rule
@@ -154,18 +167,18 @@ For every credential the server holds (`lookup`, `burn_token`, claim token, API 
 
 ### 2.13 Versioning
 
-Bump the fragment version for any change to: an algorithm, an HKDF info string, the chunking scheme, the blob layout, or the container format. Do **not** bump for: Argon2 parameter changes (self-describing) or ladder changes (instance policy, D-6).
+Allocate a new pair of kind bytes for any change to: an algorithm, an HKDF info string, the chunking scheme, the blob layout, or the container format. Do **not** bump for: Argon2 parameter changes (self-describing) or ladder changes (instance policy, D-6).
 
 ### 2.14 Conformance vectors
 
-`vectors/v1.json` (generated by `vectors/generate.py`, independent of both implementations) holds test vectors consumed by the Rust and TypeScript test suites: seed, burn token, optional passphrase, manifest and file bytes, every fixed "random" input (EK, salt, IVs, nonce prefix), the expected `lookup`, `SHA-256(lookup)`, `SHA-256(burn_token)`, header bytes, and the full blob. Passphrase vectors may use reduced Argon2 cost (within bounds); at least one uses the defaults.
+`vectors/v1.json` (generated by `vectors/generate.py`, independent of both implementations) holds test vectors consumed by the Rust and TypeScript test suites: seed, burn token, optional passphrase, manifest and file bytes, every fixed "random" input (EK, salt, IVs, nonce prefix), the expected `lookup`, `SHA-256(lookup)`, `SHA-256(burn_token)`, header bytes, and the full blob. Passphrase vectors may use reduced Argon2 cost (within bounds); at least one uses the defaults. Every vector includes the burn fragment as well as the share fragment, and the reject cases include a share fragment presented as a burn fragment and vice versa. The reject cases also cover chunks out of order, a `last` flag on a middle chunk, a missing last chunk, truncation inside a chunk and a final fragment shorter than a tag, a header shorter than 95 bytes, `manifest_len` over 1 MiB or past the payload, file sizes that disagree with the remaining bytes, negative or fractional sizes, invalid UTF-8, a wrong manifest `v`, zero files with null text, `payload_len` of 0 or above `bucket − 4` on multi-chunk blobs, Argon2 parameters outside the bounds, and the parsing cases both implementations must refuse identically: a UTF-8 BOM before the manifest, duplicate keys, non-integer numbers, lone surrogates, a missing `text` key, and `null` file entries.
 
 ---
 
 ## 3. What the server stores
 
 ```
-secrets
+secrets  (SQLite: WITHOUT ROWID)
   lookup_key        32 bytes  PK      SHA-256(lookup)
   burn_key          32 bytes  UNIQUE  SHA-256(burn_token)
   status            active | claimed | pending_delete
@@ -173,12 +186,14 @@ secrets
   bucket            u32 (bytes)
   blob              bytes, NULL when external
   external_ref      text, NULL when inline
-  expires_at        unix seconds
+  expires_at        unix seconds, rounded up to the expiry grid
   claim_key         32 bytes NULL     SHA-256(claim_token) while claimed
-  claim_expires_at  unix seconds NULL
+  claim_expires_at  unix seconds NULL, rounded up to the next minute
 ```
 
-No `created_at`, no IPs, no counters, no foreign keys to anything (Principle 5, 8). Daily counters (`stats_daily`: created, viewed, burned, expired, removed per UTC day), the reports ledger, settings, and API keys live in their own tables and are never joined to `secrets`. Lifetime totals are the sum of the daily rows; the number of active secrets is counted live. One table per migration.
+**Expiry grid (D-18).** On write, `expires_at = ceil((now + ttl) / g) × g` where `g` is 300 s for `ttl < 3600`, 3600 s for `ttl < 3 × 86400`, and 86400 s otherwise. The recipient-facing remaining time is already in whole hours, so nothing visible changes; the creator receives at least the TTL asked for. The grid is part of the schema contract: a refactor that stores the exact second reintroduces a per-secret timestamp.
+
+No `created_at`, no IPs, no counters, no foreign keys to anything, and in SQLite no rowid, so a dump cannot order secrets by creation (Principle 5, 8). Daily counters (`stats_daily`: created, viewed, burned, expired, removed, **reports** per UTC day), settings, and API keys live in their own tables and are never joined to `secrets`. There is no reports table (D-19). Lifetime totals are the sum of the daily rows; the number of active secrets is counted live. One table per migration.
 
 ---
 
@@ -190,15 +205,17 @@ All identifiers travel in POST bodies (or multipart fields), never in URLs. Base
 |---|---|---|---|
 | `GET /health` | – | `200 {"status":"ok"}` or `503 {"status":"degraded"}` | Readiness: the database answers. `GET /` is liveness only. Never rate-limited, `no-store`. |
 | `GET /config` | – | JSON: `fragment_version`, `padding` policy, `inline_max`, `max_blob_bytes`, `claim_window_secs`, TTL bounds, default and presets, `text_max_bytes`, `files_enabled`, `regions` | Instance policy for clients and integrators. Nothing per-secret. |
-| `POST /secrets` | multipart: `meta` JSON `{lookup_key, burn_key, lifetime, ttl_seconds}` then `blob` | `201`, empty | `meta` precedes `blob` so the server can validate before streaming. Blob length must match a ladder entry exactly. |
-| `POST /secrets/reveal` | `{lookup, claim_token?}` | `200` blob stream; headers `X-Shh-Claim-Token` (single-view) or `X-Shh-Expires-In-Hours` (TTL, rounded up) | Single-view: one conditional UPDATE claims the row; with `claim_token`, re-download within the window (§5). TTL: pure read. |
+| `POST /secrets` | multipart: `meta` JSON `{lookup_key, burn_key, lifetime, ttl_seconds}` then `blob` | `201`, empty | `meta` precedes `blob` so the server can validate before streaming; `meta` is read in bounded chunks and refused past 4 KiB. Blob length must match a ladder entry exactly. A `lookup_key` that already exists returns `201` and writes nothing (D-21). |
+| `POST /secrets/reveal` | `{lookup, claim_token?}` | `200` blob stream; headers `X-Shh-Claim-Token` (single-view) or `X-Shh-Expires-In-Hours` (TTL, rounded up; **OPEN**, see §5.2) | Single-view: one conditional UPDATE claims the row; with `claim_token`, re-download within the window (§5). TTL: pure read. |
 | `POST /secrets/confirm` | `{lookup, claim_token}` | `204` | Destroys the secret and increments `viewed`. |
 | `POST /secrets/burn` | `{burn_token}` | `204` | Creator only (D-2). Increments `burned`. |
-| `POST /reports` | `{lookup}` | `200`, fixed body | Automatic takedown; ledger row; increments `removed`. Uniform response. |
+| `POST /reports` | `{lookup}` | `200`, fixed body | Automatic takedown; increments `reports`, and `removed` when a secret was destroyed (D-19). Uniform response. |
 
-Every negative outcome on an endpoint that takes a secret credential returns the same `404` with the same body, after the same work (malformed input is replaced by fresh random bytes and run through the full path). Reveal and blob responses carry `Cache-Control: no-store`.
+Every negative outcome on an endpoint that takes a secret credential returns the same `404` with the same body, after the same work. This includes bodies the framework would otherwise reject (malformed JSON, wrong types, missing fields, missing `Content-Type`): the handler takes the raw body, substitutes fresh random bytes for anything unparseable, and runs the full path. `/reports` always returns its fixed `200` and always performs the same statement sequence (counter upserts of `+0` or `+1`). Reveal and blob responses carry `Cache-Control: no-store`. `Retry-After` on a `429` is a constant that does not depend on the threshold.
 
-Rate limiting is per endpoint and per client: a token bucket keyed by `HMAC-SHA256(salt, ip)` (IPv6 by /64), where the salt rotates every `salt_rotation_secs` and rotation clears every bucket, so nothing before a rotation can be linked to anything after. Only the socket peer is trusted unless it is listed in `SHH_TRUSTED_PROXIES`, in which case the nearest untrusted `X-Forwarded-For` hop is used. The limit is answered with a generic `429` and a `Retry-After` that reveals no threshold. Requests may carry `Authorization: Bearer <api key>`; a `user` key switches rate limiting from the IP-derived key to `SHA-256(api key)` with the limits multiplied by `rate_user_multiplier`. Admin endpoints live under `/{locale}/admin` (pages, §8) and `/api/v1/admin/*` (JSON, `admin` scope). API keys never appear in `secrets` rows or in any join.
+Rate limiting is per endpoint and per client: a token bucket keyed by `HMAC-SHA256(salt, ip)` (IPv6 by /64), where the salt rotates every `salt_rotation_secs` and rotation clears every bucket, so nothing before a rotation can be linked to anything after. Only the socket peer is trusted unless it is listed in `SHH_TRUSTED_PROXIES`, in which case the nearest untrusted `X-Forwarded-For` hop is used. Peer addresses are canonicalised (IPv4-mapped IPv6 is treated as IPv4) before bucketing or proxy matching. All `X-Forwarded-For` header lines are joined before the walk from the right. When the bucket table is full, individual subjects are evicted; the table is never cleared except by salt rotation. The limit is answered with a generic `429` and a `Retry-After` that reveals no threshold. Requests may carry `Authorization: Bearer <api key>`; a `user` key switches rate limiting from the IP-derived key to `SHA-256(api key)` with the limits multiplied by `rate_user_multiplier`. Admin endpoints live under `/{locale}/admin` (pages, §8) and `/api/v1/admin/*` (JSON, `admin` scope). API keys never appear in `secrets` rows or in any join.
+
+The §11 security headers are applied to every response, API and drain responses included.
 
 ---
 
@@ -208,18 +225,18 @@ The interstitial `/s` page is static and fetches nothing until the user acts; th
 
 ### 5.1 Single-view
 
-1. **Claim.** Reveal runs one conditional `UPDATE` (`status = 'active'`, `lifetime = 'single_view'`, not expired → `status = 'claimed'`), storing `SHA-256(claim_token)` and `claim_expires_at = now + window` (default 15 minutes). Exactly one concurrent request wins. The response streams the blob with the raw claim token in a header. **The secret is consumed at this point**; the `viewed` counter increments when the row is destroyed (confirm or window expiry), since the day is the same either way.
+1. **Claim.** Reveal runs one conditional `UPDATE` (`status = 'active'`, `lifetime = 'single_view'`, not expired → `status = 'claimed'`), storing `SHA-256(claim_token)` and `claim_expires_at = now + window` (default 15 minutes), rounded up to the next minute (D-18). Exactly one concurrent request wins. For an external blob the object is opened before the claim is committed; a missing object yields the uniform negative and leaves the row untouched. The response streams the blob with the raw claim token in a header. **The secret is consumed at this point**; the `viewed` counter increments when the row is destroyed (confirm or window expiry), since the day is the same either way.
 2. **Re-download.** `POST /secrets/reveal {lookup, claim_token}` while the row is `claimed` and the window is open returns the blob again. Only the holder of the claim token can do this; everyone else gets the uniform negative. This is what makes a dropped download or a slow link cost nothing.
 3. **Confirm.** `POST /secrets/confirm {lookup, claim_token}` destroys the row now (`viewed`).
 4. **Window expiry.** The scheduler destroys `claimed` rows whose window has passed (`viewed`, since the bytes were served). Nothing ever reverts to `active`.
 
 The window is per claimant, so its length does not delay anyone else; 15 minutes covers a large file over Tor and a slowly typed passphrase.
 
-**Accepted residual:** a single-view secret whose reveal response was lost before any bytes reached the client, or that was revealed by an automated link scanner, is destroyed unread; the recipient sees the uniform negative and the sender resends. A recipient who cannot produce the passphrase has no second attempt beyond local retries. These are accepted so that an intercepted or scanned link is always visible as "already viewed" to the intended recipient.
+**Accepted residual:** a single-view secret whose reveal response was lost before any bytes reached the client, or that was revealed by an automated link scanner, is destroyed unread; the recipient sees the uniform negative and the sender resends. A recipient who cannot produce the passphrase has no second attempt beyond local retries. These are accepted so that an intercepted or scanned link is always visible as "already viewed" to the intended recipient. A browser driven by automation (a scanner that injects real input events, an extension with input access) can reveal a secret as a user would; the recipient then sees the uniform negative. Page scripts cannot: the reveal requires a trusted pointer or keyboard activation of the button (`click` with `isTrusted` and `detail > 0`, or a trusted key activation), not merely a trusted `submit`.
 
 ### 5.2 TTL
 
-A pure read: `status = 'active'`, `lifetime = 'ttl'`, not expired. No claim, no write, no counter. The response carries the remaining lifetime in whole hours, rounded up, never an absolute time.
+A pure read: `status = 'active'`, `lifetime = 'ttl'`, not expired. No claim, no write, no counter. The response carries the remaining lifetime in whole hours, rounded up, never an absolute time. **OPEN** (`docs/security-review/spec-revision.md`): whether the reveal page keeps showing remaining time at all; if not, this sentence, the `X-Shh-Expires-In-Hours` header in §4 and the copy rules in §11 change together.
 
 ### 5.3 Burn, report, expiry
 
@@ -234,11 +251,14 @@ Burn and report match `status = 'active'` only; a claimed secret is already cons
 - Inline (database) is on by default; the `inline_enabled` setting turns it off so that every blob goes to the external tier (ignored, with a startup warning, when `SHH_STORAGE` is `inline`). `files_enabled` off hides the file input and makes the API refuse any blob above the padded size of the largest possible text secret (`2 × text_max_bytes + 1 KiB`, then padded) with `400 files_disabled`; size is the only lever the server has, since it cannot tell files from text. `SHH_STORAGE` selects `inline`, `local`, or `s3` for payloads above the inline ceiling (`SHH_INLINE_MAX`, default 2 MiB, applies to the padded size). Local and S3 are mutually exclusive.
 - External payloads are proxied through the server in both directions. No presigned or direct object-store URLs.
 - Blobs are stored as received; the server never parses beyond length.
-- Tier guards: `SHH_LOCAL_MAX_TOTAL_BYTES` (disk ceiling) and `SHH_S3_MAX_TOTAL_BYTES` (cost breaker). The only hard, non-circumventable limits. They count every object the tier holds, parked deletes included; a create that would cross the ceiling gets `507 storage_full`, while inline-sized secrets keep working.
-- Receiving: a blob is read in chunks; while it fits the inline tier it stays in memory, and the moment it outgrows it the bytes go to a spool file (under the local root, or `SHH_SPOOL_PATH` for S3). The spool is moved into place (local, same filesystem, atomic rename) or streamed to S3 with a known length only after the whole blob has arrived and its length checked. The row is written last, so an object without a row is garbage, never a secret; if the row cannot be written the object is deleted again. A spool that is not finished is removed when the request ends.
+- Tier guards: `SHH_LOCAL_MAX_TOTAL_BYTES` (disk ceiling) and `SHH_S3_MAX_TOTAL_BYTES` (cost breaker). The only hard, non-circumventable limits. They count every object the tier holds, parked deletes included, **and every byte currently being spooled (D-20)**; the check is made under one reservation so concurrent creates cannot jointly exceed the ceiling, and a create that would cross it is refused as soon as that is known, including mid-stream, with `507 storage_full`, while inline-sized secrets keep working.
+- Receiving: a blob is read in chunks; while it fits the inline tier it stays in memory, and the moment it outgrows it the bytes go to a spool file (under the local root, or `SHH_SPOOL_PATH` for S3). The length, ladder and `files_disabled` checks run against the declared length before the first blob byte is spooled; the spool is capped at the declared length. The spool is moved into place (local, same filesystem, atomic rename) or streamed to S3 with a known length only after the whole blob has arrived and its length checked. The row is written last, so an object without a row is garbage, never a secret; if the row cannot be written the object is deleted again. A spool that is not finished is removed when the request ends.
+- At startup the server lists the tier and deletes objects no row references. Spool files are `0600` in a `0700` directory; the blob directory is fsynced after rename. Object names are exactly 22 base64url characters.
 - Serving: external objects are streamed through the server with `Content-Length` set from the bucket, `Cache-Control: no-store`.
 - Object keys are `blobs/<16 random bytes, base64url>`, generated by the server; a key read back from the database is validated against that shape before it touches the filesystem or S3.
-- S3 is spoken with a hand-written SigV4 client (path-style with `SHH_S3_ENDPOINT`, virtual-hosted on AWS without it; `UNSIGNED-PAYLOAD` for uploads, which is why the endpoint should be HTTPS in production). At startup the server reads the bucket's versioning state and refuses to start when it is enabled; services that do not implement that call get a warning instead.
+- S3 is spoken with a hand-written SigV4 client (path-style with `SHH_S3_ENDPOINT`, virtual-hosted on AWS without it; `UNSIGNED-PAYLOAD` for uploads, which is why the endpoint should be HTTPS in production). An `http://` endpoint is refused in production unless it is a loopback or private address. At startup the server reads the bucket's versioning state and refuses to start when it is enabled; services that do not implement that call get a warning instead.
+- The S3 client applies connect, request and body timeouts; scrubbing runs in its own task with a bounded batch per tick.
+- **Accepted residuals.** External-tier objects carry a modification time the server cannot fully control (S3 `LastModified`; local `ctime`), so an operator with object-store access learns when each large secret was created. Destruction is logical: ciphertext (never plaintext) may persist in SQLite WAL, Postgres dead tuples, filesystem free blocks and backups until overwritten. The server sets `journal_size_limit = 0` and truncates the WAL after each sweep; backups should use `VACUUM INTO` or `.backup`, not file copies.
 
 ### 6.2 Padding policy
 
@@ -261,7 +281,7 @@ Overhead is at most 12% and falls for larger inputs; the leakage is O(log log) b
 
 **Rejected: random padding** (a random 5–20% added per secret). It hides only the exact size while leaking a tight range (enough to confirm a known file), gives every blob a unique length that fingerprints it across backups and captures, and is defeated by a second sample of the same content. Padmé gives comparable overhead with shared sizes and a proof.
 
-Default `padding_min` is 64 KiB: a trivial upload per text secret, and every file under 64 KiB looks like text.
+Default `padding_min` is 64 KiB: a trivial upload per text secret, and every file under 64 KiB looks like text. `padding_min` is a floor: the instance may raise it but not set it below 64 KiB (D-6). In `buckets` mode the ladder must be strictly increasing and must not exceed `SHH_EXTERNAL_MAX_OBJECT`.
 
 ---
 
@@ -279,33 +299,36 @@ Default `padding_min` is 64 KiB: a trivial upload per text secret, and every fil
 | `SHH_LOG_LEVEL` | default `error`; no request or IP logging |
 | `SHH_LOCALES` | Languages to offer, comma-separated. Unset: all built in (`en`, `de`) |
 | `SHH_DEFAULT_LOCALE` | Landing language for visitors whose browser asks for none of the offered ones; must be offered. Unset: the first of `SHH_LOCALES` |
-| `SHH_TRUSTED_PROXIES` | Addresses or CIDR ranges of reverse proxies whose `X-Forwarded-For` is honoured; never `0.0.0.0`, `::` or a `/0` |
+| `SHH_TRUSTED_PROXIES` | Addresses or CIDR ranges of reverse proxies whose `X-Forwarded-For` is honoured; never `0.0.0.0`, `::` or a `/0`; prefixes shorter than /8 (v4) or /32 (v6), mapped and transition ranges, and non-network base addresses are rejected |
 | `SHH_DB` | `sqlite` / `postgres` |
 | `SHH_SQLITE_PATH`, `SHH_PG_*` | connection details |
 | `SHH_STORAGE` | `inline` / `local` / `s3` |
-| `SHH_INLINE_MAX` | largest padded size stored in the database (default 2 MiB) |
+| `SHH_INLINE_MAX` | largest padded size stored in the database (default 2 MiB, at most 64 MiB) |
 | `SHH_LOCAL_PATH`, `SHH_LOCAL_MAX_TOTAL_BYTES` | local tier |
 | `SHH_S3_BUCKET`, `SHH_S3_REGION`, `SHH_S3_ENDPOINT`, `SHH_S3_ACCESS_KEY_ID`, `SHH_S3_SECRET_ACCESS_KEY`, `SHH_S3_MAX_TOTAL_BYTES` | S3 tier; bucket versioning must be off |
-| `SHH_SPOOL_PATH` | S3 tier only: directory where uploads wait before going to the bucket (default `storage/spool`) |
-| `SHH_EXTERNAL_MAX_OBJECT` | per-object cap for the external tier |
+| `SHH_SPOOL_PATH` | S3 tier only: a dedicated directory where uploads wait before going to the bucket (default `storage/spool`); only `*.part` files are removed at start |
+| `SHH_EXTERNAL_MAX_OBJECT` | per-object cap for the external tier (at most 4 GiB) |
+| `SHH_MAX_UPLOADS` | concurrent-upload cap (default 64) |
 | `SHH_ADMIN_TOKEN` | bootstrap credential (D-9) |
 
-Unknown `SHH_*` variables and variables for a disabled storage tier fail startup with the variable named. There is no server-side encryption key: the server encrypts nothing.
+Unknown `SHH_*` variables and variables for a disabled storage tier fail startup with the variable named. There is no server-side encryption key: the server encrypts nothing. The server applies header, idle and request timeouts and the concurrent-upload cap.
 
 ### 7.2 Database settings (code defaults; database holds overrides only)
 
 Site name, contact and security emails, source-code link, TTL presets and default TTL (≤ 14 days), padding mode / minimum / ladder (§6.2), file secrets on/off (hides the input and caps the accepted size at a text-only secret), inline tier on/off, text size hint, rate-limit thresholds for anonymous and for `user`-key requests, salt-rotation interval, claim window, daily-stats retention (default 365 days; older days are folded into their year's 1 January row so totals are never lost; -1 never folds), regions list (D-12), whether creation requires a `user` key.
 
+Every setting is range-checked as a whole: `padding_min ≥ 65536`, ladder monotone, `claim_window_secs` in `60..=86400`, `rate_user_multiplier ≥ 1`, every preset within `[min_ttl, max_ttl]`, `max_ttl ≤ 14 d` (refused, not clamped), `daily_retention_days ≥ 1` or `-1`, region and source URLs `https://` only (`http://` when `SHH_ENV` is `local`). Arithmetic on settings is checked or saturating.
+
 ---
 
 ## 8. Admin and API keys
 
-- **Bootstrap.** If `SHH_ADMIN_TOKEN` is set and no API key with `admin` scope exists, the token logs in to the admin panel. Once an admin key exists the token is ignored and a startup warning says so, so forgetting to unset it is harmless. Recovery: `shhnote reset-admin` deletes all admin keys so the token works again. Two more subcommands serve deployments: `shhnote check` loads the configuration and pings the database, `shhnote health` asks the running server's `/health` endpoint (for container health checks without curl).
-- **API keys.** 32 random bytes, shown once, stored as `SHA-256(key)` with a name, scopes, `created_at`, and `last_used_at` (keys are operator credentials, not secrets, so timestamps are allowed). Scopes: `admin` (panel and admin API) and `user` (raised create/reveal limits; required for creation only if the instance says so). Rate limiting for a keyed request uses `SHA-256(key)`; nothing records which key created which secret.
-- **Sessions.** Logging in with an admin key (or the bootstrap token) sets a stateless session cookie, `HttpOnly; SameSite=Strict` (`Secure` in production), signed with HMAC-SHA-256 under `SHH_SECRET_KEY` and valid for 12 hours. It names only the key's hash, and every admin request re-checks that the key still exists with `admin` scope, so deleting a key ends its sessions and bootstrap sessions end the moment an admin key is created. Forms carry a CSRF token derived from the session; a request without it gets 403. Login attempts are rate-limited per client (`rate_login_per_hour`).
-- **Panel.** Under `/{locale}/admin`: settings, aggregate stats (totals summed from the daily rows, the live active count, and the last 30 days), the read-only reports ledger, API keys. No per-secret data exists to show.
+- **Bootstrap.** If `SHH_ADMIN_TOKEN` is set and no API key with `admin` scope exists, the token logs in to the admin panel. Once an admin key exists the token is ignored and a startup warning says so, so forgetting to unset it is harmless. A bootstrap session is bound to the hash of the token that created it and is invalid once any admin key exists; `reset-admin` does not revive earlier bootstrap sessions. Recovery: `shhnote reset-admin` deletes all admin keys so the token works again. Two more subcommands serve deployments: `shhnote check` loads the configuration and pings the database, `shhnote health` asks the running server's `/health` endpoint (for container health checks without curl).
+- **API keys.** 32 random bytes, shown once, stored as `SHA-256(key)` with a name, scopes, `created_at`, and `last_used_on` (UTC date, written at most once per day, D-23; keys are operator credentials, not secrets, so timestamps are allowed). Scopes: `admin` (panel and admin API) and `user` (raised create/reveal limits; required for creation only if the instance says so). Rate limiting for a keyed request uses `SHA-256(key)`; nothing records which key created which secret.
+- **Sessions.** Logging in with an admin key (or the bootstrap token) sets a stateless session cookie, `HttpOnly; SameSite=Strict` (`Secure` in production), signed with HMAC-SHA-256 under `SHH_SECRET_KEY` and valid for 12 hours. It names only the key's hash, and every admin request re-checks that the key still exists with `admin` scope, so deleting a key ends its sessions immediately and bootstrap sessions end the moment an admin key is created; keys carry a `sessions_valid_after` timestamp so an operator can also end a key's sessions without deleting it. Forms carry a CSRF token derived from the session; a request without it gets 403. Logout requires the CSRF token. Login attempts are rate-limited per client (`rate_login_per_hour`).
+- **Panel.** Under `/{locale}/admin`: settings, aggregate stats (totals summed from the daily rows, the live active count, and the last 30 days), the daily report counts (part of stats), API keys. No per-secret data exists to show. Every admin response carries `Cache-Control: no-store`. Settings save and key creation respond with a redirect; the new key is shown once on the redirected page via a one-time server-side nonce.
 - **Settings form.** Every setting is submitted as a string (`Settings::as_strings`), validated as a whole, and only values that differ from the code defaults are written to the `settings` table; a value equal to the default deletes its row. Saving swaps the in-memory settings atomically, so limits, padding policy and the like apply to the next request without a restart.
-- **Admin API.** `/api/v1/admin/{stats,settings,reports,keys,keys/delete}` mirror the panel as JSON, authenticated with `Authorization: Bearer <admin key>` (or the bootstrap token while no admin key exists, so a first key can be provisioned non-interactively). Settings are patched partially, validated as a whole, stored as overrides only and applied live. Failed authentications share the login rate limit; responses are `no-store`.
+- **Admin API.** `/api/v1/admin/{stats,settings,reports,keys,keys/delete}` mirror the panel as JSON, authenticated with `Authorization: Bearer <admin key>` (or the bootstrap token while no admin key exists, so a first key can be provisioned non-interactively). Settings are patched partially, validated as a whole, stored as overrides only and applied live. Failed authentications share the login rate limit; responses are `no-store`. Credentials are compared in constant time or looked up by hash; the login bucket is consulted before the lookup.
 - **Keyed API requests.** `Authorization: Bearer <key>` with a `user` key moves rate limiting to the key's own bucket (`rate_user_multiplier` times the anonymous limits) and satisfies `require_api_key_for_create`; an unknown or `admin` key is treated as anonymous. Keys never affect what is stored about a secret.
 
 ---
@@ -320,9 +343,12 @@ Settings hold a list of `{code, name, url}` sibling instances. When non-empty, t
 
 - `client/` holds TypeScript sources: `crypto/` (fragment, HKDF, envelope, chunking, container, padding, blob parse/assemble, Argon2 bounds) with **no DOM dependencies**, and `ui/` (create, reveal, burn, report flows).
 - Build: `tsc` for types, `esbuild` to two ES-module bundles, `app.js` (page scripts, entry `src/main.ts`) and `shh.js` (the library, entry `src/index.ts`), written to `crates/shhnote-server/static/` by `scripts/build-client.sh` and embedded into the server binary. `typescript`, `esbuild` and `@types/node` are the only npm dependencies, all dev-time; nothing from npm ships to browsers. Tests run on Node's native type stripping, so the source avoids syntax that needs a compiler (parameter properties, enums, namespaces, decorators).
-- Argon2id: `crates/shhnote-argon2-wasm` compiles the Rust `argon2` crate to `wasm32-unknown-unknown` with a C-ABI export (`scripts/build-wasm.sh`, ~40 KB); the module is fetched same-origin. One implementation serves both sides; the vector suite is the tripwire.
+- Argon2id: `crates/shhnote-argon2-wasm` compiles the Rust `argon2` crate to `wasm32-unknown-unknown` with a C-ABI export (`scripts/build-wasm.sh`, ~40 KB); the module is fetched same-origin. `argon2.wasm` is fetched on every create and reveal (D-22). One implementation serves both sides; the vector suite is the tripwire. If WebAssembly is unavailable (Tor Browser at Safer), the client says so instead of reporting a corrupt secret.
 - `shh.js` (served at `/static/shh.js`) + `argon2.wasm` + the vectors are the integration kit for third-party clients. Besides the crypto primitives, the library exports `createSecret`, `parseFragment`, `revealSecret` and `burnSecret` (`src/client.ts`), each taking the API base and an optional fetch implementation so it runs outside the browser too.
-- The content key is created as a Web Crypto key and wrapped with `wrapKey`, which requires it to be extractable; nothing ever calls `exportKey` on it. The KEK is derived with `deriveKey` and is never extractable; on the receiving side the content key comes out of `unwrapKey` non-extractable.
+- The content key is created as a Web Crypto key and wrapped with `wrapKey`, which requires it to be extractable; nothing ever calls `exportKey` on it. The KEK is derived with `deriveKey` and is never extractable; on the receiving side the content key comes out of `unwrapKey` non-extractable. The seed, and for passphrase secrets the Argon2 output until it is consumed by `deriveKey`, are the only raw key material in JavaScript; both are overwritten when the page is left (best effort).
+- Wrong-kind fragments (§2.2) are refused before any derivation.
+- The client streams: it reads response headers before the body, keeps the claim token through any body or passphrase error, retries with it while the window is open, and refuses a body longer than the largest valid blob. Decryption runs chunk by chunk and files are assembled incrementally.
+- Download names are normalised (NFC), stripped of control, bidi and path characters, capped in length, and rendered with `<bdi>`. Blob URLs are always `application/octet-stream`.
 - Required CSP: `script-src 'self' 'wasm-unsafe-eval'`; no inline scripts or styles anywhere.
 - The reveal page fetches nothing until a trusted user gesture; `history.replaceState` scrubs the fragment after reveal and burn; decrypted material is overwritten when the page is left (best effort — JavaScript cannot guarantee memory wiping, and the threat model says so).
 
@@ -332,9 +358,9 @@ Settings hold a list of `{code, name, url}` sibling instances. When non-empty, t
 
 Routes under `/{locale}/`: `/` (create), `/s` (reveal interstitial, static), `/burn` (static until confirmed), `/report` (paste a link; the client derives the lookup value from its fragment and posts it, the page answers the same way whatever happened), `/how-it-works`, `/about`, `/contact`, `/terms`, `/privacy`, `/security`, `/acceptable-use`, `/docs` (API documentation, Markdown with `{{site_url}}` and `{{api_url}}` placeholders), `/admin/*`. Paths without a locale redirect by `Accept-Language`; fragments survive the redirect.
 
-Headers on every response: CSP as above, HSTS (production), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, restrictive `Permissions-Policy`. All assets self-hosted; zero external-origin requests.
+Headers on every response, including API, redirect, error and drain responses: CSP as above, HSTS (production), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, restrictive `Permissions-Policy`. All assets self-hosted; zero external-origin requests. No inline `style=` attributes (the CSP already blocks them). Startup prints nothing but through the log macros.
 
-The visual layer lives in `templates/` (Askama) and `static/app.css`: a CSS-variable token system with four themes (light, dark, and a high-contrast variant of each, chosen per visitor and stored locally), semantic markup, self-hosted fonts, no inline scripts or styles. Copy rules that follow from the principles: fragment-only URLs (`/s#…`, `/burn#…`), no pricing or upgrade elements, no view-count or exact-size wording, no pre-reveal expiry information on the interstitial, and lifecycle wording that matches §5 ("revealed once, then gone").
+The visual layer lives in `templates/` (Askama) and `static/app.css`: a CSS-variable token system with four themes (light, dark, and a high-contrast variant of each, chosen per visitor and stored locally), semantic markup, self-hosted fonts, no inline scripts or styles. Copy rules that follow from the principles: fragment-only URLs (`/s#…`, `/burn#…`), no pricing or upgrade elements, no view-count or exact-size wording, no pre-reveal expiry information on the interstitial, and lifecycle wording that matches §5 ("revealed once, then gone"). **OPEN** (see §5.2): if remaining time is removed from the reveal page, add "no expiry information on the reveal page".
 
 ---
 
@@ -376,3 +402,7 @@ Recorded so they are not re-proposed as new.
 - **Reporter email or removal notifications.** A PII store and an existence oracle delivered by mail.
 - **Proactive content scanning.** Impossible by design and not claimed.
 - **CAPTCHAs or fingerprinting for rate limiting.** Break Tor and privacy browsers.
+- **Per-report ledger rows.** A row keyed by a secret's hash with a time and an outcome is a tombstone whatever its retention; reports are a daily count (D-19).
+- **Timestamps on API-key use finer than a day.** Joinable with the expiry grid (D-23).
+- **Fragments of different roles sharing one shape.** A burn fragment must be distinguishable from a share fragment before it is sent (D-2).
+- **Distinguishable duplicate-create responses.** An existence oracle (D-21).
