@@ -147,7 +147,6 @@ fn runtime() -> tokio::runtime::Runtime {
 // SPEC §4 / Principle 7: `GET /config` is never rate-limited, so it must not retain anything
 // per request.
 #[test]
-#[ignore = "S-1"]
 fn spec_config_retains_nothing_per_request() {
     let _guard = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     runtime().block_on(async {

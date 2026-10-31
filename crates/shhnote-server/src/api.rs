@@ -163,9 +163,9 @@ enum PaddingResponse<'a> {
     Buckets { ladder: &'a [u64] },
 }
 
-async fn config(State(state): State<ApiState>) -> Json<ConfigResponse<'static>> {
-    // The settings live for the process, so handing out references is fine.
-    let settings: &'static Settings = Box::leak(Box::new((*state.settings.load()).clone()));
+async fn config(State(state): State<ApiState>) -> Response {
+    // Serialised while the snapshot is held; nothing from it outlives the request.
+    let settings = state.settings.load();
     Json(ConfigResponse {
         fragment_version: fragment::VERSION,
         padding: match &settings.padding {
@@ -183,6 +183,7 @@ async fn config(State(state): State<ApiState>) -> Json<ConfigResponse<'static>> 
         files_enabled: settings.files_enabled,
         regions: &settings.regions,
     })
+    .into_response()
 }
 
 // Readiness for orchestrators: the process is up and the database answers. Says nothing else.
