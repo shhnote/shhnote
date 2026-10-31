@@ -60,7 +60,7 @@ that started this).
 | S-43 | Low | `dec32c1` | redirect after settings save and key creation; the key shown once via a one-time nonce (login page for the first admin key) |
 | S-44 | Low | `f8ce537` | Argon2 work memory wiped in the WASM module and in core (`argon2/zeroize`) |
 | S-45 | Low | `c7612bc`, `133f9f0`, `fda682d`, `40f5875` | spec wording, threat-model caveat, seed/ciphertext/passphrase wiped on `pagehide` |
-| S-46 | Low | `4d7b563`, step 33 | parsing parity cases pinned by vectors; an empty passphrase is an error at the API boundary on both sides (§2.10), pinned by the `empty-passphrase` reject vector |
+| S-46 | Low | `4d7b563`, `d6af0c6` | parsing parity cases pinned by vectors; an empty passphrase is an error at the API boundary on both sides (§2.10), pinned by the `empty-passphrase` reject vector |
 | S-47 | Low | `e0b1b88`, `40f5875` | hostile blobs stay inside the `ShhError` contract |
 | S-48 | Low | `4d7b563` | multi-chunk and truncation negatives in the vectors |
 | S-49 | Low | `86cb2e1` | no parameter properties; `erasableSyntaxOnly` |
