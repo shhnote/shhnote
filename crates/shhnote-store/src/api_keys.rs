@@ -68,14 +68,17 @@ impl Store {
         row.map(|row| api_key(&row)).transpose()
     }
 
-    // Records the UTC day of use, never the time (D-23).
+    // Records the UTC day of use, never the time, and writes it at most once per day (D-23).
     pub async fn touch_api_key(&self, key_hash: &[u8; 32], now: i64) -> Result<(), Error> {
         let day = now - now.rem_euclid(86_400);
-        sqlx::query("UPDATE api_keys SET last_used_on = $2 WHERE key_hash = $1")
-            .bind(key_hash.to_vec())
-            .bind(day)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(
+            "UPDATE api_keys SET last_used_on = $2 \
+             WHERE key_hash = $1 AND (last_used_on IS NULL OR last_used_on <> $2)",
+        )
+        .bind(key_hash.to_vec())
+        .bind(day)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 

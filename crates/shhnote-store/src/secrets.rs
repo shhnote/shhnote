@@ -202,16 +202,17 @@ impl Store {
         Ok(destroyed > 0)
     }
 
-    // Removes a matching active secret. Returns whether it matched. Nothing per report is
-    // stored (D-19): a row keyed by the secret's hash would be a tombstone.
+    // Counts the report and removes a matching active secret. Returns whether it matched.
+    // Nothing per report is stored (D-19): a row keyed by the secret's hash would be a
+    // tombstone. The statement sequence is the same whether or not anything matched, so a
+    // reporter cannot tell from the time it takes (SPEC §4).
     pub async fn report(&self, lookup_key: &[u8; 32], now: i64) -> Result<bool, Error> {
         let mut tx = self.pool.begin().await?;
+        count(&mut tx, now, Counter::Reports, 1).await?;
         // SECURITY: same narrowness as burn; claimed secrets are handled by the window.
         let predicate = "lookup_key = $1 AND status = 'active' AND expires_at > $2";
         let destroyed = destroy(&mut tx, predicate, &[&lookup_key[..]], now).await?;
-        if destroyed > 0 {
-            count(&mut tx, now, Counter::Removed, destroyed).await?;
-        }
+        count(&mut tx, now, Counter::Removed, destroyed).await?;
         tx.commit().await?;
         Ok(destroyed > 0)
     }
@@ -342,6 +343,7 @@ enum Counter {
     Burned,
     Expired,
     Removed,
+    Reports,
 }
 
 impl Counter {
@@ -362,6 +364,9 @@ impl Counter {
             }
             Self::Removed => {
                 "INSERT INTO stats_daily (day, removed) VALUES ($1, $2) ON CONFLICT (day) DO UPDATE SET removed = stats_daily.removed + $2"
+            }
+            Self::Reports => {
+                "INSERT INTO stats_daily (day, reports) VALUES ($1, $2) ON CONFLICT (day) DO UPDATE SET reports = stats_daily.reports + $2"
             }
         }
     }

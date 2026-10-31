@@ -594,13 +594,14 @@ async fn report(
     State(state): State<ApiState>,
     Json(body): Json<ReportBody>,
 ) -> Result<Json<ReportResponse>, ApiError> {
-    if let Some(lookup) = decode32(&body.lookup) {
-        state
-            .store
-            .report(&credential_hash(&lookup), now())
-            .await
-            .map_err(ApiError::internal)?;
-    }
+    // A malformed identifier is replaced by random bytes and run through the same statements,
+    // so a reporter learns nothing from timing either (SPEC §4).
+    let lookup = decode32_or_random(&body.lookup)?;
+    state
+        .store
+        .report(&credential_hash(&lookup), now())
+        .await
+        .map_err(ApiError::internal)?;
     Ok(Json(ReportResponse { status: "received" }))
 }
 

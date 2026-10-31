@@ -281,11 +281,12 @@ async fn report_removes_and_keeps_no_ledger() {
             "{backend}: already removed"
         );
 
-        // Only the takedown is counted; which secret was reported is not kept anywhere.
-        assert_eq!(store.stats().await.unwrap().removed, 1, "{backend}");
+        // Reports are counted per day; which secret was reported is not kept anywhere.
+        let stats = store.stats().await.unwrap();
+        assert_eq!((stats.reports, stats.removed), (3, 1), "{backend}");
         let days = store.daily(0).await.unwrap();
         assert_eq!(days.len(), 1, "{backend}");
-        assert_eq!(days[0].removed, 1, "{backend}");
+        assert_eq!((days[0].reports, days[0].removed), (3, 1), "{backend}");
     }
 }
 

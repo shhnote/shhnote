@@ -583,7 +583,6 @@ async fn timed(app: &Router, path: &str, body: Value) -> (u128, StatusCode) {
 // an unmatched and a malformed report take the same time. The reveal negatives are the
 // control: they were already flat. Loose bounds, since this measures wall time.
 #[tokio::test]
-#[ignore = "S-16"]
 async fn spec_report_does_the_same_work_on_every_path() {
     const N: usize = 200;
     let (app, store) = server_with("spec-privacy-timing", UNLIMITED).await;
