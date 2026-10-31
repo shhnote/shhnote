@@ -6,14 +6,14 @@ use std::{
 use axum::{
     Json, Router,
     body::{Body, Bytes},
-    extract::{DefaultBodyLimit, Multipart, State, multipart::Field},
+    extract::{DefaultBodyLimit, FromRequest, Multipart, Request, State, multipart::Field},
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
     middleware,
     response::{IntoResponse, Response},
     routing::{get, post},
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use shhnote_core::{
     config::Config,
     fragment,
@@ -460,7 +460,25 @@ fn text_only_bucket(settings: &Settings) -> u64 {
     settings.padding.padded_size(payload).unwrap_or(0)
 }
 
-#[derive(Deserialize)]
+// A JSON body on a credential endpoint. Anything the framework would reject (bad JSON, wrong
+// types, missing fields, no Content-Type) becomes an empty body instead, so the handler runs
+// its normal path with random credentials and the answer stays uniform (SPEC §4).
+struct Lenient<T>(T);
+
+impl<S, T> FromRequest<S> for Lenient<T>
+where
+    S: Send + Sync,
+    T: DeserializeOwned + Default,
+{
+    type Rejection = ApiError;
+
+    async fn from_request(req: Request, state: &S) -> Result<Self, ApiError> {
+        let body = Bytes::from_request(req, state).await.unwrap_or_default();
+        Ok(Self(serde_json::from_slice(&body).unwrap_or_default()))
+    }
+}
+
+#[derive(Deserialize, Default)]
 struct RevealBody {
     lookup: String,
     claim_token: Option<String>,
@@ -469,7 +487,7 @@ struct RevealBody {
 // Single-view: claim (or re-download with the claim token). TTL: plain read. Anything else: the uniform negative.
 async fn reveal(
     State(state): State<ApiState>,
-    Json(body): Json<RevealBody>,
+    Lenient(body): Lenient<RevealBody>,
 ) -> Result<Response, ApiError> {
     let lookup_key = credential_hash(&decode32_or_random(&body.lookup)?);
     let now = now();
@@ -547,7 +565,7 @@ async fn blob_response(
     Ok((StatusCode::OK, headers, body).into_response())
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 struct ConfirmBody {
     lookup: String,
     claim_token: String,
@@ -555,7 +573,7 @@ struct ConfirmBody {
 
 async fn confirm(
     State(state): State<ApiState>,
-    Json(body): Json<ConfirmBody>,
+    Lenient(body): Lenient<ConfirmBody>,
 ) -> Result<StatusCode, ApiError> {
     let lookup_key = credential_hash(&decode32_or_random(&body.lookup)?);
     let claim_key = credential_hash(&decode32_or_random(&body.claim_token)?);
@@ -566,14 +584,14 @@ async fn confirm(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 struct BurnBody {
     burn_token: String,
 }
 
 async fn burn(
     State(state): State<ApiState>,
-    Json(body): Json<BurnBody>,
+    Lenient(body): Lenient<BurnBody>,
 ) -> Result<StatusCode, ApiError> {
     let burn_key = credential_hash(&decode32_or_random(&body.burn_token)?);
     match state.store.burn(&burn_key, now()).await {
@@ -583,7 +601,7 @@ async fn burn(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 struct ReportBody {
     lookup: String,
 }
@@ -596,7 +614,7 @@ struct ReportResponse {
 // Always the same answer. A malformed identifier is not notice, so it gets no ledger row.
 async fn report(
     State(state): State<ApiState>,
-    Json(body): Json<ReportBody>,
+    Lenient(body): Lenient<ReportBody>,
 ) -> Result<Json<ReportResponse>, ApiError> {
     // A malformed identifier is replaced by random bytes and run through the same statements,
     // so a reporter learns nothing from timing either (SPEC §4).

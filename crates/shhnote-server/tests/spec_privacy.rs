@@ -342,7 +342,6 @@ async fn spec_negatives_are_byte_identical() {
 // Content-Type) gets the same uniform negative as a malformed credential, and `/reports`
 // always answers its fixed 200.
 #[tokio::test]
-#[ignore = "S-26"]
 async fn spec_framework_rejections_are_the_uniform_negative() {
     let (app, _) = server_with("spec-privacy-rejections", UNLIMITED).await;
     let base = post(

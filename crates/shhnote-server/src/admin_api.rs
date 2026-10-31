@@ -2,13 +2,13 @@ use std::collections::{BTreeMap, HashMap};
 
 use axum::{
     Json, Router,
-    extract::{Query, Request, State},
+    extract::{FromRequest, Query, Request, State},
     http::{HeaderValue, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use shhnote_core::{secret::credential_hash, settings::Settings};
 use shhnote_store::Scope;
@@ -225,7 +225,7 @@ struct InvalidDetail {
 // validated as a whole, exactly like the panel's form.
 async fn settings_patch(
     State(state): State<ApiState>,
-    Json(patch): Json<HashMap<String, Value>>,
+    Strict(patch): Strict<HashMap<String, Value>>,
 ) -> Response {
     let defaults = Settings::default().as_strings();
     let mut submitted: HashMap<String, String> = state
@@ -296,7 +296,30 @@ struct NewKey {
     scope: String,
 }
 
-async fn keys_create(State(state): State<ApiState>, Json(body): Json<NewKey>) -> Response {
+// A JSON body on the admin API: a rejection is answered in the shared error shape, never
+// with the framework's plain-text default.
+struct Strict<T>(T);
+
+impl<S, T> FromRequest<S> for Strict<T>
+where
+    S: Send + Sync,
+    T: DeserializeOwned,
+{
+    type Rejection = Response;
+
+    async fn from_request(req: Request, state: &S) -> Result<Self, Response> {
+        match Json::<T>::from_request(req, state).await {
+            Ok(Json(value)) => Ok(Self(value)),
+            Err(_) => Err(error_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_json",
+                "The body is not valid JSON for this endpoint.",
+            )),
+        }
+    }
+}
+
+async fn keys_create(State(state): State<ApiState>, Strict(body): Strict<NewKey>) -> Response {
     let name = body.name.trim();
     let scope = Scope::parse(&body.scope);
     let (Some(scope), false) = (scope, name.is_empty() || name.len() > 80) else {
@@ -326,7 +349,7 @@ struct DeleteKey {
     id: String,
 }
 
-async fn keys_delete(State(state): State<ApiState>, Json(body): Json<DeleteKey>) -> Response {
+async fn keys_delete(State(state): State<ApiState>, Strict(body): Strict<DeleteKey>) -> Response {
     let Some(hash) = unhex(&body.id) else {
         return error_response(StatusCode::BAD_REQUEST, "invalid_key", "Unknown key id.");
     };
