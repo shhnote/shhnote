@@ -26,7 +26,7 @@ async fn main() {
         match health::probe(&config).await {
             Ok(()) => println!("ok"),
             Err(e) => {
-                eprintln!("unhealthy: {e}");
+                shhnote_server::log_error!("unhealthy: {e}");
                 std::process::exit(1);
             }
         }
@@ -64,7 +64,9 @@ async fn main() {
             return;
         }
         Some(other) => {
-            eprintln!("unknown command {other:?}; commands: check, health, reset-admin");
+            shhnote_server::log_error!(
+                "unknown command {other:?}; commands: check, health, reset-admin"
+            );
             std::process::exit(2);
         }
         None => {}
@@ -133,8 +135,9 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(config.bind_addr)
         .await
         .unwrap();
-    println!("listening on http://{}", listener.local_addr().unwrap());
-    println!("site at {}, API at {}/v1", config.url, config.api_url);
+    // Configuration is never printed at startup (SPEC §11); the bind address goes through the
+    // log macros like every other diagnostic, so SHH_LOG_LEVEL decides.
+    shhnote_server::log_info!("listening on {}", listener.local_addr().unwrap());
     shhnote_server::serve::serve(
         listener,
         app,

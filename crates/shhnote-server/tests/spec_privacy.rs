@@ -630,7 +630,6 @@ async fn spec_report_does_the_same_work_on_every_path() {
 // SPEC §6.1 / CLAUDE.md: an S3 failure is logged with its status and code only; the object
 // key, which `external_ref` maps to a secret, never reaches a log line.
 #[tokio::test]
-#[ignore = "S-11"]
 async fn spec_s3_error_log_text_never_names_the_object() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

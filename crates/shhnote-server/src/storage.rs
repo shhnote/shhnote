@@ -761,11 +761,17 @@ async fn expect_success(response: Response<Incoming>) -> io::Result<()> {
     }
 }
 
+// Only the status and S3's error code make it into the error, which ends up in a log line.
+// The body names the object key, and the key maps to a secret's row (CLAUDE.md: nothing
+// request-specific is ever logged).
 async fn status_error(response: Response<Incoming>) -> io::Error {
     let status = response.status();
     let body = read_small(response).await.unwrap_or_default();
-    let detail: String = body.chars().take(200).collect();
-    io::Error::other(format!("S3 answered {status}: {detail}"))
+    let code = between_all(&body, "<Code>", "</Code>")
+        .next()
+        .filter(|c| c.len() <= 64 && c.chars().all(|ch| ch.is_ascii_alphanumeric()))
+        .unwrap_or("no code");
+    io::Error::other(format!("S3 answered {status} ({code})"))
 }
 
 // AWS Signature Version 4 for S3 (the "Authorization" header value). `headers` must
