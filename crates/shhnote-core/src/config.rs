@@ -169,6 +169,24 @@ pub struct Cidr {
 }
 
 impl Cidr {
+    // `addr & !mask == 0`: the host bits are all zero.
+    fn is_network_address(&self) -> bool {
+        match self.addr {
+            IpAddr::V4(a) => {
+                let mask = u32::MAX
+                    .checked_shl(32 - u32::from(self.prefix))
+                    .unwrap_or(0);
+                u32::from(a) & !mask == 0
+            }
+            IpAddr::V6(a) => {
+                let mask = u128::MAX
+                    .checked_shl(128 - u32::from(self.prefix))
+                    .unwrap_or(0);
+                u128::from(a) & !mask == 0
+            }
+        }
+    }
+
     pub fn contains(&self, ip: IpAddr) -> bool {
         match (self.addr, ip) {
             (IpAddr::V4(a), IpAddr::V4(b)) => {
@@ -214,7 +232,33 @@ impl std::str::FromStr for Cidr {
                 "{text:?} would trust everyone; list specific proxy addresses or ranges"
             ));
         }
-        Ok(Self { addr, prefix })
+        // So would a handful of huge ranges; real proxy ranges are far narrower (SPEC §7.1).
+        let narrowest = if addr.is_ipv4() { 8 } else { 32 };
+        if prefix < narrowest {
+            return Err(format!(
+                "{text:?} is too wide; proxy ranges must be at least /{narrowest}"
+            ));
+        }
+        // IPv4 peers are matched in IPv4 form, so a mapped or transition range would never
+        // match anything, or match everything.
+        if let IpAddr::V6(v6) = addr {
+            let segments = v6.segments();
+            let mapped = v6.to_ipv4_mapped().is_some();
+            let nat64 = segments[..6] == [0x64, 0xff9b, 0, 0, 0, 0];
+            let six_to_four = segments[0] == 0x2002;
+            if mapped || nat64 || six_to_four {
+                return Err(format!(
+                    "{text:?} is an IPv4 transition range; list the IPv4 addresses instead"
+                ));
+            }
+        }
+        let cidr = Self { addr, prefix };
+        if !cidr.contains(addr) || !cidr.is_network_address() {
+            return Err(format!(
+                "{text:?} is not a network address; use the first address of the range"
+            ));
+        }
+        Ok(cidr)
     }
 }
 
@@ -615,7 +659,7 @@ mod tests {
     fn trusted_proxies_accept_addresses_and_ranges() {
         let config = Config::from_vars(&with(&[(
             "SHH_TRUSTED_PROXIES",
-            "10.0.0.1, 172.16.0.0/12,fd00::/8",
+            "10.0.0.1, 172.16.0.0/12,fd12::/32",
         )]))
         .unwrap();
         let [single, range4, range6] = config.trusted_proxies[..] else {
@@ -627,7 +671,20 @@ mod tests {
         assert!(!range4.contains("172.32.0.1".parse().unwrap()));
         assert!(!range4.contains("fd00::1".parse().unwrap()));
         assert!(range6.contains("fd12::1".parse().unwrap()));
-        for bad in ["0.0.0.0", "::", "10.0.0.0/0", "10.0.0.0/33", "proxy"] {
+        assert!(!range6.contains("fd13::1".parse().unwrap()));
+        for bad in [
+            "0.0.0.0",
+            "::",
+            "10.0.0.0/0",
+            "10.0.0.0/33",
+            "proxy",
+            "1.0.0.0/1",
+            "::ffff:0:0/96",
+            "64:ff9b::/96",
+            "2002::/16",
+            "::1/1",
+            "10.0.0.1/8",
+        ] {
             assert_eq!(
                 invalid_name(Config::from_vars(&with(&[("SHH_TRUSTED_PROXIES", bad)]))),
                 "SHH_TRUSTED_PROXIES",

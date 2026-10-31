@@ -118,7 +118,6 @@ fn limiter(per_hour: u32, proxies: &[&str]) -> RateLimiter {
 // SPEC §4: peers are canonicalised, so IPv4 clients behind a dual-stack listener keep their
 // own buckets and a trusted IPv4 proxy is recognised in mapped form.
 #[test]
-#[ignore = "S-13"]
 fn spec_ipv4_mapped_peers_are_canonicalised() {
     let limiter = limiter(1, &["10.0.0.1"]);
     let a: IpAddr = "::ffff:198.51.100.1".parse().unwrap();
@@ -172,7 +171,6 @@ fn spec_bucket_flood_does_not_reset_other_limits() {
 
 // SPEC §7.1: proxy ranges that together trust everyone are refused like `/0` is.
 #[test]
-#[ignore = "S-34"]
 fn spec_trusted_proxies_refuse_trust_everyone_equivalents() {
     for list in [
         "1.0.0.0/1,128.0.0.0/1",

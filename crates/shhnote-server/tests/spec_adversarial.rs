@@ -769,7 +769,6 @@ async fn proxied_srv(name: &str) -> Srv {
 // `option forwardfor`, or any proxy that adds rather than merges), every line is joined
 // before the walk from the right, so the client's own line never wins.
 #[tokio::test]
-#[ignore = "S-58"]
 async fn spec_all_xff_lines_are_joined_behind_a_proxy() {
     let s = proxied_srv("j-xff-lines").await;
     // Control: one merged header is handled right; the proxy's hop is used and limited.

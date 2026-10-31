@@ -80,22 +80,29 @@ impl RateLimiter {
     // The address rate limiting sees: the socket peer, unless that peer is a trusted proxy,
     // in which case the nearest untrusted hop in X-Forwarded-For.
     pub fn client_ip(&self, peer: IpAddr, headers: &HeaderMap) -> IpAddr {
+        // A dual-stack listener reports IPv4 peers as `::ffff:a.b.c.d`; they are IPv4 clients.
+        let peer = peer.to_canonical();
         if !self.is_proxy(peer) {
             return peer;
         }
-        let forwarded = headers
-            .get("x-forwarded-for")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
-        forwarded
-            .split(',')
-            .rev()
+        // Every X-Forwarded-For line, joined: a proxy that appends its own line rather than
+        // merging must not leave the client's line to be read alone.
+        let hops: Vec<IpAddr> = headers
+            .get_all("x-forwarded-for")
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .flat_map(|line| line.split(','))
             .filter_map(|hop| hop.trim().parse::<IpAddr>().ok())
+            .map(|ip| ip.to_canonical())
+            .collect();
+        hops.into_iter()
+            .rev()
             .find(|&ip| !self.is_proxy(ip))
             .unwrap_or(peer)
     }
 
     fn is_proxy(&self, ip: IpAddr) -> bool {
+        let ip = ip.to_canonical();
         self.trusted_proxies.iter().any(|range| range.contains(ip))
     }
 
@@ -189,7 +196,7 @@ fn keyed_hash(salt: &[u8; 32], data: &[u8]) -> [u8; 32] {
 
 // IPv6 users usually hold a whole /64, so limiting per address would be no limit at all.
 fn ip_prefix(ip: IpAddr) -> Vec<u8> {
-    match ip {
+    match ip.to_canonical() {
         IpAddr::V4(v4) => v4.octets().to_vec(),
         IpAddr::V6(v6) => v6.octets()[..8].to_vec(),
     }
@@ -221,7 +228,9 @@ impl<S: Send + Sync> FromRequestParts<S> for Peer {
 pub(crate) fn peer_of(extensions: &axum::http::Extensions) -> IpAddr {
     extensions
         .get::<ConnectInfo<SocketAddr>>()
-        .map_or(IpAddr::from([127, 0, 0, 1]), |info| info.0.ip())
+        .map_or(IpAddr::from([127, 0, 0, 1]), |info| {
+            info.0.ip().to_canonical()
+        })
 }
 
 // Middleware: identifies the caller, consumes a token for this endpoint, or answers 429.
