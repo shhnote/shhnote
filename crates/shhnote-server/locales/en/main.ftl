@@ -376,6 +376,7 @@ admin-login-label = API key or bootstrap token
 admin-login-submit = Sign in
 admin-login-failed = That key didn't work.
 admin-login-limited = Too many attempts. Wait a little and try again.
+admin-login-new-key = Your first admin key. Copy it now; it won't be shown again. The bootstrap session has ended, so sign in with the key to continue.
 admin-dashboard-title = Overview
 admin-stat-active = Active secrets
 admin-stat-created = Created

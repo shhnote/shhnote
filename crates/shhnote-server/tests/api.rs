@@ -641,15 +641,24 @@ fn csrf_of(page: &Reply) -> String {
     between(&text(page), "name=\"csrf\" value=\"", "\"").to_string()
 }
 
+// Creation redirects (SPEC §8); the key is shown once on the page the redirect points at.
 async fn create_key(app: &Router, cookie: &str, csrf: &str, name: &str, scope: &str) -> String {
-    let page = post_form(
+    let reply = post_form(
         app,
         "/en/admin/keys",
         cookie,
         &[("csrf", csrf), ("name", name), ("scope", scope)],
     )
     .await;
-    assert_eq!(page.status, StatusCode::OK);
+    assert_eq!(reply.status, StatusCode::SEE_OTHER);
+    let page = get_page(app, location(&reply), cookie).await;
+    assert_eq!(
+        page.status,
+        StatusCode::OK,
+        "{} -> {:?}",
+        location(&reply),
+        page.headers.get(header::LOCATION)
+    );
     between(&text(&page), "data-new-key-value>", "<").to_string()
 }
 
@@ -765,8 +774,9 @@ async fn admin_settings_apply_live_and_store_only_overrides() {
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
     let reply = post_form(&app, "/en/admin/settings", &cookie, &borrowed).await;
-    assert_eq!(reply.status, StatusCode::OK, "{}", text(&reply));
-    assert!(text(&reply).contains("Saved."));
+    assert_eq!(reply.status, StatusCode::SEE_OTHER, "{}", text(&reply));
+    let page = get_page(&app, location(&reply), &cookie).await;
+    assert!(text(&page).contains("Saved."));
 
     let overrides = store.setting_overrides().await.unwrap();
     assert_eq!(overrides.len(), 2, "{overrides:?}");
@@ -830,7 +840,7 @@ async fn admin_settings_apply_live_and_store_only_overrides() {
         post_form(&app, "/en/admin/settings", &cookie, &borrowed)
             .await
             .status,
-        StatusCode::OK
+        StatusCode::SEE_OTHER
     );
     let refused = create(
         &app,

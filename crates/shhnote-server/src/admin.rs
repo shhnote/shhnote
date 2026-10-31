@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use askama::Template;
 use axum::{
     Form, Router,
-    extract::State,
+    extract::{Query, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
@@ -26,6 +26,18 @@ use crate::{
 const COOKIE: &str = "shh_admin";
 const SESSION_SECS: i64 = 12 * 3600;
 const DAY: i64 = 86_400;
+// How long a freshly minted key waits to be shown; a redirect takes well under a second.
+const FRESH_KEY_SECS: i64 = 60;
+
+// A key minted by the panel, parked under a one-time nonce until the redirected page shows
+// it (SPEC §8): the POST response carries nothing, so a refresh mints nothing and shows
+// nothing. Bound to the session that minted it.
+pub(crate) struct FreshKey {
+    nonce: String,
+    session_nonce: [u8; 16],
+    key: String,
+    expires: i64,
+}
 
 pub(crate) fn routes() -> Router<PageState> {
     Router::new()
@@ -47,12 +59,11 @@ pub(crate) async fn no_store(mut response: Response) -> Response {
     response
 }
 
-// A signed, stateless session: who is logged in and until when. Every request re-checks that
-// the key still exists, so deleting a key ends its sessions.
-#[derive(Clone, Copy)]
-// Stateless and signed; `key_hash` is the admin key's hash, or the bootstrap token's hash
-// for a bootstrap session, so both kinds are bound to the credential that made them.
+// A signed, stateless session: who is logged in and until when. `key_hash` is the admin
+// key's hash, or the bootstrap token's hash for a bootstrap session, so both kinds are bound
+// to the credential that made them; every request re-checks that credential, and
 // `issued_at` is what revocation is measured against (SPEC §8).
+#[derive(Clone, Copy)]
 struct Session {
     key_hash: [u8; 32],
     bootstrap: bool,
@@ -209,17 +220,31 @@ fn admin_ctx(state: &PageState, session: &Session) -> AdminCtx {
 struct LoginPage<'a> {
     ctx: Ctx<'a>,
     error: Option<String>,
+    // The first admin key, minted by a bootstrap session that ended with it (SPEC §8).
+    new_key: Option<String>,
 }
 
-async fn login_page(State(state): State<PageState>, headers: HeaderMap) -> Response {
+async fn login_page(
+    State(state): State<PageState>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
     if authenticate(&state, &headers).await.is_ok() {
         return Redirect::to(&state.href("/admin")).into_response();
     }
+    // The cookie of the session that minted the key is still sent, and the parked key is
+    // bound to that session's nonce, so the signature alone is enough to hand it over once.
+    let new_key = query.get("new").and_then(|nonce| {
+        let session =
+            cookie_value(&headers).and_then(|v| Session::decode(v, &state.shared.secret_key))?;
+        take_fresh_key(&state, &session, nonce)
+    });
     render(
         &state,
         LoginPage {
             ctx: state.ctx("/admin/login"),
             error: None,
+            new_key,
         },
     )
 }
@@ -236,6 +261,7 @@ async fn login(
         let page = LoginPage {
             error: Some(ctx.t(key)),
             ctx,
+            new_key: None,
         };
         let mut response = render(&state, page);
         *response.status_mut() = status;
@@ -476,7 +502,11 @@ fn groups(current: &Settings, shown: Option<&HashMap<String, String>>) -> Vec<Gr
     groups
 }
 
-async fn settings_page(State(state): State<PageState>, headers: HeaderMap) -> Response {
+async fn settings_page(
+    State(state): State<PageState>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
     let session = match authenticate(&state, &headers).await {
         Ok(s) => s,
         Err(r) => return *r,
@@ -489,7 +519,7 @@ async fn settings_page(State(state): State<PageState>, headers: HeaderMap) -> Re
             admin: admin_ctx(&state, &session),
             groups: groups(&current, None),
             errors: Vec::new(),
-            saved: false,
+            saved: query.contains_key("saved"),
         },
     )
 }
@@ -517,36 +547,27 @@ async fn settings_save(
             .unwrap_or_else(|| "false".to_string());
         submitted.insert(key.to_string(), value);
     }
-    let new_settings =
-        match save_settings(&state.shared.store, &state.shared.settings, &submitted).await {
-            Ok(settings) => settings,
-            Err(SaveError::Invalid(errors)) => {
-                let current = state.shared.settings.load();
-                let mut response = render(
-                    &state,
-                    SettingsPage {
-                        ctx: state.ctx("/admin/settings"),
-                        admin: admin_ctx(&state, &session),
-                        groups: groups(&current, Some(&submitted)),
-                        errors,
-                        saved: false,
-                    },
-                );
-                *response.status_mut() = StatusCode::UNPROCESSABLE_ENTITY;
-                return response;
-            }
-            Err(SaveError::Db(e)) => return db_error(&state, e),
-        };
-    render(
-        &state,
-        SettingsPage {
-            ctx: state.ctx("/admin/settings"),
-            admin: admin_ctx(&state, &session),
-            groups: groups(&new_settings, None),
-            errors: Vec::new(),
-            saved: true,
-        },
-    )
+    // Saved: redirect, so a refresh re-reads the page instead of re-posting the form.
+    // Invalid: the form comes back with what was typed, as a 422.
+    match save_settings(&state.shared.store, &state.shared.settings, &submitted).await {
+        Ok(_) => Redirect::to(&format!("{}?saved", state.href("/admin/settings"))).into_response(),
+        Err(SaveError::Invalid(errors)) => {
+            let current = state.shared.settings.load();
+            let mut response = render(
+                &state,
+                SettingsPage {
+                    ctx: state.ctx("/admin/settings"),
+                    admin: admin_ctx(&state, &session),
+                    groups: groups(&current, Some(&submitted)),
+                    errors,
+                    saved: false,
+                },
+            );
+            *response.status_mut() = StatusCode::UNPROCESSABLE_ENTITY;
+            response
+        }
+        Err(SaveError::Db(e)) => db_error(&state, e),
+    }
 }
 
 struct KeyRow {
@@ -580,12 +601,56 @@ fn key_rows(keys: Vec<ApiKey>) -> Vec<KeyRow> {
         .collect()
 }
 
-async fn keys_page(State(state): State<PageState>, headers: HeaderMap) -> Response {
+async fn keys_page(
+    State(state): State<PageState>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
     let session = match authenticate(&state, &headers).await {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    render_keys(&state, &session, None, None).await
+    let new_key = query
+        .get("new")
+        .and_then(|nonce| take_fresh_key(&state, &session, nonce));
+    render_keys(&state, &session, new_key, None).await
+}
+
+// Parks a minted key and returns the nonce the redirect carries.
+fn park_fresh_key(state: &PageState, session: &Session, key: String) -> Option<String> {
+    let mut random = [0u8; 16];
+    getrandom::fill(&mut random).ok()?;
+    let nonce = URL_SAFE_NO_PAD.encode(random);
+    let now = now();
+    let mut fresh = state
+        .shared
+        .fresh_keys
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    fresh.retain(|k| k.expires > now);
+    fresh.push(FreshKey {
+        nonce: nonce.clone(),
+        session_nonce: session.nonce,
+        key,
+        expires: now + FRESH_KEY_SECS,
+    });
+    Some(nonce)
+}
+
+// The parked key for this nonce and session, removed on the way out: shown once, then gone.
+fn take_fresh_key(state: &PageState, session: &Session, nonce: &str) -> Option<String> {
+    let now = now();
+    let mut fresh = state
+        .shared
+        .fresh_keys
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    fresh.retain(|k| k.expires > now);
+    let at = fresh.iter().position(|k| {
+        constant_time_eq(k.nonce.as_bytes(), nonce.as_bytes())
+            && constant_time_eq(&k.session_nonce, &session.nonce)
+    })?;
+    Some(fresh.swap_remove(at).key)
 }
 
 async fn render_keys(
@@ -628,8 +693,21 @@ async fn keys_create(
         let error = state.ctx("/admin/keys").t("admin-keys-invalid");
         return render_keys(&state, &session, None, Some(error)).await;
     };
+    // The key travels to the next page through a one-time nonce, never in this response.
+    // The first admin key ends the bootstrap session that minted it, so that one is shown
+    // on the login page instead, ready to sign in with.
+    let next = if session.bootstrap && scope == Scope::Admin {
+        "/admin/login"
+    } else {
+        "/admin/keys"
+    };
     match mint_key(&state.shared.store, name, scope, now()).await {
-        Ok(text) => render_keys(&state, &session, Some(text), None).await,
+        Ok(text) => match park_fresh_key(&state, &session, text) {
+            Some(nonce) => {
+                Redirect::to(&format!("{}?new={nonce}", state.href(next))).into_response()
+            }
+            None => error_page(&state, StatusCode::INTERNAL_SERVER_ERROR),
+        },
         Err(e) => db_error(&state, e),
     }
 }

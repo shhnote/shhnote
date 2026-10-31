@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+};
 
 use askama::Template;
 use axum::{
@@ -43,6 +46,8 @@ pub(crate) struct Shared {
     api_url: String,
     site_url: String,
     max_blob_bytes: u64,
+    // Keys minted by the panel, waiting to be shown once on the redirected page (SPEC §8).
+    pub(crate) fresh_keys: Mutex<Vec<crate::admin::FreshKey>>,
 }
 
 // The SPEC §11 headers, applied to every response by `app::router`.
@@ -85,6 +90,7 @@ pub fn router(config: &Config, api: &ApiState) -> Router {
         api_url: config.api_url.clone(),
         site_url: config.url.clone(),
         max_blob_bytes: config.storage.max_blob_bytes(),
+        fresh_keys: Mutex::new(Vec::new()),
     });
 
     let mut router = Router::new()

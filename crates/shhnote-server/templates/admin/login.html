@@ -5,7 +5,14 @@
 {% block content %}
 <section class="section">
   <div class="container">
-    <div class="vault">
+    <div class="vault stack">
+      {%- if let Some(key) = new_key %}
+      <div class="panel stack" data-new-key>
+        <p class="eyebrow">{{ ctx.t("admin-keys-created-title") }}</p>
+        <p>{{ ctx.t("admin-login-new-key") }}</p>
+        <div class="readout"><code class="readout__val" data-new-key-value>{{ key }}</code></div>
+      </div>
+      {%- endif %}
       <form class="panel stack" method="post" action="{{ ctx.href("/admin/login") }}">
         <div class="stack--sm">
           <p class="eyebrow">{{ ctx.t("admin-title") }}</p>

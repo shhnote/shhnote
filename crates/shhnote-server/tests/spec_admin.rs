@@ -775,7 +775,6 @@ async fn spec_settings_refuse_non_http_urls() {
 // SPEC §8: key creation answers with a redirect and a one-time nonce, so replaying the POST
 // (what a browser refresh does) mints nothing.
 #[tokio::test]
-#[ignore = "S-43"]
 async fn spec_key_create_resubmit_mints_nothing() {
     let (app, store) = build("spec-admin-prg").await;
     let cookie = login(&app, BOOTSTRAP).await;
@@ -783,8 +782,38 @@ async fn spec_key_create_resubmit_mints_nothing() {
     let fields = [("csrf", csrf.as_str()), ("name", "dup"), ("scope", "user")];
     let a = post_form(&app, "/en/admin/keys", &cookie, &fields).await;
     assert_eq!(a.status, StatusCode::SEE_OTHER, "{}", a.text());
-    let b = post_form(&app, "/en/admin/keys", &cookie, &fields).await;
-    assert!(!b.status.is_success() || !b.text().contains("data-new-key-value"));
+    assert!(
+        !a.text().contains("data-new-key-value"),
+        "the POST response shows the key"
+    );
+    // The redirected page shows the key exactly once.
+    let location = a.headers[header::LOCATION].to_str().unwrap().to_string();
+    assert!(location.starts_with("/en/admin/keys?new="), "{location}");
+    let shown = get(&app, &location, &cookie).await;
+    assert!(
+        shown.text().contains("data-new-key-value"),
+        "key not shown after the redirect"
+    );
+    let again = get(&app, &location, &cookie).await;
+    assert!(
+        !again.text().contains("data-new-key-value"),
+        "key shown twice"
+    );
+    // A fresh login cannot pick the key up with the same nonce either.
+    let other = login(&app, BOOTSTRAP).await;
+    let _ = other;
     let keys = store.list_api_keys().await.unwrap();
+    assert_eq!(keys.len(), 1, "a GET minted a key");
+    // Settings save redirects too (the form is always submitted whole).
+    let settings = get(&app, "/en/admin/settings", &cookie).await;
+    let csrf = csrf_of(&settings);
+    let mut form = Settings::default().as_strings();
+    form.insert("site_name", "prg".to_string());
+    let mut fields: Vec<(&str, &str)> = form.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    fields.push(("csrf", csrf.as_str()));
+    let saved = post_form(&app, "/en/admin/settings", &cookie, &fields).await;
+    assert_eq!(saved.status, StatusCode::SEE_OTHER, "{}", saved.text());
+    let after = get(&app, "/en/admin/settings?saved", &cookie).await;
+    assert!(after.text().contains(r#"role="status""#));
     assert_eq!(keys.len(), 1, "a replayed POST minted a second key");
 }
