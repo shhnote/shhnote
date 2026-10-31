@@ -167,8 +167,16 @@ fn create_req(body: Body) -> Request<Body> {
         .unwrap()
 }
 
+// A sized body, with the Content-Length a real client sends.
+fn create_req_sized(body: Vec<u8>) -> Request<Body> {
+    let mut req = create_req(Body::from(body.clone()));
+    req.headers_mut()
+        .insert(header::CONTENT_LENGTH, body.len().into());
+    req
+}
+
 async fn create(app: &Router, meta: &Value, blob: &[u8]) -> Reply {
-    send(app, create_req(Body::from(multipart(meta, blob)))).await
+    send(app, create_req_sized(multipart(meta, blob))).await
 }
 
 fn random32() -> [u8; 32] {
@@ -612,7 +620,6 @@ async fn local_srv(name: &str, ceiling: &str) -> (Srv, PathBuf) {
 // object write and the row write. Whatever is left behind is collected when the tier is next
 // opened, and the ceiling then counts exactly what is on disk.
 #[tokio::test]
-#[ignore = "S-5"]
 async fn spec_disconnect_after_upload_leaves_no_uncounted_object() {
     let (s, root) = local_srv("h-zombie", "300000").await;
     let blobs_dir = root.join("blobs");
@@ -621,7 +628,7 @@ async fn spec_disconnect_after_upload_leaves_no_uncounted_object() {
         let before = dir_stats(&blobs_dir).0;
         let body = multipart(&meta(&keys(), "ttl", 3600), &raw_blob(131_072));
         let app = s.app.clone();
-        let task = tokio::spawn(async move { send(&app, create_req(Body::from(body))).await });
+        let task = tokio::spawn(async move { send(&app, create_req_sized(body)).await });
         // The moment the object lands, the client is gone (hyper drops the handler future).
         loop {
             if dir_stats(&blobs_dir).0 > before || task.is_finished() {
@@ -651,9 +658,10 @@ async fn spec_disconnect_after_upload_leaves_no_uncounted_object() {
         ("SHH_INLINE_MAX", "65536"),
     ]))
     .unwrap();
-    Blobs::open(config.storage.external.as_ref().unwrap())
+    let reopened = Blobs::open(config.storage.external.as_ref().unwrap())
         .await
         .unwrap();
+    reopened.collect_orphans(&s.store).await.unwrap();
     let on_disk = dir_stats(&blobs_dir);
     let counted = s.store.external_bytes().await.unwrap();
     assert_eq!(on_disk.1, counted, "{} objects on disk", on_disk.0);

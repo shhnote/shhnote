@@ -198,11 +198,11 @@ async fn send(app: &Router, req: Request<Body>) -> Reply {
 }
 
 async fn create(app: &Router, keys: &Keys, lifetime: &str, blob: &[u8]) -> Reply {
-    send(
-        app,
-        multipart(Body::from(create_body(&meta(keys, lifetime), blob))),
-    )
-    .await
+    let body = create_body(&meta(keys, lifetime), blob);
+    let mut req = multipart(Body::from(body.clone()));
+    req.headers_mut()
+        .insert(header::CONTENT_LENGTH, body.len().into());
+    send(app, req).await
 }
 
 async fn reveal(app: &Router, keys: &Keys) -> Reply {
@@ -301,7 +301,6 @@ async fn spec_multipart_shapes() {
 // D-20: bytes being spooled count toward the ceiling, and a create that would cross it is
 // refused mid-stream, so N stalled uploads cannot put N x SHH_EXTERNAL_MAX_OBJECT on the disk.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "S-5"]
 async fn spec_spool_bytes_count_toward_the_ceiling() {
     const CEILING: u64 = 300_000;
     let (app, store, _blobs, root) = local("spool-ceiling", &CEILING.to_string()).await;
@@ -367,7 +366,6 @@ async fn spec_spool_bytes_count_toward_the_ceiling() {
 // SPEC §6.1: the ceiling check is made under one reservation, so concurrent creates cannot
 // jointly exceed it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-#[ignore = "S-4"]
 async fn spec_concurrent_creates_respect_the_ceiling() {
     const CEILING: u64 = 300_000; // room for two 128 KiB objects
     let (app, store, _blobs, root) = local("ceiling-race", &CEILING.to_string()).await;
@@ -834,7 +832,6 @@ async fn spec_spool_path_is_not_wiped_recursively() {
 // SPEC §6.1: at startup the tier is listed and objects no row references are deleted; the
 // ceiling counts what the tier holds (`blob_len(bucket)`, not `bucket`).
 #[tokio::test]
-#[ignore = "S-5"]
 async fn spec_orphan_objects_are_collected_at_startup() {
     let (app, store, _blobs, root) = local("orphans", "1000000000").await;
     let k = keys();
@@ -854,9 +851,11 @@ async fn spec_orphan_objects_are_collected_at_startup() {
         vars.insert(k.into(), v.into());
     }
     let config = Config::from_vars(&vars).unwrap();
-    Blobs::open(config.storage.external.as_ref().unwrap())
+    let reopened = Blobs::open(config.storage.external.as_ref().unwrap())
         .await
         .unwrap();
+    // What `main` does right after opening the tier.
+    reopened.collect_orphans(&store).await.unwrap();
     let counted = store.external_bytes().await.unwrap();
     let (objects, on_disk) = dir_stats(&root.join("blobs"));
     let survived = orphan.exists();

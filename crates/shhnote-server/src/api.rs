@@ -27,7 +27,7 @@ use tokio::sync::Semaphore;
 
 use crate::{
     ratelimit::{Endpoint, RateLimiter, limit},
-    storage::{Blobs, Spool},
+    storage::{Blobs, Spool, object_bytes},
 };
 
 pub const CLAIM_TOKEN_HEADER: HeaderName = HeaderName::from_static("x-shh-claim-token");
@@ -225,6 +225,21 @@ const BODY_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 const UPLOAD_MIN_BYTES_PER_SEC: u64 = 32 * 1024;
 const UPLOAD_MIN_DEADLINE: Duration = Duration::from_secs(60);
 
+// Multipart framing around the blob: boundaries and part headers. The body limit allows this
+// much on top of the largest blob, so a declared length is at most this far above the blob.
+const FRAMING_SLACK: u64 = 16 * 1024;
+
+// How many bytes the blob can be at most, from the request's Content-Length minus the `meta`
+// part (SPEC §4: the declared length). Without a Content-Length the worst case is assumed.
+fn declared_blob_upper(headers: &HeaderMap, meta_len: usize, max_blob: u64) -> u64 {
+    headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok()?.parse::<u64>().ok())
+        .map_or(max_blob + FRAMING_SLACK, |total| {
+            total.saturating_sub(meta_len as u64)
+        })
+}
+
 fn upload_deadline(max_blob_bytes: u64) -> Instant {
     let needed = Duration::from_secs(max_blob_bytes / UPLOAD_MIN_BYTES_PER_SEC);
     Instant::now() + needed.max(UPLOAD_MIN_DEADLINE)
@@ -233,6 +248,7 @@ fn upload_deadline(max_blob_bytes: u64) -> Instant {
 // `meta` comes first so the request can be refused before the blob is read.
 async fn create(
     State(state): State<ApiState>,
+    headers: HeaderMap,
     mut multipart: Multipart,
 ) -> Result<StatusCode, ApiError> {
     // Held until the row is written, so the cap counts the whole upload.
@@ -256,6 +272,28 @@ async fn create(
         return Err(ApiError::bad_request("invalid_ttl"));
     }
 
+    // The length, size-policy and ceiling checks run against the declared length before the
+    // first blob byte is spooled, and again as bytes arrive (SPEC §6.1).
+    let max_blob = blob_len(state.limits.max_blob_bytes());
+    let text_only = if settings.files_enabled {
+        None
+    } else {
+        Some(blob_len(text_only_bucket(&settings)))
+    };
+    let too_big = |bytes: u64| {
+        if bytes > max_blob {
+            Some(ApiError::TooLarge)
+        } else if text_only.is_some_and(|cap| bytes > cap) {
+            Some(ApiError::bad_request("files_disabled"))
+        } else {
+            None
+        }
+    };
+    let upper = declared_blob_upper(&headers, meta_bytes.len(), max_blob);
+    if let Some(err) = too_big(upper.saturating_sub(FRAMING_SLACK)) {
+        return Err(err);
+    }
+
     let mut blob_field = next_field(&mut multipart, "blob").await?;
     // Small blobs stay in memory; once one outgrows the inline tier it is spooled to disk.
     // With the inline tier switched off (and an external one present) nothing stays in memory.
@@ -266,17 +304,36 @@ async fn create(
         0
     };
     let mut sink = Sink::Memory(Vec::new());
+    let mut reservation = None;
     while let Some(chunk) = next_chunk(&mut blob_field, deadline).await? {
         if let (Sink::Memory(buf), Some(storage)) = (&mut sink, &state.storage)
             && buf.len() + chunk.len() > memory_limit
         {
+            // Spilling to disk: the declared size is held against the ceiling from here on,
+            // so uploads in flight can never fill the disk past it (D-20).
+            reservation = Some(
+                storage
+                    .reserve(&state.store, upper)
+                    .await
+                    .map_err(ApiError::internal)?
+                    .ok_or(ApiError::StorageFull)?,
+            );
             let mut spool = storage.spool().await.map_err(ApiError::internal)?;
             spool.write(buf).await.map_err(ApiError::internal)?;
             sink = Sink::Spool(spool);
         }
         match &mut sink {
             Sink::Memory(buf) => buf.extend_from_slice(&chunk),
-            Sink::Spool(spool) => spool.write(&chunk).await.map_err(ApiError::internal)?,
+            Sink::Spool(spool) => {
+                spool.write(&chunk).await.map_err(ApiError::internal)?;
+                let written = spool.bytes_written();
+                if written > upper {
+                    return Err(ApiError::bad_request("invalid_blob_length"));
+                }
+                if let Some(err) = too_big(written) {
+                    return Err(err);
+                }
+            }
         }
     }
     let len = match &sink {
@@ -319,32 +376,35 @@ async fn create(
         Sink::Memory(_) => Err(ApiError::TooLarge),
         Sink::Spool(spool) => {
             let storage = state.storage.as_ref().ok_or(ApiError::Internal)?;
-            // The tier ceiling counts everything in it, pending deletes included (SPEC §6).
-            let used = state
-                .store
-                .external_bytes()
-                .await
-                .map_err(ApiError::internal)?;
-            if used + bucket > storage.max_total_bytes() {
-                return Err(ApiError::StorageFull);
-            }
+            // The exact size is known now; the reservation shrinks to it and the ceiling check
+            // was already made when the spool started.
+            let mut reservation = reservation.ok_or(ApiError::Internal)?;
+            reservation.shrink_to(object_bytes(bucket));
             let spooled = spool.finish().await.map_err(ApiError::internal)?;
             let key = Blobs::new_key().map_err(ApiError::internal)?;
             storage
                 .put(&key, spooled)
                 .await
                 .map_err(ApiError::internal)?;
-            // Only an active row makes the object reachable; without one it is garbage.
+            // Only an active row makes the object reachable; without one it is garbage, and
+            // the guard removes it if the request is cancelled before the row is written.
+            let guard = OrphanGuard {
+                storage: storage.clone(),
+                key: key.clone(),
+                armed: true,
+            };
             match state
                 .store
                 .create(&secret(None, Some(key.clone())), now)
                 .await
             {
-                Ok(true) => Ok(StatusCode::CREATED),
+                Ok(true) => {
+                    guard.disarm();
+                    reservation.commit();
+                    Ok(StatusCode::CREATED)
+                }
                 other => {
-                    if let Err(e) = storage.delete(&key).await {
-                        crate::log_error!("storage: could not remove orphaned object: {e}");
-                    }
+                    drop(guard);
                     match other {
                         Ok(_) => Err(ApiError::bad_request("duplicate_key")),
                         Err(e) => Err(ApiError::internal(e)),
@@ -358,6 +418,34 @@ async fn create(
 enum Sink {
     Memory(Vec<u8>),
     Spool(Spool),
+}
+
+// Deletes a freshly written object unless the row for it was written. Dropping a request
+// mid-way (the client went away) runs this like any other error path.
+struct OrphanGuard {
+    storage: Arc<Blobs>,
+    key: String,
+    armed: bool,
+}
+
+impl OrphanGuard {
+    fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for OrphanGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            let storage = self.storage.clone();
+            let key = std::mem::take(&mut self.key);
+            tokio::spawn(async move {
+                if let Err(e) = storage.delete(&key).await {
+                    crate::log_error!("storage: could not remove orphaned object: {e}");
+                }
+            });
+        }
+    }
 }
 
 // The largest padded size a text-only secret can need: the text limit with room for JSON

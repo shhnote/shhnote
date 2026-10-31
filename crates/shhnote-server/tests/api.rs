@@ -121,6 +121,7 @@ async fn create(app: &Router, meta: Value, blob: &[u8]) -> Reply {
             header::CONTENT_TYPE,
             format!("multipart/form-data; boundary={BOUNDARY}"),
         )
+        .header(header::CONTENT_LENGTH, body.len())
         .body(Body::from(body))
         .unwrap();
     send(app, req).await
@@ -921,7 +922,7 @@ async fn external_tier_flow(app: &Router, store: &Store, blobs: &Blobs) {
         create(app, meta(&first, "ttl", 86400), &blob).await.status,
         StatusCode::CREATED
     );
-    assert_eq!(store.external_bytes().await.unwrap(), LARGE);
+    assert_eq!(store.external_bytes().await.unwrap(), blob_len(LARGE));
 
     let reply = reveal(app, &first).await;
     assert_eq!(reply.status, StatusCode::OK);
@@ -938,7 +939,7 @@ async fn external_tier_flow(app: &Router, store: &Store, blobs: &Blobs) {
     let reply = create(app, meta(&keys(), "ttl", 86400), &odd).await;
     assert_eq!(reply.status, StatusCode::BAD_REQUEST);
     assert_eq!(reply.json()["error"]["code"], "invalid_blob_length");
-    assert_eq!(store.external_bytes().await.unwrap(), LARGE);
+    assert_eq!(store.external_bytes().await.unwrap(), blob_len(LARGE));
 
     // Second one fits, third would cross the ceiling; small secrets are unaffected.
     let second = keys();
@@ -958,14 +959,14 @@ async fn external_tier_flow(app: &Router, store: &Store, blobs: &Blobs) {
             .status,
         StatusCode::CREATED
     );
-    assert_eq!(store.external_bytes().await.unwrap(), 2 * LARGE);
+    assert_eq!(store.external_bytes().await.unwrap(), 2 * blob_len(LARGE));
 
     // Burning parks the row: the object still counts until the scrubber confirms it is gone.
     assert_eq!(burn(app, &first).await.status, StatusCode::NO_CONTENT);
     assert_uniform_negative(&reveal(app, &first).await);
-    assert_eq!(store.external_bytes().await.unwrap(), 2 * LARGE);
+    assert_eq!(store.external_bytes().await.unwrap(), 2 * blob_len(LARGE));
     scheduler::scrub(store, Some(blobs)).await;
-    assert_eq!(store.external_bytes().await.unwrap(), LARGE);
+    assert_eq!(store.external_bytes().await.unwrap(), blob_len(LARGE));
     assert!(store.pending_deletes().await.unwrap().is_empty());
 
     // Room again.
@@ -1065,7 +1066,7 @@ async fn inline_disabled_sends_every_blob_external() {
         create(&app, meta(&keys, "ttl", 86400), &blob).await.status,
         StatusCode::CREATED
     );
-    assert_eq!(store.external_bytes().await.unwrap(), 65536);
+    assert_eq!(store.external_bytes().await.unwrap(), blob_len(65536));
     let reply = reveal(&app, &keys).await;
     assert_eq!(reply.status, StatusCode::OK);
     assert_eq!(reply.body, blob);

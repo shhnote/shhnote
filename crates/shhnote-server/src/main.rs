@@ -98,6 +98,19 @@ async fn main() {
         None => None,
     };
 
+    if let Some(storage) = &storage {
+        match storage.collect_orphans(&store).await {
+            Ok(0) => {}
+            Ok(n) => {
+                shhnote_server::log_warn!("storage: removed {n} object(s) no secret referenced")
+            }
+            Err(e) => {
+                shhnote_server::log_error!("storage error: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     if !settings.inline_enabled && storage.is_none() {
         shhnote_server::log_warn!(
             "inline_enabled is off but SHH_STORAGE is inline, so blobs stay in the database"

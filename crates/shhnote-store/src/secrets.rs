@@ -251,15 +251,46 @@ impl Store {
             .collect()
     }
 
-    // Everything the external tier holds, pending deletes included, against its ceiling.
+    // Everything the external tier holds, pending deletes included, against its ceiling. Each
+    // object is `blob_len(bucket)` bytes: the 95-byte header, the bucket and a tag per chunk.
     pub async fn external_bytes(&self) -> Result<u64, Error> {
         let row = sqlx::query(
-            "SELECT CAST(COALESCE(SUM(bucket), 0) AS BIGINT) AS n FROM secrets WHERE external_ref IS NOT NULL",
+            "SELECT CAST(COALESCE(SUM(95 + bucket + 16 * ((bucket + 65535) / 65536)), 0) AS BIGINT) AS n \
+             FROM secrets WHERE external_ref IS NOT NULL",
         )
         .fetch_one(&self.pool)
         .await?;
         let n: i64 = row.try_get("n")?;
         Ok(n.max(0) as u64)
+    }
+
+    // Like `pending_deletes`, with each row's bucket so the caller can account for the bytes.
+    pub async fn pending_deletes_sized(&self) -> Result<Vec<(Vec<u8>, String, u64)>, Error> {
+        let rows = sqlx::query(
+            "SELECT lookup_key, external_ref, bucket FROM secrets WHERE status = 'pending_delete'",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok((
+                    row.try_get("lookup_key")?,
+                    row.try_get("external_ref")?,
+                    row.try_get::<i64, _>("bucket")? as u64,
+                ))
+            })
+            .collect()
+    }
+
+    // Every object key a row still points at, parked ones included; anything else in the
+    // tier is garbage (SPEC §6.1).
+    pub async fn external_refs(&self) -> Result<Vec<String>, Error> {
+        let rows = sqlx::query("SELECT external_ref FROM secrets WHERE external_ref IS NOT NULL")
+            .fetch_all(&self.pool)
+            .await?;
+        rows.into_iter()
+            .map(|row| row.try_get("external_ref"))
+            .collect()
     }
 
     pub async fn finish_delete(&self, lookup_key: &[u8]) -> Result<(), Error> {

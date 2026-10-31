@@ -1,7 +1,8 @@
 use std::{
+    collections::HashSet,
     io,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use axum::body::{Body, Bytes};
@@ -17,16 +18,32 @@ use hyper::{
 };
 use hyper_util::rt::TokioIo;
 use sha2::{Digest, Sha256};
-use shhnote_core::config::ExternalStorage;
+use shhnote_core::{config::ExternalStorage, padding::blob_len};
+use shhnote_store::Store;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::clock::{amz_date, now};
 
 // The external tier: where padded blobs above `SHH_INLINE_MAX` live. Handlers only see
 // spool / put / get / delete; they never touch the filesystem or S3 themselves.
-pub enum Blobs {
+pub struct Blobs {
+    tier: Tier,
+    ledger: Mutex<Ledger>,
+}
+
+enum Tier {
     Local(Local),
     S3(S3),
+}
+
+// What the ceiling counts (SPEC §6.1, D-20): bytes the rows account for, plus bytes uploads
+// in flight have reserved. One process owns the tier, so this needs no database round trip.
+#[derive(Default)]
+struct Ledger {
+    // Loaded from the rows on first use; `None` again after anything changes the tier
+    // behind the ledger's back (orphan collection).
+    stored: Option<u64>,
+    reserved: u64,
 }
 
 const KEY_PREFIX: &str = "blobs/";
@@ -36,11 +53,11 @@ impl Blobs {
     // Opens the tier and runs the startup checks: the local root must be writable, the S3
     // bucket reachable with the given credentials and not versioned (SPEC §6).
     pub async fn open(config: &ExternalStorage) -> Result<Self, String> {
-        match config {
+        let tier = match config {
             ExternalStorage::Local {
                 path,
                 max_total_bytes,
-            } => Local::open(path, *max_total_bytes).await.map(Self::Local),
+            } => Local::open(path, *max_total_bytes).await.map(Tier::Local)?,
             ExternalStorage::S3 {
                 bucket,
                 region,
@@ -59,15 +76,84 @@ impl Blobs {
                 spool_path,
             )
             .await
-            .map(Self::S3),
-        }
+            .map(Tier::S3)?,
+        };
+        Ok(Self {
+            tier,
+            ledger: Mutex::new(Ledger::default()),
+        })
     }
 
     // The hard ceiling for everything stored in this tier, pending deletes included.
     pub fn max_total_bytes(&self) -> u64 {
-        match self {
-            Self::Local(local) => local.max_total_bytes,
-            Self::S3(s3) => s3.max_total_bytes,
+        match &self.tier {
+            Tier::Local(local) => local.max_total_bytes,
+            Tier::S3(s3) => s3.max_total_bytes,
+        }
+    }
+
+    fn ledger(&self) -> std::sync::MutexGuard<'_, Ledger> {
+        self.ledger.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    // Reserves `bytes` against the ceiling for an upload in flight, or returns `None` when
+    // they would cross it. The check and the bookkeeping happen under one lock, so concurrent
+    // creates cannot jointly exceed the ceiling (SPEC §6.1).
+    pub async fn reserve(
+        self: &Arc<Self>,
+        store: &Store,
+        bytes: u64,
+    ) -> io::Result<Option<Reservation>> {
+        if self.ledger().stored.is_none() {
+            let stored = store.external_bytes().await.map_err(io::Error::other)?;
+            self.ledger().stored.get_or_insert(stored);
+        }
+        let mut ledger = self.ledger();
+        let stored = ledger.stored.unwrap_or(0);
+        if stored + ledger.reserved + bytes > self.max_total_bytes() {
+            return Ok(None);
+        }
+        ledger.reserved += bytes;
+        Ok(Some(Reservation {
+            blobs: self.clone(),
+            bytes,
+            committed: false,
+        }))
+    }
+
+    // The scrubber confirmed an object is gone: it no longer counts.
+    pub fn release_stored(&self, bytes: u64) {
+        let mut ledger = self.ledger();
+        if let Some(stored) = &mut ledger.stored {
+            *stored = stored.saturating_sub(bytes);
+        }
+    }
+
+    // Deletes every object no row references (SPEC §6.1): what a crash between the object
+    // write and the row write, or a failed cleanup, leaves behind. Returns how many went.
+    pub async fn collect_orphans(&self, store: &Store) -> io::Result<usize> {
+        let referenced: HashSet<String> = store
+            .external_refs()
+            .await
+            .map_err(io::Error::other)?
+            .into_iter()
+            .collect();
+        let mut removed = 0;
+        for key in self.list().await? {
+            if !referenced.contains(&key) {
+                self.delete(&key).await?;
+                removed += 1;
+            }
+        }
+        // Whatever the ledger believed, the tier has just been reconciled with the rows.
+        self.ledger().stored = None;
+        Ok(removed)
+    }
+
+    async fn list(&self) -> io::Result<Vec<String>> {
+        match &self.tier {
+            Tier::Local(local) => local.list().await,
+            Tier::S3(s3) => s3.list().await,
         }
     }
 
@@ -80,35 +166,75 @@ impl Blobs {
 
     // Incoming blobs are written here first, so a request never holds a large blob in memory.
     pub async fn spool(&self) -> io::Result<Spool> {
-        let dir = match self {
-            Self::Local(local) => local.root.join("tmp"),
-            Self::S3(s3) => s3.spool_dir.clone(),
+        let dir = match &self.tier {
+            Tier::Local(local) => local.root.join("tmp"),
+            Tier::S3(s3) => s3.spool_dir.clone(),
         };
         Spool::create(&dir).await
     }
 
     // Stores a finished spool under `key`. The spool file is gone afterwards either way.
     pub async fn put(&self, key: &str, spooled: Spooled) -> io::Result<()> {
-        match self {
-            Self::Local(local) => local.put(key, spooled).await,
-            Self::S3(s3) => s3.put(key, spooled).await,
+        match &self.tier {
+            Tier::Local(local) => local.put(key, spooled).await,
+            Tier::S3(s3) => s3.put(key, spooled).await,
         }
     }
 
     pub async fn get(&self, key: &str) -> io::Result<Body> {
-        match self {
-            Self::Local(local) => local.get(key).await,
-            Self::S3(s3) => s3.get(key).await,
+        match &self.tier {
+            Tier::Local(local) => local.get(key).await,
+            Tier::S3(s3) => s3.get(key).await,
         }
     }
 
     // Idempotent: an object that is already gone counts as deleted.
     pub async fn delete(&self, key: &str) -> io::Result<()> {
-        match self {
-            Self::Local(local) => local.delete(key).await,
-            Self::S3(s3) => s3.delete(key).await,
+        match &self.tier {
+            Tier::Local(local) => local.delete(key).await,
+            Tier::S3(s3) => s3.delete(key).await,
         }
     }
+}
+
+// Bytes an upload holds against the ceiling. Dropped unconfirmed, they are given back; once
+// the row is written, `commit` moves them into the stored total.
+pub struct Reservation {
+    blobs: Arc<Blobs>,
+    bytes: u64,
+    committed: bool,
+}
+
+impl Reservation {
+    // The exact object size is only known once the blob has arrived; it never grows.
+    pub fn shrink_to(&mut self, bytes: u64) {
+        if bytes < self.bytes {
+            self.blobs.ledger().reserved -= self.bytes - bytes;
+            self.bytes = bytes;
+        }
+    }
+
+    pub fn commit(mut self) {
+        let mut ledger = self.blobs.ledger();
+        ledger.reserved -= self.bytes;
+        if let Some(stored) = &mut ledger.stored {
+            *stored += self.bytes;
+        }
+        self.committed = true;
+    }
+}
+
+impl Drop for Reservation {
+    fn drop(&mut self) {
+        if !self.committed {
+            self.blobs.ledger().reserved -= self.bytes;
+        }
+    }
+}
+
+// Keeps the number of bytes an object takes in the tier (SPEC §6.1).
+pub fn object_bytes(bucket: u64) -> u64 {
+    blob_len(bucket)
 }
 
 // The part of a key after `blobs/`, only if it is one of ours: rejects anything that could
@@ -257,6 +383,17 @@ impl Local {
             _ => Ok(()),
         }
     }
+
+    async fn list(&self) -> io::Result<Vec<String>> {
+        let mut keys = Vec::new();
+        let mut entries = tokio::fs::read_dir(self.root.join("blobs")).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            if let Some(name) = entry.file_name().to_str() {
+                keys.push(format!("{KEY_PREFIX}{name}"));
+            }
+        }
+        Ok(keys)
+    }
 }
 
 // --- S3
@@ -395,6 +532,36 @@ impl S3 {
         expect_success(response).await
     }
 
+    // ListObjectsV2 under `blobs/`, page by page. Keys are base64url, so no XML unescaping.
+    async fn list(&self) -> io::Result<Vec<String>> {
+        let path = format!("{}/", self.prefix);
+        let mut keys = Vec::new();
+        let mut token: Option<String> = None;
+        loop {
+            // Already in canonical (sorted, encoded) form, as the signature needs it.
+            let query = match &token {
+                Some(token) => format!(
+                    "continuation-token={}&list-type=2&prefix=blobs%2F",
+                    uri_encode(token)
+                ),
+                None => "list-type=2&prefix=blobs%2F".to_string(),
+            };
+            let response = self.send(Method::GET, &path, &query, &[], None).await?;
+            if !response.status().is_success() {
+                return Err(status_error(response).await);
+            }
+            let body = read_page(response).await?;
+            keys.extend(between_all(&body, "<Key>", "</Key>").map(str::to_string));
+            if !body.contains("<IsTruncated>true</IsTruncated>") {
+                return Ok(keys);
+            }
+            match between_all(&body, "<NextContinuationToken>", "</NextContinuationToken>").next() {
+                Some(next) => token = Some(next.to_string()),
+                None => return Ok(keys),
+            }
+        }
+    }
+
     // One signed request on its own connection; S3 traffic here is a few calls per secret.
     async fn send(
         &self,
@@ -501,12 +668,28 @@ fn parse_endpoint(endpoint: &str) -> Result<(bool, String, u16), String> {
 }
 
 async fn read_small(response: Response<Incoming>) -> io::Result<String> {
-    let body = http_body_util::Limited::new(response.into_body(), 64 * 1024)
+    read_up_to(response, 64 * 1024).await
+}
+
+// A listing page: up to 1000 keys of XML.
+async fn read_page(response: Response<Incoming>) -> io::Result<String> {
+    read_up_to(response, 1024 * 1024).await
+}
+
+async fn read_up_to(response: Response<Incoming>, limit: usize) -> io::Result<String> {
+    let body = http_body_util::Limited::new(response.into_body(), limit)
         .collect()
         .await
         .map_err(io::Error::other)?
         .to_bytes();
     Ok(String::from_utf8_lossy(&body).into_owned())
+}
+
+// Every stretch of `text` between `open` and `close`, in order.
+fn between_all<'a>(text: &'a str, open: &'a str, close: &'a str) -> impl Iterator<Item = &'a str> {
+    text.split(open)
+        .skip(1)
+        .filter_map(move |rest| rest.split(close).next())
 }
 
 async fn expect_success(response: Response<Incoming>) -> io::Result<()> {
@@ -587,12 +770,22 @@ fn authorization(
 
 // Each path segment percent-encoded as SigV4 wants it; `/` stays.
 fn uri_encode_path(path: &str) -> String {
-    let mut out = String::with_capacity(path.len());
-    for b in path.bytes() {
+    encode(path, true)
+}
+
+// A query value percent-encoded as SigV4 wants it; `/` is encoded too.
+fn uri_encode(value: &str) -> String {
+    encode(value, false)
+}
+
+fn encode(text: &str, keep_slash: bool) -> String {
+    let mut out = String::with_capacity(text.len());
+    for b in text.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
                 out.push(b as char)
             }
+            b'/' if keep_slash => out.push('/'),
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }
@@ -656,6 +849,21 @@ mod tests {
         ] {
             assert!(object_name(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn extracts_keys_and_tokens_from_a_listing() {
+        let page = "<ListBucketResult><IsTruncated>true</IsTruncated><Contents><Key>blobs/a</Key></Contents>\
+                    <Contents><Key>blobs/b-c_D</Key></Contents><NextContinuationToken>t/k+1=</NextContinuationToken></ListBucketResult>";
+        assert_eq!(
+            between_all(page, "<Key>", "</Key>").collect::<Vec<_>>(),
+            ["blobs/a", "blobs/b-c_D"]
+        );
+        assert_eq!(
+            between_all(page, "<NextContinuationToken>", "</NextContinuationToken>").next(),
+            Some("t/k+1=")
+        );
+        assert_eq!(uri_encode("t/k+1="), "t%2Fk%2B1%3D");
     }
 
     #[test]

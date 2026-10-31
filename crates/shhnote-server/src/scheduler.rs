@@ -35,7 +35,7 @@ pub fn spawn(
 // Deletes parked objects and only then their rows, retrying on every pass until each is
 // confirmed gone (SPEC §5). A row is never removed before its object.
 pub async fn scrub(store: &Store, storage: Option<&Blobs>) {
-    let pending = match store.pending_deletes().await {
+    let pending = match store.pending_deletes_sized().await {
         Ok(pending) => pending,
         Err(e) => {
             crate::log_error!("scheduler: listing pending deletes failed: {e}");
@@ -52,13 +52,12 @@ pub async fn scrub(store: &Store, storage: Option<&Blobs>) {
         );
         return;
     };
-    for (lookup_key, key) in pending {
+    for (lookup_key, key, bucket) in pending {
         match storage.delete(&key).await {
-            Ok(()) => {
-                if let Err(e) = store.finish_delete(&lookup_key).await {
-                    crate::log_error!("scheduler: finishing delete failed: {e}");
-                }
-            }
+            Ok(()) => match store.finish_delete(&lookup_key).await {
+                Ok(()) => storage.release_stored(crate::storage::object_bytes(bucket)),
+                Err(e) => crate::log_error!("scheduler: finishing delete failed: {e}"),
+            },
             Err(e) => crate::log_error!("scheduler: deleting object failed: {e}"),
         }
     }
