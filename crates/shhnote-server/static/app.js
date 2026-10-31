@@ -776,6 +776,7 @@ async function encrypt(opts) {
   const { randomness: r } = opts;
   const argon = checkArgon2Bounds(opts.argon ?? ARGON2_DEFAULT);
   let kek;
+  if (opts.passphrase === "") throw new ShhError("empty_passphrase");
   if (opts.passphrase) {
     if (!opts.argon2) throw new ShhError("argon2_unavailable", "a passphrase needs the Argon2 module");
     kek = await kekPass(r.seed, opts.passphrase, r.salt, argon, opts.argon2, ["wrapKey"]);
@@ -812,6 +813,7 @@ async function unwrap(kek, header) {
   }
 }
 async function unwrapEk(header, seed, passphrase, argon2) {
+  if (passphrase === "") throw new ShhError("empty_passphrase");
   const direct = await unwrap(await kekDirect(seed, ["unwrapKey"]), header);
   if (direct !== null) return direct;
   if (!passphrase) throw new ShhError("passphrase_required");
@@ -1200,6 +1202,10 @@ function wireReveal(page) {
   passForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!locked) return;
+    if (passInput.value === "") {
+      passInput.focus();
+      return;
+    }
     const button2 = $("button", passForm);
     button2.disabled = true;
     try {

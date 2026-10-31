@@ -232,10 +232,12 @@ def main():
 
     rejects = []
 
-    def reject(name, base, blob, expect, reason):
-        rejects.append(
-            {"name": name, "base": base["name"], "expect": expect, "reason": reason, "blob_len": len(blob), "blob_base64": b64(blob)}
-        )
+    def reject(name, base, blob, expect, reason, passphrase=None):
+        case = {"name": name, "base": base["name"], "expect": expect, "reason": reason, "blob_len": len(blob), "blob_base64": b64(blob)}
+        if passphrase is not None:
+            # Overrides the base vector's passphrase for this case.
+            case["passphrase"] = passphrase
+        rejects.append(case)
 
     # Re-wraps a padded plaintext (or ready-made chunks) in the base vector's header.
     def with_body(base, padded=None, chunks=None):
@@ -274,6 +276,10 @@ def main():
     )
     reject("header-too-short", direct, blob[:50], "invalid_blob_length", "shorter than the 95-byte header")
     reject("header-only", direct, blob[:HEADER_LEN], "invalid_blob_length", "a header with no chunks at all")
+
+    # An empty passphrase is an error at the API boundary on both sides, never direct mode
+    # (SPEC §2.10); the blob is the untouched passphrase vector.
+    reject("empty-passphrase", passphrase, passphrase["_blob"], "empty_passphrase", "a passphrase of \"\" is refused before anything is parsed; omit it to mean direct mode", passphrase="")
 
     # Argon2 parameters outside the client bounds; reject before running the KDF.
     pblob = passphrase["_blob"]

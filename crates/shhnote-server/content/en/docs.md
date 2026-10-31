@@ -137,6 +137,6 @@ const { payload } = await revealSecret(`#${fragment}`, api);
 await burnSecret(`#${burnFragment}`, api); // 404 now: it was single-view
 ```
 
-Passphrase-protected secrets additionally need `argon2: await Argon2.load(wasmBytes)` with the module from `/static/argon2.wasm`. A failure after a single-view secret was claimed (a wrong passphrase, a dropped connection) carries a `claimToken`; pass it as `claimToken` on the retry and the secret is downloaded again instead of being lost, and `confirm: false` returns it on success for the same purpose.
+Passphrase-protected secrets additionally need `argon2: await Argon2.load(wasmBytes)` with the module from `/static/argon2.wasm`. A passphrase is a non-empty string: `""` is refused (`empty_passphrase`), and omitting the option is the only way to mean no passphrase. A failure after a single-view secret was claimed (a wrong passphrase, a dropped connection) carries a `claimToken`; pass it as `claimToken` on the retry and the secret is downloaded again instead of being lost, and `confirm: false` returns it on success for the same purpose.
 
 Derive the values the API expects from the 32-byte seed in the share link: `lookup = HKDF-SHA-256(seed, info "shhnote/lookup/v1")`, send it base64url-encoded. The burn token is a separate random 32 bytes the creator keeps. Blob layout, key wrapping, chunking and padding are specified on the [technical details]({{site_url}}/how-it-works#technical) page and pinned byte for byte by the conformance vectors; a client that reproduces them is compatible with every instance.

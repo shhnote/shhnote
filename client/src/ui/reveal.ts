@@ -117,6 +117,11 @@ export function wireReveal(page: HTMLElement): void {
   passForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!locked) return;
+    // A blank field is "nothing entered", not a passphrase; the library would refuse "".
+    if (passInput.value === "") {
+      passInput.focus();
+      return;
+    }
     const button = $<HTMLButtonElement>("button", passForm);
     button.disabled = true;
     try {

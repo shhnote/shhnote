@@ -16,7 +16,7 @@ import { decodeFragment, encodeFragment } from "../src/crypto/fragment.ts";
 import { ARGON2_MIN, INFO, checkArgon2Bounds, hkdfAesKey } from "../src/crypto/kdf.ts";
 import { CHUNK_SIZE, pad } from "../src/crypto/padding.ts";
 import { decrypt, decryptStream } from "../src/crypto/secret.ts";
-import { burnSecret, parseFragment, revealSecret } from "../src/client.ts";
+import { burnSecret, createSecret, parseFragment, revealSecret } from "../src/client.ts";
 import { ApiError } from "../src/ui/api.ts";
 import { sanitiseFileName } from "../src/ui/filename.ts";
 
@@ -232,15 +232,19 @@ describe("spec: argon2", () => {
     assert.ok(sampledKiB < 256, `${sampledKiB} KiB still non-zero`);
   });
 
-  it("an empty passphrase means 'no passphrase' here (the Rust core treats it as one; S-46)", async () => {
-    // What Rust's encrypt(..., Some(""), ...) produces: KEK_pass from Argon2id("").
-    const passKey = argon2.hash("", salt, ARGON2_MIN);
-    const header = await headerFor(concat(seed, passKey), INFO.kekPass);
-    const ek = await ekKey();
-    const padded = pad(encodePayload({ text: "empty-pass", files: [] }), { mode: "padme", min: 4096 });
-    const blob = concat(header, await sealChunk(ek, prefix, 0, true, padded));
-    await assert.rejects(decrypt(blob, seed, "", argon2), isCode("passphrase_required"));
-    await assert.rejects(decrypt(blob, seed, null, argon2), isCode("passphrase_required"));
+  it("an empty passphrase is refused at the boundary, never read as 'none' (SPEC §2.10, S-46)", async () => {
+    const header = await headerFor(seed, INFO.kekDirect);
+    const padded = pad(encodePayload({ text: "direct", files: [] }), { mode: "padme", min: 4096 });
+    const blob = concat(header, await sealChunk(await ekKey(), prefix, 0, true, padded));
+    // Refused even on a direct blob, before anything is read.
+    await assert.rejects(decrypt(blob, seed, "", argon2), isCode("empty_passphrase"));
+    assert.equal((await decrypt(blob, seed, null)).text, "direct");
+    // The library entry points refuse it without contacting the server.
+    const { calls, fetchImpl } = recorder(() => new Response(null, { status: 404 }));
+    const api = { apiBase: "https://h.example/api/v1", fetch: fetchImpl, argon2 };
+    await assert.rejects(createSecret({ ...api, payload: { text: "x", files: [] }, lifetime: "ttl", ttlSeconds: 3600, passphrase: "" }), isCode("empty_passphrase"));
+    await assert.rejects(revealSecret(`#${encodeFragment(seed, "share")}`, { ...api, passphrase: "" }), isCode("empty_passphrase"));
+    assert.equal(calls.length, 0, "nothing left the client");
   });
 });
 

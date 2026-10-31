@@ -19,6 +19,7 @@ export interface CreateOptions extends ClientOptions {
   payload: Payload;
   lifetime: Lifetime;
   ttlSeconds: number;
+  // A non-empty string, or omitted/null for no passphrase; "" is an error.
   passphrase?: string | null;
 }
 
@@ -29,6 +30,7 @@ export interface Created {
 }
 
 export async function createSecret(opts: CreateOptions): Promise<Created> {
+  if (opts.passphrase === "") throw new ShhError("empty_passphrase", "omit the passphrase to mean direct mode");
   if (opts.passphrase && !opts.argon2) throw new ShhError("argon2_unavailable", "a passphrase needs an Argon2 instance");
   const api = new Api(opts.apiBase, opts.fetch);
   const [config, randomness] = await Promise.all([api.config(), generateRandomness()]);
@@ -86,6 +88,7 @@ export interface RevealedSecret {
 // single-view secret was claimed (a wrong passphrase, a dropped connection) carries the
 // claim token, so a retry can pass it along rather than lose the secret.
 export async function revealSecret(linkOrFragment: string, opts: RevealOptions): Promise<RevealedSecret> {
+  if (opts.passphrase === "") throw new ShhError("empty_passphrase", "omit the passphrase to mean direct mode");
   if (opts.passphrase && !opts.argon2) throw new ShhError("argon2_unavailable", "a passphrase needs an Argon2 instance");
   const { seed } = parseFragment(linkOrFragment);
   const api = new Api(opts.apiBase, opts.fetch);

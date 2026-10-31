@@ -6,6 +6,7 @@ export type ErrorCode =
   | "argon2_out_of_bounds"
   | "argon2_unavailable"
   | "passphrase_required"
+  | "empty_passphrase"
   | "wrong_passphrase"
   | "corrupt"
   | "empty_payload"

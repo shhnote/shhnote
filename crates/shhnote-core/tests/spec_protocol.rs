@@ -89,26 +89,28 @@ fn spec_extreme_lengths_do_not_panic() {
     assert!(panics.is_empty(), "overflow panics: {panics:?}");
 }
 
-// An empty passphrase is a passphrase here. The TypeScript client reads "" as "no passphrase"
-// (S-46); whichever meaning the spec settles on, both sides must agree, and this pins today's.
+// SPEC §2.10 (S-46): an empty passphrase is an error at the API boundary on both sides, never
+// "no passphrase"; omitting it is the only way to mean direct mode.
 #[test]
-fn spec_empty_passphrase_is_a_passphrase() {
+fn spec_empty_passphrase_is_refused() {
     let rand = Randomness::generate().unwrap();
     let payload = Payload {
         text: Some("empty-pass".into()),
         files: vec![],
     };
     let policy = PaddingPolicy::Padme { min: 4096 };
-    let out = secret::encrypt(&rand, &payload, Some(""), Argon2Params::MIN, &policy).unwrap();
-    let seed = Fragment::decode(&out.fragment).unwrap().bytes;
     assert_eq!(
-        secret::decrypt(&out.blob, &seed, None),
-        Err(Error::PassphraseRequired)
+        secret::encrypt(&rand, &payload, Some(""), Argon2Params::MIN, &policy).err(),
+        Some(Error::EmptyPassphrase)
     );
+    let direct = secret::encrypt(&rand, &payload, None, Argon2Params::MIN, &policy).unwrap();
+    let seed = Fragment::decode(&direct.fragment).unwrap().bytes;
+    // Refused even where no passphrase would have been needed.
     assert_eq!(
-        secret::decrypt(&out.blob, &seed, Some("")).unwrap(),
-        payload
+        secret::decrypt(&direct.blob, &seed, Some("")),
+        Err(Error::EmptyPassphrase)
     );
+    assert_eq!(secret::decrypt(&direct.blob, &seed, None).unwrap(), payload);
 }
 
 // Whitespace inside or around a fragment is never tolerated (the alphabet and padding cases

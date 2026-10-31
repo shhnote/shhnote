@@ -115,6 +115,7 @@ pub fn encrypt(
     let argon = argon.check_bounds()?;
     let kek = match passphrase {
         None => kek_direct(&rand.seed),
+        Some("") => return Err(Error::EmptyPassphrase),
         Some(passphrase) => kek_pass(&rand.seed, passphrase, &rand.salt, argon)?,
     };
     let header = Header {
@@ -145,6 +146,10 @@ pub fn encrypt(
 
 // SPEC §2.10. Tries direct mode first; a failed unwrap is the only signal that a passphrase is needed.
 pub fn decrypt(blob: &[u8], seed: &[u8; 32], passphrase: Option<&str>) -> Result<Payload, Error> {
+    // Refused before anything is parsed, whatever mode the blob turns out to be in.
+    if passphrase == Some("") {
+        return Err(Error::EmptyPassphrase);
+    }
     let header = Header::parse(blob)?;
     let ek = match unwrap(&kek_direct(seed), &header.wrap_iv, &header.wrapped_ek) {
         Some(ek) => ek,

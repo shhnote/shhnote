@@ -85,6 +85,8 @@ export async function encrypt(opts: EncryptOptions): Promise<Encrypted> {
   const { randomness: r } = opts;
   const argon = checkArgon2Bounds(opts.argon ?? ARGON2_DEFAULT);
   let kek: CryptoKey;
+  // "" is never "no passphrase": omit the option to mean direct mode (SPEC §2.10).
+  if (opts.passphrase === "") throw new ShhError("empty_passphrase");
   if (opts.passphrase) {
     if (!opts.argon2) throw new ShhError("argon2_unavailable", "a passphrase needs the Argon2 module");
     kek = await kekPass(r.seed, opts.passphrase, r.salt, argon, opts.argon2, ["wrapKey"]);
@@ -128,6 +130,7 @@ async function unwrap(kek: CryptoKey, header: Header): Promise<CryptoKey | null>
 // failed unwrap is the only signal that a passphrase is needed, and a wrong passphrase costs
 // no server round trip, since only the header is needed to try again.
 export async function unwrapEk(header: Header, seed: Uint8Array, passphrase?: string | null, argon2?: Argon2): Promise<CryptoKey> {
+  if (passphrase === "") throw new ShhError("empty_passphrase");
   const direct = await unwrap(await kekDirect(seed, ["unwrapKey"]), header);
   if (direct !== null) return direct;
   if (!passphrase) throw new ShhError("passphrase_required");
@@ -155,6 +158,8 @@ export async function decryptBody(ek: CryptoKey, header: Header, body: AsyncIter
 
 // The whole of SPEC §2.10 over a stream of blob bytes.
 export async function decryptStream(body: AsyncIterable<Uint8Array>, seed: Uint8Array, passphrase?: string | null, argon2?: Argon2, maxBlobBytes = Infinity): Promise<Payload> {
+  // Refused before anything is read, whatever mode the blob turns out to be in.
+  if (passphrase === "") throw new ShhError("empty_passphrase");
   const { header, rest } = await readHeader(body);
   const ek = await unwrapEk(header, seed, passphrase, argon2);
   return decryptBody(ek, header, rest, maxBlobBytes);

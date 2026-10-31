@@ -16,6 +16,9 @@ pub enum Error {
     Argon2OutOfBounds,
     // The direct unwrap failed and no passphrase was given.
     PassphraseRequired,
+    // A passphrase was given but is the empty string: never "no passphrase", always an error
+    // at the API boundary (§2.10).
+    EmptyPassphrase,
     // A passphrase was given but the unwrap still failed.
     WrongPassphrase,
     // Authentication or structure failure after the key was unwrapped.
@@ -41,6 +44,7 @@ impl fmt::Display for Error {
             Self::InvalidBlobLength => f.write_str("blob length matches no valid padded size"),
             Self::Argon2OutOfBounds => f.write_str("Argon2 parameters are out of bounds"),
             Self::PassphraseRequired => f.write_str("a passphrase is required"),
+            Self::EmptyPassphrase => f.write_str("a passphrase cannot be empty; omit it instead"),
             Self::WrongPassphrase => f.write_str("wrong passphrase"),
             Self::Corrupt(what) => write!(f, "blob is corrupt: {what}"),
             Self::EmptyPayload => f.write_str("a secret needs text or at least one file"),

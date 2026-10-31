@@ -60,7 +60,7 @@ that started this).
 | S-43 | Low | `dec32c1` | redirect after settings save and key creation; the key shown once via a one-time nonce (login page for the first admin key) |
 | S-44 | Low | `f8ce537` | Argon2 work memory wiped in the WASM module and in core (`argon2/zeroize`) |
 | S-45 | Low | `c7612bc`, `133f9f0`, `fda682d`, `40f5875` | spec wording, threat-model caveat, seed/ciphertext/passphrase wiped on `pagehide` |
-| S-46 | Low | `4d7b563` | parsing parity cases pinned by vectors. **Still open:** an empty passphrase is a passphrase in Rust and "none" in TypeScript; each side pins its own behaviour (`spec_empty_passphrase_is_a_passphrase`, the client's S-46 test) until a decision is written into §2.10 |
+| S-46 | Low | `4d7b563`, step 33 | parsing parity cases pinned by vectors; an empty passphrase is an error at the API boundary on both sides (§2.10), pinned by the `empty-passphrase` reject vector |
 | S-47 | Low | `e0b1b88`, `40f5875` | hostile blobs stay inside the `ShhError` contract |
 | S-48 | Low | `4d7b563` | multi-chunk and truncation negatives in the vectors |
 | S-49 | Low | `86cb2e1` | no parameter properties; `erasableSyntaxOnly` |
@@ -138,6 +138,5 @@ Recorded in `SPEC.md`; none of them has a code fix pending.
 - The first push and tag will show whether the GitHub-side pieces of
   `1f2f63a` behave: the `ubuntu-24.04-arm` runner, the reusable-workflow call,
   and the attestations.
-- S-46's empty-passphrase meaning (above).
 - A by-hand check that takes 10 s and stays `#[ignore]`:
   `spec_sqlite_lock_holder_makes_claims_fail_after_busy_timeout`.

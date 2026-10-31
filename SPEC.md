@@ -155,6 +155,8 @@ Parameters outside the bounds mean a corrupt or hostile blob; reject before runn
 
 Wrong-passphrase retries cost no server round-trip. A false mode detection or false passphrase accept has probability 2⁻¹²⁸.
 
+A passphrase, when present, is a non-empty string; both implementations reject an empty passphrase at the API boundary. User interfaces treat an empty input as no passphrase before calling the library.
+
 ### 2.11 Burn token
 
 - `burn_token`: 32 random bytes, generated at creation, independent of the seed.

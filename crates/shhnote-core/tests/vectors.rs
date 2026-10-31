@@ -92,6 +92,9 @@ struct Reject {
     base: String,
     expect: String,
     blob_base64: String,
+    // Overrides the base vector's passphrase for this case when present.
+    #[serde(default)]
+    passphrase: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -372,7 +375,11 @@ fn reject_cases_are_rejected() {
         let policy = base.inputs.policy();
 
         let server_check = policy.bucket_for_blob_len(blob.len() as u64);
-        let client_result = secret::decrypt(&blob, &seed, base.inputs.passphrase.as_deref());
+        let passphrase = r
+            .passphrase
+            .as_deref()
+            .or(base.inputs.passphrase.as_deref());
+        let client_result = secret::decrypt(&blob, &seed, passphrase);
         assert!(
             server_check.is_err() || client_result.is_err(),
             "{} was accepted by both the server length check and the client",
@@ -386,6 +393,7 @@ fn reject_cases_are_rejected() {
             ("invalid_blob_length", Err(Error::InvalidBlobLength)) => {}
             ("argon2_out_of_bounds", Err(Error::Argon2OutOfBounds)) => {}
             ("passphrase_required", Err(Error::PassphraseRequired)) => {}
+            ("empty_passphrase", Err(Error::EmptyPassphrase)) => {}
             ("corrupt", Err(Error::Corrupt(_))) => {}
             ("manifest", Err(Error::Manifest(_))) => {}
             ("empty_payload", Err(Error::EmptyPayload)) => {}

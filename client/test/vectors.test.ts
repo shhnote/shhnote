@@ -50,7 +50,7 @@ interface Vector {
 interface Doc {
   version: number;
   vectors: Vector[];
-  reject: { name: string; base: string; expect: string; blob_base64: string }[];
+  reject: { name: string; base: string; expect: string; blob_base64: string; passphrase?: string | null }[];
   reject_fragments: { name: string; fragment: string; as: Kind; expect: string }[];
 }
 
@@ -191,7 +191,7 @@ describe("conformance vectors", () => {
         continue;
       }
       await assert.rejects(
-        decrypt(blob, fromHex(base.inputs.seed), base.inputs.passphrase, argon2),
+        decrypt(blob, fromHex(base.inputs.seed), r.passphrase ?? base.inputs.passphrase, argon2),
         (e: unknown) => e instanceof ShhError && e.code === r.expect,
         r.name,
       );
