@@ -15,7 +15,7 @@ import { ShhError } from "../src/crypto/error.ts";
 import { decodeFragment, encodeFragment } from "../src/crypto/fragment.ts";
 import { ARGON2_MIN, INFO, checkArgon2Bounds, hkdfAesKey } from "../src/crypto/kdf.ts";
 import { CHUNK_SIZE, pad } from "../src/crypto/padding.ts";
-import { decrypt } from "../src/crypto/secret.ts";
+import { decrypt, decryptStream } from "../src/crypto/secret.ts";
 import { burnSecret, parseFragment, revealSecret } from "../src/client.ts";
 import { ApiError } from "../src/ui/api.ts";
 
@@ -98,6 +98,57 @@ describe("spec: chunk layer beyond the vectors", () => {
     const payload = encodePayload({ text: "y".repeat(140_000), files: [] });
     const bucket = 3 * CHUNK_SIZE;
     await assert.rejects(decrypt(await blobFrom(paddedOf(payload, bucket, bucket - 4)), seed), isCode("corrupt"));
+  });
+});
+
+// Feeds a blob to the streaming decoder in pieces of the given size.
+function pieces(blob: Uint8Array, size: number): AsyncIterable<Uint8Array> {
+  return (async function* () {
+    for (let at = 0; at < blob.length; at += size) {
+      yield blob.subarray(at, Math.min(at + size, blob.length));
+    }
+  })();
+}
+
+describe("spec: streaming decryption (SPEC §2.7, §10)", () => {
+  it("decrypts the same whatever the piece size", async () => {
+    const files = [
+      { name: "a.bin", type: "application/octet-stream", bytes: new Uint8Array(70_000).map((_, i) => i & 0xff) },
+      { name: "empty", type: "text/plain", bytes: new Uint8Array(0) },
+      { name: "b.bin", type: "application/octet-stream", bytes: new Uint8Array(3).fill(9) },
+    ];
+    const padded = pad(encodePayload({ text: "streamed", files }), { mode: "padme", min: 4096 });
+    const blob = await blobFrom(padded);
+    for (const size of [1, 7, 94, 95, 96, 4096, CHUNK_SIZE + 15, CHUNK_SIZE + 16, CHUNK_SIZE + 17, blob.length]) {
+      const out = await decryptStream(pieces(blob, size), seed);
+      assert.equal(out.text, "streamed", `${size}`);
+      assert.equal(out.files.length, 3, `${size}`);
+      assert.deepEqual([...out.files[0]!.bytes], [...files[0]!.bytes], `${size}`);
+      assert.equal(out.files[1]!.bytes.length, 0, `${size}`);
+      assert.deepEqual([...out.files[2]!.bytes], [9, 9, 9], `${size}`);
+    }
+  });
+
+  it("fails like the one-shot path when the stream ends early", async () => {
+    const blob = await blobFrom(threeChunk());
+    const cases: [number, string][] = [
+      [50, "invalid_blob_length"],
+      [95, "invalid_blob_length"],
+      [95 + CHUNK_SIZE + 16 + 5, "invalid_blob_length"],
+      [95 + 2 * (CHUNK_SIZE + 16), "corrupt"],
+      [95 + CHUNK_SIZE + 16 + 1000, "corrupt"],
+    ];
+    for (const [cut, code] of cases) {
+      await assert.rejects(decryptStream(pieces(blob.subarray(0, cut), 1000), seed), isCode(code), `${cut}`);
+      await assert.rejects(decrypt(blob.subarray(0, cut), seed), isCode(code), `${cut} one-shot`);
+    }
+  });
+
+  it("refuses a payload length that runs past the bucket, streamed", async () => {
+    const payload = encodePayload({ text: "y".repeat(140_000), files: [] });
+    const bucket = 3 * CHUNK_SIZE;
+    const blob = await blobFrom(paddedOf(payload, bucket, bucket - 3));
+    await assert.rejects(decryptStream(pieces(blob, 10_000), seed), isCode("corrupt"));
   });
 });
 

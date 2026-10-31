@@ -1,12 +1,13 @@
 import type { Argon2 } from "./argon2.ts";
-import { type Header, NONCE_PREFIX_LEN, WRAP_IV_LEN, parseHeader, serializeHeader } from "./blob.ts";
+import { type Header, NONCE_PREFIX_LEN, WRAP_IV_LEN, serializeHeader } from "./blob.ts";
 import { concat, own } from "./bytes.ts";
-import { openAll, sealAll } from "./chunks.ts";
-import { type Payload, decodePayload, encodePayload } from "./container.ts";
+import { sealAll } from "./chunks.ts";
+import { type Payload, encodePayload } from "./container.ts";
 import { ShhError } from "./error.ts";
 import { encodeFragment } from "./fragment.ts";
 import { ARGON2_DEFAULT, type Argon2Params, INFO, SALT_LEN, checkArgon2Bounds, hkdfAesKey, hkdfBits, sha256 } from "./kdf.ts";
-import { HEADER_LEN, type PaddingPolicy, blobLen, pad, unpad } from "./padding.ts";
+import { type PaddingPolicy, blobLen, pad } from "./padding.ts";
+import { PayloadDecoder, iterateBytes, openStream, readHeader } from "./stream.ts";
 
 const subtle = globalThis.crypto.subtle;
 
@@ -123,20 +124,41 @@ async function unwrap(kek: CryptoKey, header: Header): Promise<CryptoKey | null>
   }
 }
 
-// SPEC §2.10. Tries direct mode first; a failed unwrap is the only signal that a passphrase is needed.
-export async function decrypt(blob: Uint8Array, seed: Uint8Array, passphrase?: string | null, argon2?: Argon2): Promise<Payload> {
-  const header = parseHeader(blob);
-  let ek = await unwrap(await kekDirect(seed, ["unwrapKey"]), header);
-  if (ek === null) {
-    if (!passphrase) throw new ShhError("passphrase_required");
-    if (!argon2) throw new ShhError("argon2_unavailable", "a passphrase needs the Argon2 module");
-    ek = await unwrap(await kekPass(seed, passphrase, header.salt, header.argon, argon2, ["unwrapKey"]), header);
-    if (ek === null) throw new ShhError("wrong_passphrase");
+// SPEC §2.10 steps 3–4: the content key from the header alone. Tries direct mode first; a
+// failed unwrap is the only signal that a passphrase is needed, and a wrong passphrase costs
+// no server round trip, since only the header is needed to try again.
+export async function unwrapEk(header: Header, seed: Uint8Array, passphrase?: string | null, argon2?: Argon2): Promise<CryptoKey> {
+  const direct = await unwrap(await kekDirect(seed, ["unwrapKey"]), header);
+  if (direct !== null) return direct;
+  if (!passphrase) throw new ShhError("passphrase_required");
+  if (!argon2) throw new ShhError("argon2_unavailable", "a passphrase needs the Argon2 module");
+  const ek = await unwrap(await kekPass(seed, passphrase, header.salt, header.argon, argon2, ["unwrapKey"]), header);
+  if (ek === null) throw new ShhError("wrong_passphrase");
+  return ek;
+}
+
+// SPEC §2.10 steps 5–6 over a stream: chunks are opened and the payload assembled as the
+// bytes arrive; each plaintext chunk is wiped once consumed.
+export async function decryptBody(ek: CryptoKey, header: Header, body: AsyncIterable<Uint8Array>): Promise<Payload> {
+  const decoder = new PayloadDecoder();
+  for await (const chunk of openStream(ek, header.noncePrefix, body)) {
+    try {
+      decoder.push(chunk);
+    } finally {
+      chunk.fill(0);
+    }
   }
-  const padded = await openAll(ek, header.noncePrefix, blob.subarray(HEADER_LEN));
-  try {
-    return decodePayload(unpad(padded));
-  } finally {
-    padded.fill(0);
-  }
+  return decoder.finish();
+}
+
+// The whole of SPEC §2.10 over a stream of blob bytes.
+export async function decryptStream(body: AsyncIterable<Uint8Array>, seed: Uint8Array, passphrase?: string | null, argon2?: Argon2): Promise<Payload> {
+  const { header, rest } = await readHeader(body);
+  const ek = await unwrapEk(header, seed, passphrase, argon2);
+  return decryptBody(ek, header, rest);
+}
+
+// The same pipeline over a blob already in memory.
+export function decrypt(blob: Uint8Array, seed: Uint8Array, passphrase?: string | null, argon2?: Argon2): Promise<Payload> {
+  return decryptStream(iterateBytes(blob), seed, passphrase, argon2);
 }

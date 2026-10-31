@@ -16,7 +16,7 @@ export interface Payload {
   files: PayloadFile[];
 }
 
-interface Manifest {
+export interface Manifest {
   v: number;
   text: string | null;
   files: { name: string; type: string; size: number }[];
@@ -94,15 +94,11 @@ export function encodePayload(payload: Payload): Uint8Array<ArrayBuffer> {
   return concat(u32be(manifest.length), manifest, ...payload.files.map((f) => f.bytes));
 }
 
-export function decodePayload(bytes: Uint8Array): Payload {
-  if (bytes.length < 4) throw new ShhError("corrupt", "payload too short");
-  const manifestLen = readU32be(bytes, 0);
-  if (manifestLen > MAX_MANIFEST_LEN) throw new ShhError("corrupt", "manifest too large");
-  if (4 + manifestLen > bytes.length) throw new ShhError("corrupt", "manifest length exceeds payload");
-
+// The manifest bytes to a checked manifest: the same shape the Rust core accepts, no more.
+export function parseManifest(bytes: Uint8Array): Manifest {
   let manifest: Manifest;
   try {
-    const text = decoder.decode(bytes.subarray(4, 4 + manifestLen));
+    const text = decoder.decode(bytes);
     checkManifestSyntax(text);
     manifest = JSON.parse(text);
   } catch (e) {
@@ -119,10 +115,6 @@ export function decodePayload(bytes: Uint8Array): Payload {
     throw new ShhError("manifest", "unexpected manifest shape");
   }
   if (manifest.text !== null && LONE_SURROGATE.test(manifest.text)) throw new ShhError("manifest", "lone surrogate");
-  if (manifest.text === null && manifest.files.length === 0) throw new ShhError("empty_payload");
-
-  let at = 4 + manifestLen;
-  const files: PayloadFile[] = [];
   for (const meta of manifest.files) {
     if (
       typeof meta !== "object" ||
@@ -136,6 +128,21 @@ export function decodePayload(bytes: Uint8Array): Payload {
     ) {
       throw new ShhError("manifest", "bad file entry");
     }
+  }
+  return manifest;
+}
+
+export function decodePayload(bytes: Uint8Array): Payload {
+  if (bytes.length < 4) throw new ShhError("corrupt", "payload too short");
+  const manifestLen = readU32be(bytes, 0);
+  if (manifestLen > MAX_MANIFEST_LEN) throw new ShhError("corrupt", "manifest too large");
+  if (4 + manifestLen > bytes.length) throw new ShhError("corrupt", "manifest length exceeds payload");
+  const manifest = parseManifest(bytes.subarray(4, 4 + manifestLen));
+  if (manifest.text === null && manifest.files.length === 0) throw new ShhError("empty_payload");
+
+  let at = 4 + manifestLen;
+  const files: PayloadFile[] = [];
+  for (const meta of manifest.files) {
     if (at + meta.size > bytes.length) throw new ShhError("corrupt", "file sizes exceed payload");
     files.push({ name: meta.name, type: meta.type, bytes: bytes.slice(at, at + meta.size) });
     at += meta.size;

@@ -24,7 +24,11 @@ export {
   type Randomness,
   credentialHash,
   decrypt,
+  decryptBody,
+  decryptStream,
   encrypt,
   generateRandomness,
   lookup,
+  unwrapEk,
 } from "./crypto/secret.ts";
+export { PayloadDecoder, iterateStream, openStream, readHeader } from "./crypto/stream.ts";
