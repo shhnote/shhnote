@@ -507,7 +507,6 @@ async fn spec_login_failures_look_alike_and_are_limited() {
 // SPEC §8: the admin API consults the login bucket before the lookup, so a limited client
 // gets no answer for a right guess either.
 #[tokio::test]
-#[ignore = "S-41"]
 async fn spec_admin_api_limit_blocks_guessing() {
     let (app, _) = build("spec-admin-api-limit").await;
     let mut statuses = Vec::new();
@@ -589,7 +588,6 @@ async fn spec_bearer_parsing_and_scopes() {
 
 // CLAUDE.md: no reachable panic in a handler; a non-ASCII key id is a plain client error.
 #[tokio::test]
-#[ignore = "S-29"]
 async fn spec_admin_key_delete_does_not_panic_on_non_ascii() {
     let (app, _) = build("spec-admin-unhex").await;
     // "0é…": the 2-byte slice at 0..2 ends inside the 'é'.

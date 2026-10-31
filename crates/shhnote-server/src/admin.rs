@@ -64,7 +64,7 @@ fn mac(secret: &[u8], data: &[u8]) -> [u8; 32] {
     mac.finalize().into_bytes().into()
 }
 
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }
@@ -675,18 +675,21 @@ fn db_error(state: &PageState, error: shhnote_store::Error) -> Response {
     error_page(state, StatusCode::INTERNAL_SERVER_ERROR)
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn unhex(text: &str) -> Option<Vec<u8>> {
-    if !text.len().is_multiple_of(2) || text.len() > 128 {
+// A key id as the panel and API print it: exactly the 64 hex digits of the hash. The digit
+// check comes first, so slicing by byte offset can never land inside a multibyte character.
+pub(crate) fn unhex(text: &str) -> Option<[u8; 32]> {
+    if text.len() != 64 || !text.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
-    (0..text.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).ok())
-        .collect()
+    let mut out = [0u8; 32];
+    for (i, byte) in out.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&text[2 * i..2 * i + 2], 16).ok()?;
+    }
+    Some(out)
 }
 
 #[cfg(test)]
@@ -721,6 +724,22 @@ mod tests {
             }
             .csrf(secret)
         );
+    }
+
+    #[test]
+    fn unhex_accepts_only_a_full_hex_hash() {
+        let id = hex(&[0xab; 32]);
+        assert_eq!(unhex(&id), Some([0xab; 32]));
+        for bad in [
+            "",
+            "ab",
+            &id[..62],
+            &format!("{id}ab"),
+            &format!("0é{}", "0".repeat(61)),
+            &format!("zz{}", &id[2..]),
+        ] {
+            assert_eq!(unhex(bad), None, "{bad:?}");
+        }
     }
 
     #[test]

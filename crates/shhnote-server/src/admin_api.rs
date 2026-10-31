@@ -14,7 +14,7 @@ use shhnote_core::{secret::credential_hash, settings::Settings};
 use shhnote_store::Scope;
 
 use crate::{
-    admin::{SaveError, mint_key, save_settings},
+    admin::{SaveError, constant_time_eq, hex, mint_key, save_settings, unhex},
     api::{ApiState, error_response},
     clock::{format_date, now},
     ratelimit::{Endpoint, peer_of},
@@ -32,9 +32,21 @@ pub fn routes(state: ApiState) -> Router<ApiState> {
         .layer(middleware::map_response(crate::admin::no_store))
 }
 
-// Either an `admin` API key or, on a fresh install, the bootstrap token. Failed attempts
-// share the login bucket so keys cannot be guessed at speed.
+// Either an `admin` API key or, on a fresh install, the bootstrap token. The login bucket is
+// consulted before the lookup and charged for every failure (SPEC §8): a limited client gets
+// 429 even for a right guess, so keys cannot be guessed at speed.
 async fn require_admin(State(state): State<ApiState>, req: Request, next: Next) -> Response {
+    let limited = error_response(
+        StatusCode::TOO_MANY_REQUESTS,
+        "rate_limited",
+        "Too many attempts. Please wait a little and try again.",
+    );
+    let ip = state
+        .limiter
+        .client_ip(peer_of(req.extensions()), req.headers());
+    if state.limiter.exhausted(Endpoint::Login, ip) {
+        return limited;
+    }
     let hash = req
         .headers()
         .get(header::AUTHORIZATION)
@@ -50,7 +62,7 @@ async fn require_admin(State(state): State<ApiState>, req: Request, next: Next) 
             }
             Ok(_) => {
                 if let Some(bootstrap) = state.admin_token_hash
-                    && bootstrap == hash
+                    && constant_time_eq(&bootstrap, &hash)
                     && matches!(state.store.admin_key_count().await, Ok(0))
                 {
                     allowed = true;
@@ -67,15 +79,8 @@ async fn require_admin(State(state): State<ApiState>, req: Request, next: Next) 
         }
     }
     if !allowed {
-        let ip = state
-            .limiter
-            .client_ip(peer_of(req.extensions()), req.headers());
         if state.limiter.check(Endpoint::Login, ip).is_err() {
-            return error_response(
-                StatusCode::TOO_MANY_REQUESTS,
-                "rate_limited",
-                "Too many attempts. Please wait a little and try again.",
-            );
+            return limited;
         }
         return error_response(
             StatusCode::UNAUTHORIZED,
@@ -359,18 +364,4 @@ async fn keys_delete(State(state): State<ApiState>, Strict(body): Strict<DeleteK
         Ok(false) => error_response(StatusCode::NOT_FOUND, "no_such_key", "Unknown key id."),
         Err(e) => db_error(e),
     }
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-fn unhex(text: &str) -> Option<Vec<u8>> {
-    if text.len() != 64 {
-        return None;
-    }
-    (0..64)
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).ok())
-        .collect()
 }

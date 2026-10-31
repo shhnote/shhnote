@@ -124,6 +124,25 @@ impl RateLimiter {
         self.take(&mut table, endpoint, subject, self.per_hour(endpoint), now)
     }
 
+    // Is the client out of tokens right now? Spends nothing, so a credential check can be
+    // refused before it runs and charged only when it fails.
+    pub fn exhausted(&self, endpoint: Endpoint, ip: IpAddr) -> bool {
+        let per_hour = self.per_hour(endpoint);
+        if per_hour == 0 {
+            return false;
+        }
+        let now = Instant::now();
+        let table = self.table.lock().unwrap_or_else(|e| e.into_inner());
+        let subject = Subject::Ip(keyed_hash(&table.salt, &ip_prefix(ip)));
+        let Some(bucket) = table.buckets.get(&(endpoint, subject)) else {
+            return false;
+        };
+        let capacity = f64::from(per_hour);
+        let refilled =
+            bucket.tokens + now.duration_since(bucket.updated).as_secs_f64() * capacity / 3600.0;
+        refilled.min(capacity) < 1.0
+    }
+
     pub fn check_key(&self, endpoint: Endpoint, key_hash: [u8; 32]) -> Result<(), u64> {
         let now = Instant::now();
         let mut table = self.table.lock().unwrap_or_else(|e| e.into_inner());
