@@ -39,20 +39,3 @@ export async function sealAll(ek: CryptoKey, prefix: Uint8Array, padded: Uint8Ar
   return out;
 }
 
-// All chunks but the last are exactly 64 KiB + 16 bytes, so the body's length says where
-// each one starts. The final chunk is opened with the last flag, so a body cut short fails there.
-export async function openAll(ek: CryptoKey, prefix: Uint8Array, body: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
-  const sealedLen = CHUNK_SIZE + TAG_LEN;
-  const count = Math.ceil(body.length / sealedLen);
-  // Every sealed chunk carries a tag, so the final one cannot be shorter than that.
-  if (count === 0 || body.length - (count - 1) * sealedLen < TAG_LEN) throw new ShhError("invalid_blob_length");
-  const out = new Uint8Array(body.length - count * TAG_LEN);
-  let at = 0;
-  for (let i = 0; i < count; i++) {
-    const sealed = body.subarray(i * sealedLen, (i + 1) * sealedLen);
-    const chunk = await openChunk(ek, prefix, i, i === count - 1, sealed);
-    out.set(chunk, at);
-    at += chunk.length;
-  }
-  return out;
-}

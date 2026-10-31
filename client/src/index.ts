@@ -31,4 +31,4 @@ export {
   lookup,
   unwrapEk,
 } from "./crypto/secret.ts";
-export { PayloadDecoder, iterateStream, openStream, readHeader } from "./crypto/stream.ts";
+export { PayloadDecoder, collect, iterateStream, openStream, readHeader } from "./crypto/stream.ts";

@@ -1,5 +1,10 @@
 import { toBase64Url } from "../crypto/bytes.ts";
 import type { PaddingPolicy } from "../crypto/padding.ts";
+import { iterateStream } from "../crypto/stream.ts";
+
+// Without an instance limit to go by, the largest blob any instance can serve
+// (SHH_EXTERNAL_MAX_OBJECT's ceiling, SPEC §7.1).
+export const DEFAULT_MAX_BLOB_BYTES = 4 * 1024 * 1024 * 1024;
 
 export interface InstanceConfig {
   fragment_version: number;
@@ -17,17 +22,24 @@ export interface InstanceConfig {
 
 export type Lifetime = "single_view" | "ttl";
 
+// The reveal answer with its headers read and the blob still to come: a single-view secret
+// is claimed the moment the headers arrive, so the token is known before any byte of body.
 export interface Revealed {
-  blob: Uint8Array<ArrayBuffer>;
+  body: AsyncIterable<Uint8Array>;
+  // The bytes the server says it will send, when it says so.
+  contentLength: number | null;
   claimToken: string | null;
   expiresInHours: number | null;
 }
 
 // Thrown for anything other than a successful response. `status` 0 means the request never
-// got an answer (offline, blocked, aborted).
+// got a complete answer: `network` for no answer or a body cut short, `too_large` for a body
+// over the cap. `claimToken` is set by the client library when the failure came after a
+// single-view secret was claimed.
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
+  claimToken?: string;
 
   constructor(status: number, code: string) {
     super(`${status} ${code}`);
@@ -60,6 +72,22 @@ async function send(fetchImpl: Fetch, input: string, init: RequestInit): Promise
   }
   if (!response.ok) throw await errorFor(response);
   return response;
+}
+
+async function* cappedBody(response: Response, maxBytes: number): AsyncGenerator<Uint8Array> {
+  // A fetch double may answer without a stream; the real one always has it.
+  const source = response.body ? iterateStream(response.body) : [new Uint8Array(await response.arrayBuffer())];
+  let seen = 0;
+  try {
+    for await (const piece of source) {
+      seen += piece.length;
+      if (seen > maxBytes) throw new ApiError(0, "too_large");
+      yield piece;
+    }
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    throw new ApiError(0, "network");
+  }
 }
 
 // Talks to one instance's API (SPEC §4). Identifiers travel only in request bodies.
@@ -97,7 +125,9 @@ export class Api {
     await send(this.fetchImpl, `${this.base}/secrets`, { method: "POST", body: form });
   }
 
-  async reveal(lookup: Uint8Array, claimToken?: string): Promise<Revealed> {
+  // `maxBytes` caps the body: what the server announces and what it actually sends must
+  // both stay within it, so a misbehaving server cannot make the client buffer without end.
+  async reveal(lookup: Uint8Array, claimToken?: string | null, maxBytes = DEFAULT_MAX_BLOB_BYTES): Promise<Revealed> {
     const body: Record<string, string> = { lookup: toBase64Url(lookup) };
     if (claimToken) body["claim_token"] = claimToken;
     const response = await send(this.fetchImpl, `${this.base}/secrets/reveal`, {
@@ -105,9 +135,13 @@ export class Api {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
+    const length = response.headers.get("content-length");
+    const contentLength = length === null ? null : Number(length);
+    if (contentLength !== null && contentLength > maxBytes) throw new ApiError(0, "too_large");
     const hours = response.headers.get("x-shh-expires-in-hours");
     return {
-      blob: new Uint8Array(await response.arrayBuffer()),
+      body: cappedBody(response, Math.min(maxBytes, contentLength ?? maxBytes)),
+      contentLength,
       claimToken: response.headers.get("x-shh-claim-token"),
       expiresInHours: hours === null ? null : Number(hours),
     };

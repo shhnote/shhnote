@@ -6,7 +6,7 @@ import { type Payload, encodePayload } from "./container.ts";
 import { ShhError } from "./error.ts";
 import { encodeFragment } from "./fragment.ts";
 import { ARGON2_DEFAULT, type Argon2Params, INFO, SALT_LEN, checkArgon2Bounds, hkdfAesKey, hkdfBits, sha256 } from "./kdf.ts";
-import { type PaddingPolicy, blobLen, pad } from "./padding.ts";
+import { HEADER_LEN, type PaddingPolicy, blobLen, pad } from "./padding.ts";
 import { PayloadDecoder, iterateBytes, openStream, readHeader } from "./stream.ts";
 
 const subtle = globalThis.crypto.subtle;
@@ -138,9 +138,11 @@ export async function unwrapEk(header: Header, seed: Uint8Array, passphrase?: st
 }
 
 // SPEC §2.10 steps 5–6 over a stream: chunks are opened and the payload assembled as the
-// bytes arrive; each plaintext chunk is wiped once consumed.
-export async function decryptBody(ek: CryptoKey, header: Header, body: AsyncIterable<Uint8Array>): Promise<Payload> {
-  const decoder = new PayloadDecoder();
+// bytes arrive; each plaintext chunk is wiped once consumed. `maxBlobBytes` is the most the
+// blob may be (the instance's limit, or the Content-Length), and bounds what the payload
+// may claim.
+export async function decryptBody(ek: CryptoKey, header: Header, body: AsyncIterable<Uint8Array>, maxBlobBytes = Infinity): Promise<Payload> {
+  const decoder = new PayloadDecoder(maxBlobBytes - HEADER_LEN);
   for await (const chunk of openStream(ek, header.noncePrefix, body)) {
     try {
       decoder.push(chunk);
@@ -152,13 +154,14 @@ export async function decryptBody(ek: CryptoKey, header: Header, body: AsyncIter
 }
 
 // The whole of SPEC §2.10 over a stream of blob bytes.
-export async function decryptStream(body: AsyncIterable<Uint8Array>, seed: Uint8Array, passphrase?: string | null, argon2?: Argon2): Promise<Payload> {
+export async function decryptStream(body: AsyncIterable<Uint8Array>, seed: Uint8Array, passphrase?: string | null, argon2?: Argon2, maxBlobBytes = Infinity): Promise<Payload> {
   const { header, rest } = await readHeader(body);
   const ek = await unwrapEk(header, seed, passphrase, argon2);
-  return decryptBody(ek, header, rest);
+  return decryptBody(ek, header, rest, maxBlobBytes);
 }
 
-// The same pipeline over a blob already in memory.
+// The same pipeline over a blob already in memory. No cap: the blob is already in memory,
+// and a short one fails on its length, which says more than a refused prefix would.
 export function decrypt(blob: Uint8Array, seed: Uint8Array, passphrase?: string | null, argon2?: Argon2): Promise<Payload> {
   return decryptStream(iterateBytes(blob), seed, passphrase, argon2);
 }

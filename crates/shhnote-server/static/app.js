@@ -62,6 +62,7 @@ function fromBase64Url(text) {
 // src/crypto/error.ts
 var ShhError = class extends Error {
   code;
+  claimToken;
   constructor(code, message) {
     super(message ?? code);
     this.name = "ShhError";
@@ -70,25 +71,401 @@ var ShhError = class extends Error {
 };
 
 // src/crypto/fragment.ts
-var VERSION = 1;
 var FRAGMENT_CHARS = 44;
-function encodeFragment(bytes) {
-  if (bytes.length !== 32) throw new RangeError("fragment material must be 32 bytes");
-  return toBase64Url(concat(new Uint8Array([VERSION]), bytes));
+var KIND_BYTES = { share: 1, burn: 2 };
+function kindOf(byte) {
+  if (byte === KIND_BYTES.share) return "share";
+  if (byte === KIND_BYTES.burn) return "burn";
+  return null;
 }
-function decodeFragment(text) {
+function encodeFragment(bytes, kind = "share") {
+  if (bytes.length !== 32) throw new RangeError("fragment material must be 32 bytes");
+  return toBase64Url(concat(new Uint8Array([KIND_BYTES[kind]]), bytes));
+}
+function decodeFragment(text, kind = "share") {
   const body = text.startsWith("#") ? text.slice(1) : text;
   if (body.length !== FRAGMENT_CHARS) throw new ShhError("invalid_fragment");
   const raw = fromBase64Url(body);
   if (raw === null || raw.length !== 33) throw new ShhError("invalid_fragment");
-  if (raw[0] !== VERSION) throw new ShhError("unsupported_version", `version ${raw[0]}`);
+  const first = raw[0] ?? -1;
+  const found = kindOf(first);
+  if (found === null) throw new ShhError("unsupported_version", `version ${first}`);
+  if (found !== kind) throw new ShhError("wrong_kind", `a ${found} link was given where a ${kind} link was expected`);
   return raw.slice(1);
 }
 
+// src/crypto/kdf.ts
+var encoder = new TextEncoder();
+var INFO = {
+  lookup: encoder.encode("shhnote/lookup/v1"),
+  kekDirect: encoder.encode("shhnote/kek-direct/v1"),
+  kekPass: encoder.encode("shhnote/kek-pass/v1")
+};
+var SALT_LEN = 16;
+var ARGON2_DEFAULT = { m: 64 * 1024, t: 3, p: 1 };
+var ARGON2_MIN = { m: 8 * 1024, t: 1, p: 1 };
+var ARGON2_MAX = { m: 256 * 1024, t: 8, p: 4 };
+function checkArgon2Bounds(params) {
+  const within = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+  if (!within(params.m, ARGON2_MIN.m, ARGON2_MAX.m) || !within(params.t, ARGON2_MIN.t, ARGON2_MAX.t) || !within(params.p, ARGON2_MIN.p, ARGON2_MAX.p)) {
+    throw new ShhError("argon2_out_of_bounds");
+  }
+  return params;
+}
+var subtle = globalThis.crypto.subtle;
+async function hkdfBase(ikm) {
+  return subtle.importKey("raw", own(ikm), "HKDF", false, ["deriveBits", "deriveKey"]);
+}
+function hkdfAlgorithm(info) {
+  return { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: own(info) };
+}
+async function hkdfBits(ikm, info) {
+  const key = await hkdfBase(ikm);
+  return new Uint8Array(await subtle.deriveBits(hkdfAlgorithm(info), key, 256));
+}
+async function hkdfAesKey(ikm, info, usages) {
+  const key = await hkdfBase(ikm);
+  return subtle.deriveKey(hkdfAlgorithm(info), key, { name: "AES-GCM", length: 256 }, false, usages);
+}
+async function sha256(bytes) {
+  return new Uint8Array(await subtle.digest("SHA-256", own(bytes)));
+}
+
+// src/crypto/padding.ts
+var CHUNK_SIZE = 65536;
+var TAG_LEN = 16;
+var HEADER_LEN = 95;
+var LENGTH_PREFIX = 4;
+var DEFAULT_PADDING_MIN = 64 * 1024;
+function padme(len) {
+  if (len < 2) return len;
+  const L = BigInt(len);
+  const e = BigInt(L.toString(2).length - 1);
+  const s = BigInt(e.toString(2).length);
+  const mask = (1n << e - s) - 1n;
+  return Number(L + mask & ~mask);
+}
+function paddedSize(len, policy) {
+  if (policy.mode === "padme") return padme(Math.max(len, policy.min));
+  return policy.ladder.find((b) => b >= len) ?? null;
+}
+function chunkCount(bucket) {
+  return Math.max(1, Math.ceil(bucket / CHUNK_SIZE));
+}
+function blobLen(bucket) {
+  return HEADER_LEN + bucket + TAG_LEN * chunkCount(bucket);
+}
+function pad(payload, policy) {
+  if (payload.length > 4294967295) throw new ShhError("payload_too_large");
+  const bucket = paddedSize(payload.length + LENGTH_PREFIX, policy);
+  if (bucket === null) throw new ShhError("payload_too_large");
+  const padded = new Uint8Array(bucket);
+  padded.set(concat(u32be(payload.length), payload));
+  return padded;
+}
+
+// src/crypto/blob.ts
+var WRAP_IV_LEN = 12;
+var WRAPPED_EK_LEN = 48;
+var NONCE_PREFIX_LEN = 7;
+function serializeHeader(h) {
+  if (h.salt.length !== SALT_LEN || h.wrapIv.length !== WRAP_IV_LEN || h.wrappedEk.length !== WRAPPED_EK_LEN || h.noncePrefix.length !== NONCE_PREFIX_LEN) {
+    throw new RangeError("header field has the wrong length");
+  }
+  const out = concat(h.salt, u32be(h.argon.m), u32be(h.argon.t), u32be(h.argon.p), h.wrapIv, h.wrappedEk, h.noncePrefix);
+  if (out.length !== HEADER_LEN) throw new RangeError("header is not 95 bytes");
+  return out;
+}
+function parseHeader(blob) {
+  if (blob.length < HEADER_LEN) throw new ShhError("invalid_blob_length");
+  const argon = checkArgon2Bounds({ m: readU32be(blob, 16), t: readU32be(blob, 20), p: readU32be(blob, 24) });
+  return {
+    salt: blob.slice(0, 16),
+    argon,
+    wrapIv: blob.slice(28, 40),
+    wrappedEk: blob.slice(40, 88),
+    noncePrefix: blob.slice(88, 95)
+  };
+}
+
+// src/crypto/chunks.ts
+var subtle2 = globalThis.crypto.subtle;
+function nonce(prefix, index, last) {
+  const out = new Uint8Array(12);
+  out.set(prefix, 0);
+  out.set(u32be(index), 7);
+  out[11] = last ? 1 : 0;
+  return out;
+}
+async function sealChunk(ek, prefix, index, last, chunk) {
+  return new Uint8Array(await subtle2.encrypt({ name: "AES-GCM", iv: nonce(prefix, index, last), tagLength: 128 }, ek, own(chunk)));
+}
+async function openChunk(ek, prefix, index, last, sealed) {
+  try {
+    return new Uint8Array(await subtle2.decrypt({ name: "AES-GCM", iv: nonce(prefix, index, last), tagLength: 128 }, ek, own(sealed)));
+  } catch {
+    throw new ShhError("corrupt", `chunk ${index} failed to authenticate`);
+  }
+}
+async function sealAll(ek, prefix, padded) {
+  const count = Math.max(1, Math.ceil(padded.length / CHUNK_SIZE));
+  const out = new Uint8Array(padded.length + count * TAG_LEN);
+  let at = 0;
+  for (let i = 0; i < count; i++) {
+    const chunk = padded.subarray(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+    const sealed = await sealChunk(ek, prefix, i, i === count - 1, chunk);
+    out.set(sealed, at);
+    at += sealed.length;
+  }
+  return out;
+}
+
+// src/crypto/container.ts
+var MANIFEST_VERSION = 1;
+var MAX_MANIFEST_LEN = 1024 * 1024;
+var encoder2 = new TextEncoder();
+var decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+var LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+function checkManifestSyntax(text) {
+  const containers = [];
+  const keys = [];
+  let afterSeparator = false;
+  let i = 0;
+  while (i < text.length) {
+    const c = text[i];
+    if (c === '"') {
+      let j = i + 1;
+      while (j < text.length && text[j] !== '"') j += text[j] === "\\" ? 2 : 1;
+      if (afterSeparator && containers[containers.length - 1] === "object") {
+        const key = JSON.parse(text.slice(i, j + 1));
+        const seen = keys[keys.length - 1];
+        if (seen.has(key)) throw new ShhError("manifest", "duplicate key");
+        seen.add(key);
+      }
+      afterSeparator = false;
+      i = j + 1;
+    } else if (c === "-" || c >= "0" && c <= "9") {
+      let j = i;
+      while (j < text.length && /[-+0-9.eE]/.test(text[j])) j++;
+      if (/[.eE]/.test(text.slice(i, j))) throw new ShhError("manifest", "non-integer number");
+      afterSeparator = false;
+      i = j;
+    } else {
+      if (c === "{") {
+        containers.push("object");
+        keys.push(/* @__PURE__ */ new Set());
+        afterSeparator = true;
+      } else if (c === "[") {
+        containers.push("array");
+        afterSeparator = false;
+      } else if (c === "}" || c === "]") {
+        if (containers.pop() === "object") keys.pop();
+        afterSeparator = false;
+      } else if (c === ",") {
+        afterSeparator = true;
+      } else {
+        afterSeparator = afterSeparator && /\s/.test(c);
+      }
+      i++;
+    }
+  }
+}
+function manifestJson(payload) {
+  const manifest = {
+    v: MANIFEST_VERSION,
+    text: payload.text,
+    files: payload.files.map((f) => ({ name: f.name, type: f.type, size: f.bytes.length }))
+  };
+  return JSON.stringify(manifest);
+}
+function encodePayload(payload) {
+  if (payload.text === null && payload.files.length === 0) throw new ShhError("empty_payload");
+  const manifest = encoder2.encode(manifestJson(payload));
+  if (manifest.length > MAX_MANIFEST_LEN) throw new ShhError("payload_too_large");
+  return concat(u32be(manifest.length), manifest, ...payload.files.map((f) => f.bytes));
+}
+function parseManifest(bytes) {
+  let manifest;
+  try {
+    const text = decoder.decode(bytes);
+    checkManifestSyntax(text);
+    manifest = JSON.parse(text);
+  } catch (e) {
+    if (e instanceof ShhError) throw e;
+    throw new ShhError("manifest", String(e));
+  }
+  if (typeof manifest !== "object" || manifest === null || manifest.v !== MANIFEST_VERSION || !(manifest.text === null || typeof manifest.text === "string") || !Array.isArray(manifest.files)) {
+    throw new ShhError("manifest", "unexpected manifest shape");
+  }
+  if (manifest.text !== null && LONE_SURROGATE.test(manifest.text)) throw new ShhError("manifest", "lone surrogate");
+  for (const meta of manifest.files) {
+    if (typeof meta !== "object" || meta === null || typeof meta.name !== "string" || typeof meta.type !== "string" || !Number.isInteger(meta.size) || meta.size < 0 || LONE_SURROGATE.test(meta.name) || LONE_SURROGATE.test(meta.type)) {
+      throw new ShhError("manifest", "bad file entry");
+    }
+  }
+  return manifest;
+}
+
+// src/crypto/stream.ts
+async function* iterateStream(stream) {
+  const reader = stream.getReader();
+  try {
+    for (; ; ) {
+      const { value, done } = await reader.read();
+      if (done) return;
+      yield value;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+function iterateBytes(bytes) {
+  return (async function* () {
+    yield bytes;
+  })();
+}
+async function collect(body) {
+  const parts = [];
+  for await (const piece of body) parts.push(piece);
+  return concat(...parts);
+}
+async function readHeader(body) {
+  const source = body[Symbol.asyncIterator]();
+  let buffered = new Uint8Array(0);
+  while (buffered.length < HEADER_LEN) {
+    const { value, done } = await source.next();
+    if (done) throw new ShhError("invalid_blob_length");
+    buffered = buffered.length === 0 ? value : concat(buffered, value);
+  }
+  const header = parseHeader(buffered.subarray(0, HEADER_LEN));
+  const leftover = buffered.subarray(HEADER_LEN);
+  const rest = (async function* () {
+    if (leftover.length > 0) yield leftover;
+    for (; ; ) {
+      const { value, done } = await source.next();
+      if (done) return;
+      yield value;
+    }
+  })();
+  return { header, rest };
+}
+async function* openStream(ek, prefix, body) {
+  const sealedLen = CHUNK_SIZE + TAG_LEN;
+  let pending = new Uint8Array(0);
+  let index = 0;
+  for await (const piece of body) {
+    pending = pending.length === 0 ? piece : concat(pending, piece);
+    while (pending.length > sealedLen) {
+      const sealed = pending.subarray(0, sealedLen);
+      yield await openChunk(ek, prefix, index++, false, sealed);
+      pending = pending.subarray(sealedLen);
+    }
+  }
+  if (pending.length < TAG_LEN) throw new ShhError("invalid_blob_length");
+  yield await openChunk(ek, prefix, index, true, pending);
+}
+var PayloadDecoder = class {
+  // The most payload the bucket can hold; a length prefix above it is a lie, and refusing it
+  // here keeps a hostile manifest from reserving memory it never fills.
+  maxPayload;
+  stage = "payload_len";
+  buffered = new Uint8Array(0);
+  payloadLen = 0;
+  consumed = 0;
+  // payload bytes seen, after the 4-byte length prefix
+  manifestLen = 0;
+  manifest = null;
+  files = [];
+  fileAt = 0;
+  fileOffset = 0;
+  constructor(maxPayload = Infinity) {
+    this.maxPayload = maxPayload;
+  }
+  push(chunk) {
+    let at = 0;
+    while (at < chunk.length && this.stage !== "done") {
+      switch (this.stage) {
+        case "payload_len": {
+          at = this.fill(chunk, at, 4);
+          if (this.buffered.length === 4) {
+            this.payloadLen = readU32be(this.buffered, 0);
+            this.buffered = new Uint8Array(0);
+            if (this.payloadLen < 4) throw new ShhError("corrupt", "payload too short");
+            if (this.payloadLen > this.maxPayload) throw new ShhError("corrupt", "length prefix exceeds the bucket");
+            this.stage = "manifest_len";
+          }
+          break;
+        }
+        case "manifest_len": {
+          at = this.fill(chunk, at, 4);
+          if (this.buffered.length === 4) {
+            this.manifestLen = readU32be(this.buffered, 0);
+            this.buffered = new Uint8Array(0);
+            this.consumed += 4;
+            if (this.manifestLen > MAX_MANIFEST_LEN) throw new ShhError("corrupt", "manifest too large");
+            if (4 + this.manifestLen > this.payloadLen) throw new ShhError("corrupt", "manifest length exceeds payload");
+            this.stage = "manifest";
+          }
+          break;
+        }
+        case "manifest": {
+          at = this.fill(chunk, at, this.manifestLen);
+          if (this.buffered.length === this.manifestLen) {
+            this.manifest = parseManifest(this.buffered);
+            this.buffered = new Uint8Array(0);
+            this.consumed += this.manifestLen;
+            const remaining = this.payloadLen - this.consumed;
+            const total = this.manifest.files.reduce((n, f) => n + f.size, 0);
+            if (total > remaining) throw new ShhError("corrupt", "file sizes exceed payload");
+            if (total < remaining) throw new ShhError("corrupt", "trailing bytes after the last file");
+            this.files = this.manifest.files.map((f) => ({ name: f.name, type: f.type, bytes: new Uint8Array(f.size) }));
+            this.stage = this.files.length === 0 ? "done" : "files";
+            this.skipEmptyFiles();
+          }
+          break;
+        }
+        case "files": {
+          const file = this.files[this.fileAt];
+          const take = Math.min(file.bytes.length - this.fileOffset, chunk.length - at);
+          file.bytes.set(chunk.subarray(at, at + take), this.fileOffset);
+          this.fileOffset += take;
+          this.consumed += take;
+          at += take;
+          if (this.fileOffset === file.bytes.length) {
+            this.fileAt++;
+            this.fileOffset = 0;
+            this.skipEmptyFiles();
+          }
+          break;
+        }
+      }
+    }
+  }
+  // Empty files have no bytes to wait for; the decoder must not stall on them.
+  skipEmptyFiles() {
+    while (this.fileAt < this.files.length && this.files[this.fileAt].bytes.length === 0) this.fileAt++;
+    if (this.fileAt >= this.files.length) this.stage = "done";
+  }
+  fill(chunk, at, want) {
+    const take = Math.min(want - this.buffered.length, chunk.length - at);
+    this.buffered = this.buffered.length === 0 ? chunk.slice(at, at + take) : concat(this.buffered, chunk.subarray(at, at + take));
+    return at + take;
+  }
+  finish() {
+    if (this.stage !== "done" || this.manifest === null) {
+      throw new ShhError("corrupt", this.stage === "payload_len" ? "padding too short" : "length prefix exceeds the bucket");
+    }
+    if (this.manifest.text === null && this.files.length === 0) throw new ShhError("empty_payload");
+    return { text: this.manifest.text, files: this.files };
+  }
+};
+
 // src/ui/api.ts
+var DEFAULT_MAX_BLOB_BYTES = 4 * 1024 * 1024 * 1024;
 var ApiError = class extends Error {
   status;
   code;
+  claimToken;
   constructor(status, code) {
     super(`${status} ${code}`);
     this.name = "ApiError";
@@ -114,6 +491,20 @@ async function send(fetchImpl, input, init) {
   }
   if (!response.ok) throw await errorFor(response);
   return response;
+}
+async function* cappedBody(response, maxBytes) {
+  const source = response.body ? iterateStream(response.body) : [new Uint8Array(await response.arrayBuffer())];
+  let seen = 0;
+  try {
+    for await (const piece of source) {
+      seen += piece.length;
+      if (seen > maxBytes) throw new ApiError(0, "too_large");
+      yield piece;
+    }
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    throw new ApiError(0, "network");
+  }
 }
 var Api = class _Api {
   base;
@@ -143,7 +534,9 @@ var Api = class _Api {
     form.append("blob", new Blob([blob], { type: "application/octet-stream" }), "blob");
     await send(this.fetchImpl, `${this.base}/secrets`, { method: "POST", body: form });
   }
-  async reveal(lookup2, claimToken) {
+  // `maxBytes` caps the body: what the server announces and what it actually sends must
+  // both stay within it, so a misbehaving server cannot make the client buffer without end.
+  async reveal(lookup2, claimToken, maxBytes = DEFAULT_MAX_BLOB_BYTES) {
     const body = { lookup: toBase64Url(lookup2) };
     if (claimToken) body["claim_token"] = claimToken;
     const response = await send(this.fetchImpl, `${this.base}/secrets/reveal`, {
@@ -151,9 +544,13 @@ var Api = class _Api {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body)
     });
+    const length = response.headers.get("content-length");
+    const contentLength = length === null ? null : Number(length);
+    if (contentLength !== null && contentLength > maxBytes) throw new ApiError(0, "too_large");
     const hours = response.headers.get("x-shh-expires-in-hours");
     return {
-      blob: new Uint8Array(await response.arrayBuffer()),
+      body: cappedBody(response, Math.min(maxBytes, contentLength ?? maxBytes)),
+      contentLength,
       claimToken: response.headers.get("x-shh-claim-token"),
       expiresInHours: hours === null ? null : Number(hours)
     };
@@ -254,7 +651,7 @@ function wireBurn(page) {
   const status = $("[data-form-status]", form);
   let token;
   try {
-    token = decodeFragment(location.hash);
+    token = decodeFragment(location.hash, "burn");
   } catch {
     setState(page, "notfound");
     return;
@@ -349,200 +746,6 @@ function wirePasswordToggles() {
   }
 }
 
-// src/crypto/kdf.ts
-var encoder = new TextEncoder();
-var INFO = {
-  lookup: encoder.encode("shhnote/lookup/v1"),
-  kekDirect: encoder.encode("shhnote/kek-direct/v1"),
-  kekPass: encoder.encode("shhnote/kek-pass/v1")
-};
-var SALT_LEN = 16;
-var ARGON2_DEFAULT = { m: 64 * 1024, t: 3, p: 1 };
-var ARGON2_MIN = { m: 8 * 1024, t: 1, p: 1 };
-var ARGON2_MAX = { m: 256 * 1024, t: 8, p: 4 };
-function checkArgon2Bounds(params) {
-  const within = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
-  if (!within(params.m, ARGON2_MIN.m, ARGON2_MAX.m) || !within(params.t, ARGON2_MIN.t, ARGON2_MAX.t) || !within(params.p, ARGON2_MIN.p, ARGON2_MAX.p)) {
-    throw new ShhError("argon2_out_of_bounds");
-  }
-  return params;
-}
-var subtle = globalThis.crypto.subtle;
-async function hkdfBase(ikm) {
-  return subtle.importKey("raw", own(ikm), "HKDF", false, ["deriveBits", "deriveKey"]);
-}
-function hkdfAlgorithm(info) {
-  return { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: own(info) };
-}
-async function hkdfBits(ikm, info) {
-  const key = await hkdfBase(ikm);
-  return new Uint8Array(await subtle.deriveBits(hkdfAlgorithm(info), key, 256));
-}
-async function hkdfAesKey(ikm, info, usages) {
-  const key = await hkdfBase(ikm);
-  return subtle.deriveKey(hkdfAlgorithm(info), key, { name: "AES-GCM", length: 256 }, false, usages);
-}
-async function sha256(bytes) {
-  return new Uint8Array(await subtle.digest("SHA-256", own(bytes)));
-}
-
-// src/crypto/padding.ts
-var CHUNK_SIZE = 65536;
-var TAG_LEN = 16;
-var HEADER_LEN = 95;
-var LENGTH_PREFIX = 4;
-var DEFAULT_PADDING_MIN = 64 * 1024;
-function padme(len) {
-  if (len < 2) return len;
-  const L = BigInt(len);
-  const e = BigInt(L.toString(2).length - 1);
-  const s = BigInt(e.toString(2).length);
-  const mask = (1n << e - s) - 1n;
-  return Number(L + mask & ~mask);
-}
-function paddedSize(len, policy) {
-  if (policy.mode === "padme") return padme(Math.max(len, policy.min));
-  return policy.ladder.find((b) => b >= len) ?? null;
-}
-function chunkCount(bucket) {
-  return Math.max(1, Math.ceil(bucket / CHUNK_SIZE));
-}
-function blobLen(bucket) {
-  return HEADER_LEN + bucket + TAG_LEN * chunkCount(bucket);
-}
-function pad(payload, policy) {
-  if (payload.length > 4294967295) throw new ShhError("payload_too_large");
-  const bucket = paddedSize(payload.length + LENGTH_PREFIX, policy);
-  if (bucket === null) throw new ShhError("payload_too_large");
-  const padded = new Uint8Array(bucket);
-  padded.set(concat(u32be(payload.length), payload));
-  return padded;
-}
-function unpad(padded) {
-  if (padded.length < LENGTH_PREFIX) throw new ShhError("corrupt", "padding too short");
-  const len = readU32be(padded, 0);
-  if (len > padded.length - LENGTH_PREFIX) throw new ShhError("corrupt", "length prefix exceeds the bucket");
-  return padded.subarray(LENGTH_PREFIX, LENGTH_PREFIX + len);
-}
-
-// src/crypto/blob.ts
-var WRAP_IV_LEN = 12;
-var WRAPPED_EK_LEN = 48;
-var NONCE_PREFIX_LEN = 7;
-function serializeHeader(h) {
-  if (h.salt.length !== SALT_LEN || h.wrapIv.length !== WRAP_IV_LEN || h.wrappedEk.length !== WRAPPED_EK_LEN || h.noncePrefix.length !== NONCE_PREFIX_LEN) {
-    throw new RangeError("header field has the wrong length");
-  }
-  const out = concat(h.salt, u32be(h.argon.m), u32be(h.argon.t), u32be(h.argon.p), h.wrapIv, h.wrappedEk, h.noncePrefix);
-  if (out.length !== HEADER_LEN) throw new RangeError("header is not 95 bytes");
-  return out;
-}
-function parseHeader(blob) {
-  if (blob.length < HEADER_LEN) throw new ShhError("invalid_blob_length");
-  const argon = checkArgon2Bounds({ m: readU32be(blob, 16), t: readU32be(blob, 20), p: readU32be(blob, 24) });
-  return {
-    salt: blob.slice(0, 16),
-    argon,
-    wrapIv: blob.slice(28, 40),
-    wrappedEk: blob.slice(40, 88),
-    noncePrefix: blob.slice(88, 95)
-  };
-}
-
-// src/crypto/chunks.ts
-var subtle2 = globalThis.crypto.subtle;
-function nonce(prefix, index, last) {
-  const out = new Uint8Array(12);
-  out.set(prefix, 0);
-  out.set(u32be(index), 7);
-  out[11] = last ? 1 : 0;
-  return out;
-}
-async function sealChunk(ek, prefix, index, last, chunk) {
-  return new Uint8Array(await subtle2.encrypt({ name: "AES-GCM", iv: nonce(prefix, index, last), tagLength: 128 }, ek, own(chunk)));
-}
-async function openChunk(ek, prefix, index, last, sealed) {
-  try {
-    return new Uint8Array(await subtle2.decrypt({ name: "AES-GCM", iv: nonce(prefix, index, last), tagLength: 128 }, ek, own(sealed)));
-  } catch {
-    throw new ShhError("corrupt", `chunk ${index} failed to authenticate`);
-  }
-}
-async function sealAll(ek, prefix, padded) {
-  const count = Math.max(1, Math.ceil(padded.length / CHUNK_SIZE));
-  const out = new Uint8Array(padded.length + count * TAG_LEN);
-  let at = 0;
-  for (let i = 0; i < count; i++) {
-    const chunk = padded.subarray(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-    const sealed = await sealChunk(ek, prefix, i, i === count - 1, chunk);
-    out.set(sealed, at);
-    at += sealed.length;
-  }
-  return out;
-}
-async function openAll(ek, prefix, body) {
-  const sealedLen = CHUNK_SIZE + TAG_LEN;
-  const count = Math.ceil(body.length / sealedLen);
-  if (count === 0 || body.length < count * TAG_LEN) throw new ShhError("invalid_blob_length");
-  const out = new Uint8Array(body.length - count * TAG_LEN);
-  let at = 0;
-  for (let i = 0; i < count; i++) {
-    const sealed = body.subarray(i * sealedLen, (i + 1) * sealedLen);
-    const chunk = await openChunk(ek, prefix, i, i === count - 1, sealed);
-    out.set(chunk, at);
-    at += chunk.length;
-  }
-  return out;
-}
-
-// src/crypto/container.ts
-var MANIFEST_VERSION = 1;
-var MAX_MANIFEST_LEN = 1024 * 1024;
-var encoder2 = new TextEncoder();
-var decoder = new TextDecoder("utf-8", { fatal: true });
-function manifestJson(payload) {
-  const manifest = {
-    v: MANIFEST_VERSION,
-    text: payload.text,
-    files: payload.files.map((f) => ({ name: f.name, type: f.type, size: f.bytes.length }))
-  };
-  return JSON.stringify(manifest);
-}
-function encodePayload(payload) {
-  if (payload.text === null && payload.files.length === 0) throw new ShhError("empty_payload");
-  const manifest = encoder2.encode(manifestJson(payload));
-  if (manifest.length > MAX_MANIFEST_LEN) throw new ShhError("payload_too_large");
-  return concat(u32be(manifest.length), manifest, ...payload.files.map((f) => f.bytes));
-}
-function decodePayload(bytes) {
-  if (bytes.length < 4) throw new ShhError("corrupt", "payload too short");
-  const manifestLen = readU32be(bytes, 0);
-  if (manifestLen > MAX_MANIFEST_LEN) throw new ShhError("corrupt", "manifest too large");
-  if (4 + manifestLen > bytes.length) throw new ShhError("corrupt", "manifest length exceeds payload");
-  let manifest;
-  try {
-    manifest = JSON.parse(decoder.decode(bytes.subarray(4, 4 + manifestLen)));
-  } catch (e) {
-    throw new ShhError("manifest", String(e));
-  }
-  if (typeof manifest !== "object" || manifest === null || manifest.v !== MANIFEST_VERSION || !(manifest.text === null || typeof manifest.text === "string") || !Array.isArray(manifest.files)) {
-    throw new ShhError("manifest", "unexpected manifest shape");
-  }
-  if (manifest.text === null && manifest.files.length === 0) throw new ShhError("empty_payload");
-  let at = 4 + manifestLen;
-  const files = [];
-  for (const meta of manifest.files) {
-    if (typeof meta.name !== "string" || typeof meta.type !== "string" || !Number.isInteger(meta.size) || meta.size < 0) {
-      throw new ShhError("manifest", "bad file entry");
-    }
-    if (at + meta.size > bytes.length) throw new ShhError("corrupt", "file sizes exceed payload");
-    files.push({ name: meta.name, type: meta.type, bytes: bytes.slice(at, at + meta.size) });
-    at += meta.size;
-  }
-  if (at !== bytes.length) throw new ShhError("corrupt", "trailing bytes after the last file");
-  return { text: manifest.text, files };
-}
-
 // src/crypto/secret.ts
 var subtle3 = globalThis.crypto.subtle;
 function random(len) {
@@ -597,8 +800,8 @@ async function encrypt(opts) {
   return {
     blob,
     bucket: padded.length,
-    fragment: encodeFragment(r.seed),
-    burnFragment: encodeFragment(r.burnToken),
+    fragment: encodeFragment(r.seed, "share"),
+    burnFragment: encodeFragment(r.burnToken, "burn"),
     lookupKey: await credentialHash(await lookup(r.seed)),
     burnKey: await credentialHash(r.burnToken)
   };
@@ -610,21 +813,33 @@ async function unwrap(kek, header) {
     return null;
   }
 }
-async function decrypt(blob, seed, passphrase, argon2) {
-  const header = parseHeader(blob);
-  let ek = await unwrap(await kekDirect(seed, ["unwrapKey"]), header);
-  if (ek === null) {
-    if (!passphrase) throw new ShhError("passphrase_required");
-    if (!argon2) throw new ShhError("argon2_unavailable", "a passphrase needs the Argon2 module");
-    ek = await unwrap(await kekPass(seed, passphrase, header.salt, header.argon, argon2, ["unwrapKey"]), header);
-    if (ek === null) throw new ShhError("wrong_passphrase");
+async function unwrapEk(header, seed, passphrase, argon2) {
+  const direct = await unwrap(await kekDirect(seed, ["unwrapKey"]), header);
+  if (direct !== null) return direct;
+  if (!passphrase) throw new ShhError("passphrase_required");
+  if (!argon2) throw new ShhError("argon2_unavailable", "a passphrase needs the Argon2 module");
+  const ek = await unwrap(await kekPass(seed, passphrase, header.salt, header.argon, argon2, ["unwrapKey"]), header);
+  if (ek === null) throw new ShhError("wrong_passphrase");
+  return ek;
+}
+async function decryptBody(ek, header, body, maxBlobBytes = Infinity) {
+  const decoder2 = new PayloadDecoder(maxBlobBytes - HEADER_LEN);
+  for await (const chunk of openStream(ek, header.noncePrefix, body)) {
+    try {
+      decoder2.push(chunk);
+    } finally {
+      chunk.fill(0);
+    }
   }
-  const padded = await openAll(ek, header.noncePrefix, blob.subarray(HEADER_LEN));
-  try {
-    return decodePayload(unpad(padded));
-  } finally {
-    padded.fill(0);
-  }
+  return decoder2.finish();
+}
+async function decryptStream(body, seed, passphrase, argon2, maxBlobBytes = Infinity) {
+  const { header, rest } = await readHeader(body);
+  const ek = await unwrapEk(header, seed, passphrase, argon2);
+  return decryptBody(ek, header, rest, maxBlobBytes);
+}
+function decrypt(blob, seed, passphrase, argon2) {
+  return decryptStream(iterateBytes(blob), seed, passphrase, argon2);
 }
 
 // src/crypto/argon2.ts
@@ -766,7 +981,7 @@ function showResult(api, result, fragment, burnFragment, info) {
   destroy.addEventListener("click", async () => {
     destroy.disabled = true;
     try {
-      await api.burn(decodeFragment(burnFragment));
+      await api.burn(decodeFragment(burnFragment, "burn"));
       setStatus(status, t("result-destroyed"));
     } catch (e) {
       setStatus(status, messageFor(e));
@@ -861,7 +1076,7 @@ function wireReport(page) {
     let seed;
     try {
       const hash = input.value.trim().split("#")[1] ?? "";
-      seed = decodeFragment(`#${hash}`);
+      seed = decodeFragment(`#${hash}`, "share");
     } catch {
       setStatus(status, t("report-error-invalid"));
       return;
@@ -890,7 +1105,7 @@ function wireReveal(page) {
   const passStatus = $("[data-form-status]", passForm);
   let seed;
   try {
-    seed = decodeFragment(location.hash);
+    seed = decodeFragment(location.hash, "share");
   } catch {
     setState(page, "notfound");
     return;
@@ -921,7 +1136,7 @@ function wireReveal(page) {
       setState(page, "working");
       setStatus(working, t("reveal-fetching"));
       const revealed = await api.reveal(await lookup(seed));
-      blob = revealed.blob;
+      blob = await collect(revealed.body);
       claimToken = revealed.claimToken;
       expiresInHours = revealed.expiresInHours;
       setStatus(working, t("reveal-decrypting"));

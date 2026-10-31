@@ -30,6 +30,12 @@ export function iterateBytes(bytes: Uint8Array): AsyncIterable<Uint8Array> {
   })();
 }
 
+export async function collect(body: AsyncIterable<Uint8Array>): Promise<Uint8Array<ArrayBuffer>> {
+  const parts: Uint8Array[] = [];
+  for await (const piece of body) parts.push(piece);
+  return concat(...parts);
+}
+
 // Takes the 95-byte header off the front of a body; the rest keeps streaming.
 export async function readHeader(body: AsyncIterable<Uint8Array>): Promise<{ header: Header; rest: AsyncIterable<Uint8Array> }> {
   const source = body[Symbol.asyncIterator]();
@@ -74,6 +80,9 @@ export async function* openStream(ek: CryptoKey, prefix: Uint8Array, body: Async
 // Assembles the payload from padded plaintext as it arrives:
 // `[payload_len][manifest_len][manifest][files…][zero fill]` (SPEC §2.5, §2.6).
 export class PayloadDecoder {
+  // The most payload the bucket can hold; a length prefix above it is a lie, and refusing it
+  // here keeps a hostile manifest from reserving memory it never fills.
+  private readonly maxPayload: number;
   private stage: "payload_len" | "manifest_len" | "manifest" | "files" | "done" = "payload_len";
   private buffered = new Uint8Array(0);
   private payloadLen = 0;
@@ -83,6 +92,10 @@ export class PayloadDecoder {
   private files: PayloadFile[] = [];
   private fileAt = 0;
   private fileOffset = 0;
+
+  constructor(maxPayload = Infinity) {
+    this.maxPayload = maxPayload;
+  }
 
   push(chunk: Uint8Array): void {
     let at = 0;
@@ -94,6 +107,7 @@ export class PayloadDecoder {
             this.payloadLen = readU32be(this.buffered, 0);
             this.buffered = new Uint8Array(0);
             if (this.payloadLen < 4) throw new ShhError("corrupt", "payload too short");
+            if (this.payloadLen > this.maxPayload) throw new ShhError("corrupt", "length prefix exceeds the bucket");
             this.stage = "manifest_len";
           }
           break;

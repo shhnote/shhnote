@@ -264,7 +264,7 @@ describe("spec: client library", () => {
     assert.equal(calls.length, 0, "nothing left the client");
   });
 
-  it("revealSecret keeps the claim token through confirm:false, a wrong passphrase and a dropped body", { skip: "S-21" }, async () => {
+  it("revealSecret keeps the claim token through confirm:false, a wrong passphrase and a dropped body", async () => {
     const passKey = argon2.hash("right", salt, ARGON2_MIN);
     const header = await headerFor(concat(seed, passKey), INFO.kekPass);
     const padded = pad(encodePayload({ text: "s", files: [] }), { mode: "padme", min: 4096 });
@@ -283,7 +283,13 @@ describe("spec: client library", () => {
 
     // Wrong passphrase: the error carries the claim token, and a retry re-downloads with it
     // instead of consuming a fresh reveal.
-    await assert.rejects(revealSecret(link, { ...opts, passphrase: "wrong" }), (e: unknown) => e instanceof ShhError && e.code === "wrong_passphrase" && (e as { claimToken?: string }).claimToken === "CLAIM");
+    let carried: string | undefined;
+    await assert.rejects(revealSecret(link, { ...opts, passphrase: "wrong" }), (e: unknown) => {
+      carried = (e as { claimToken?: string }).claimToken;
+      return e instanceof ShhError && e.code === "wrong_passphrase" && carried === "CLAIM";
+    });
+    const retried = await revealSecret(link, { ...opts, passphrase: "right", claimToken: carried ?? null });
+    assert.equal(retried.payload.text, "s");
     const reveals = calls.filter((c) => c.url.endsWith("/secrets/reveal"));
     assert.ok(reveals.some((c) => (c.body as { claim_token?: string }).claim_token === "CLAIM"), "a retry carries claim_token");
 
@@ -299,6 +305,24 @@ describe("spec: client library", () => {
       revealSecret(link, { ...opts, fetch: dropped.fetchImpl, passphrase: "right" }),
       (e: unknown) => e instanceof ApiError && (e as { claimToken?: string }).claimToken === "CLAIM",
     );
+  });
+
+  it("revealSecret refuses a body over the cap, announced or not", async () => {
+    const blob = await blobFrom(pad(encodePayload({ text: "s", files: [] }), { mode: "padme", min: 4096 }));
+    const announced = recorder(() => new Response(blob, { status: 200, headers: { "content-length": String(blob.length) } }));
+    const link = `https://h.example/s#${encodeFragment(seed, "share")}`;
+    await assert.rejects(
+      revealSecret(link, { apiBase: "https://h.example/api/v1", fetch: announced.fetchImpl, maxBlobBytes: blob.length - 1 }),
+      (e: unknown) => e instanceof ApiError && e.code === "too_large",
+    );
+    const silent = recorder(() => new Response(blob, { status: 200 }));
+    await assert.rejects(
+      revealSecret(link, { apiBase: "https://h.example/api/v1", fetch: silent.fetchImpl, maxBlobBytes: blob.length - 1 }),
+      (e: unknown) => e instanceof ApiError && e.code === "too_large",
+    );
+    const fits = recorder(() => new Response(blob, { status: 200 }));
+    const r = await revealSecret(link, { apiBase: "https://h.example/api/v1", fetch: fits.fetchImpl, maxBlobBytes: blob.length });
+    assert.equal(r.payload.text, "s");
   });
 
   it("revealSecret sends only lookup = HKDF(seed) to the given base", async () => {

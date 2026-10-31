@@ -2,6 +2,7 @@ import type { Payload } from "../crypto/container.ts";
 import { ShhError } from "../crypto/error.ts";
 import { decodeFragment } from "../crypto/fragment.ts";
 import { decrypt, lookup } from "../crypto/secret.ts";
+import { collect } from "../crypto/stream.ts";
 import { Api, ApiError } from "./api.ts";
 import { loadArgon2 } from "./argon2-loader.ts";
 import { $, formatSize, setState, setStatus, show, wireCopy } from "./dom.ts";
@@ -55,7 +56,7 @@ export function wireReveal(page: HTMLElement): void {
       setState(page, "working");
       setStatus(working, t("reveal-fetching"));
       const revealed = await api.reveal(await lookup(seed));
-      blob = revealed.blob;
+      blob = await collect(revealed.body);
       claimToken = revealed.claimToken;
       expiresInHours = revealed.expiresInHours;
       setStatus(working, t("reveal-decrypting"));

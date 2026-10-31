@@ -2,8 +2,8 @@ import type { Argon2 } from "./crypto/argon2.ts";
 import type { Payload } from "./crypto/container.ts";
 import { ShhError } from "./crypto/error.ts";
 import { type Kind, decodeFragment } from "./crypto/fragment.ts";
-import { decrypt, encrypt, generateRandomness, lookup } from "./crypto/secret.ts";
-import { Api, type Fetch, type Lifetime } from "./ui/api.ts";
+import { decryptStream, encrypt, generateRandomness, lookup } from "./crypto/secret.ts";
+import { Api, ApiError, type Fetch, type Lifetime } from "./ui/api.ts";
 
 // The whole flow in four calls, for integrations outside the website: scripts, bots,
 // password managers. Nothing here touches the DOM; pass your own fetch where needed.
@@ -63,26 +63,45 @@ export interface RevealOptions extends ClientOptions {
   passphrase?: string | null;
   // Set to false to keep a single-view secret downloadable until its claim window ends.
   confirm?: boolean;
+  // A token from an earlier attempt (the `claimToken` on a result or on an error): the
+  // secret is downloaded again with it instead of a fresh reveal, which a single-view
+  // secret would refuse.
+  claimToken?: string | null;
+  // The most blob bytes to accept; the instance's `max_blob_bytes` from `/config`.
+  maxBlobBytes?: number;
 }
 
 export interface RevealedSecret {
   payload: Payload;
   singleView: boolean;
   expiresInHours: number | null;
+  // For a single-view secret that was not confirmed: lets the caller download it again
+  // (`claimToken` in the options) or confirm later. Null otherwise.
+  claimToken: string | null;
 }
 
 // Fetches and decrypts. A single-view secret is consumed by this call; by default the
-// server is told to destroy it right away once decryption succeeded.
+// server is told to destroy it right away once decryption succeeded. Any failure after a
+// single-view secret was claimed (a wrong passphrase, a dropped connection) carries the
+// claim token, so a retry can pass it along rather than lose the secret.
 export async function revealSecret(linkOrFragment: string, opts: RevealOptions): Promise<RevealedSecret> {
   if (opts.passphrase && !opts.argon2) throw new ShhError("argon2_unavailable", "a passphrase needs an Argon2 instance");
   const { seed } = parseFragment(linkOrFragment);
   const api = new Api(opts.apiBase, opts.fetch);
-  const revealed = await api.reveal(await lookup(seed));
-  const payload = await decrypt(revealed.blob, seed, opts.passphrase ?? null, opts.argon2);
-  if (revealed.claimToken !== null && opts.confirm !== false) {
-    await api.confirm(await lookup(seed), revealed.claimToken);
+  const revealed = await api.reveal(await lookup(seed), opts.claimToken, opts.maxBlobBytes);
+  const claimToken = revealed.claimToken ?? opts.claimToken ?? null;
+  let payload: Payload;
+  try {
+    payload = await decryptStream(revealed.body, seed, opts.passphrase ?? null, opts.argon2, opts.maxBlobBytes ?? revealed.contentLength ?? undefined);
+  } catch (e) {
+    if (claimToken !== null && (e instanceof ShhError || e instanceof ApiError)) e.claimToken = claimToken;
+    throw e;
   }
-  return { payload, singleView: revealed.claimToken !== null, expiresInHours: revealed.expiresInHours };
+  if (claimToken !== null && opts.confirm !== false) {
+    await api.confirm(await lookup(seed), claimToken);
+    return { payload, singleView: true, expiresInHours: null, claimToken: null };
+  }
+  return { payload, singleView: claimToken !== null, expiresInHours: revealed.expiresInHours, claimToken };
 }
 
 // Takes the burn link or its fragment; resolves on success, throws `ApiError` 404 otherwise.

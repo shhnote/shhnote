@@ -13,8 +13,11 @@ export type ErrorCode =
   | "manifest";
 
 // Every failure the crypto module can report. `code` is stable; `message` is for logs.
+// `claimToken` is set by the client library when the failure came after a single-view
+// secret was claimed, so the caller can retry without consuming a fresh reveal.
 export class ShhError extends Error {
   readonly code: ErrorCode;
+  claimToken?: string;
 
   constructor(code: ErrorCode, message?: string) {
     super(message ?? code);
