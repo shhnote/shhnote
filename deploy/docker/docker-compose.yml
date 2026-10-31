@@ -6,6 +6,7 @@
 
 services:
   shhnote:
+    # Pin the version you deploy (ghcr.io/zbcdo/shhnote:0.1, say); `latest` moves.
     image: ghcr.io/zbcdo/shhnote:latest
     build:
       context: ../..
@@ -16,7 +17,14 @@ services:
       - shhnote
     expose:
       - "3000"
+    # The process needs no capabilities, must not gain any, and has a known footprint:
+    # a few tokio threads and SHH_MAX_UPLOADS uploads of at most SHH_INLINE_MAX each.
     read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 1g
     # Longer than the server's own 30 s drain, so an upload in progress can finish.
     stop_grace_period: 35s
     restart: unless-stopped
@@ -37,6 +45,11 @@ services:
       - caddy-config:/config
     networks:
       - shhnote
+    # Caddy needs to bind 80/443 and nothing else.
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       - shhnote
     restart: unless-stopped
@@ -53,6 +66,8 @@ services:
       - postgres-data:/var/lib/postgresql/data
     networks:
       - shhnote
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${SHH_PG_USERNAME:-shhnote} -d ${SHH_PG_DATABASE:-shhnote}"]
       interval: 10s

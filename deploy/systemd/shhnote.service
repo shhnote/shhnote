@@ -36,7 +36,18 @@ ProtectControlGroups=yes
 ProtectClock=yes
 ProtectHostname=yes
 ProtectProc=invisible
+ProcSubset=pid
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# Only the proxy on this host talks to it, and SQLite needs no network at all. Add the
+# database or object-store hosts here when SHH_DB=postgres or SHH_STORAGE=s3 points
+# elsewhere (IPAddressAllow=10.0.0.5, or a range).
+IPAddressDeny=any
+IPAddressAllow=localhost
+# Footprint: a few tokio threads, SHH_MAX_UPLOADS uploads of at most SHH_INLINE_MAX each,
+# and one file descriptor per connection.
+TasksMax=256
+MemoryMax=1G
+LimitNOFILE=65536
 RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes

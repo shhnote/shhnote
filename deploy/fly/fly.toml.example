@@ -23,8 +23,10 @@ kill_timeout = 35
   SHH_DB = "sqlite"
   SHH_STORAGE = "inline"
   SHH_LOG_LEVEL = "warn"
-  # Fly's proxy sets X-Forwarded-For from its own addresses.
-  SHH_TRUSTED_PROXIES = "172.16.0.0/16,fdaa::/16"
+  # Fly's proxy reaches the machine over the private network. Trust your organisation's own
+  # 6PN prefix only (the first three groups of FLY_PRIVATE_IP, as a /48), never all of
+  # fdaa::/16; the server refuses IPv6 ranges wider than /32 anyway. See docs/deploy/fly.md.
+  SHH_TRUSTED_PROXIES = "172.16.0.0/16,fdaa:0:1234::/48"
 
 [mounts]
   source = "shhnote_data"
