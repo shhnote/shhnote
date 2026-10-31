@@ -13,6 +13,10 @@ const MIB: u64 = 1024 * KIB;
 // Nothing smaller than the padding minimum can ever be stored, so inline must hold at least that.
 const MIN_INLINE_MAX: u64 = 64 * KIB;
 const DEFAULT_INLINE_MAX: u64 = 2 * MIB;
+// Upper bounds (SPEC §7.1): past these the size arithmetic and the per-request memory stop
+// making sense.
+const MAX_INLINE_MAX: u64 = 64 * MIB;
+const MAX_EXTERNAL_MAX_OBJECT: u64 = 4 * 1024 * MIB;
 const DEFAULT_MAX_UPLOADS: u32 = 64;
 const DEFAULT_EXTERNAL_MAX_OBJECT: u64 = 64 * MIB;
 
@@ -456,6 +460,12 @@ impl Storage {
                 format!("must be at least {MIN_INLINE_MAX} bytes"),
             ));
         }
+        if inline_max > MAX_INLINE_MAX {
+            return Err(invalid(
+                "SHH_INLINE_MAX",
+                format!("must be at most {MAX_INLINE_MAX} bytes"),
+            ));
+        }
 
         let driver = vars.get("SHH_STORAGE").unwrap_or("inline");
         let external = match driver {
@@ -502,6 +512,12 @@ impl Storage {
                     return Err(invalid(
                         "SHH_EXTERNAL_MAX_OBJECT",
                         "must be at least SHH_INLINE_MAX",
+                    ));
+                }
+                if max > MAX_EXTERNAL_MAX_OBJECT {
+                    return Err(invalid(
+                        "SHH_EXTERNAL_MAX_OBJECT",
+                        format!("must be at most {MAX_EXTERNAL_MAX_OBJECT} bytes"),
                     ));
                 }
                 max
@@ -909,6 +925,26 @@ mod tests {
         );
         let vars = with(&[("SHH_MAX_UPLOADS", "0")]);
         assert_eq!(invalid_name(Config::from_vars(&vars)), "SHH_MAX_UPLOADS");
+    }
+
+    #[test]
+    fn size_limits_have_ceilings() {
+        let vars = with(&[("SHH_INLINE_MAX", "68719476736")]);
+        assert_eq!(invalid_name(Config::from_vars(&vars)), "SHH_INLINE_MAX");
+        let mut changes = vec![
+            ("SHH_STORAGE", "local"),
+            ("SHH_LOCAL_PATH", "/tmp/x"),
+            ("SHH_LOCAL_MAX_TOTAL_BYTES", "1000"),
+            ("SHH_EXTERNAL_MAX_OBJECT", "8589934592"),
+        ];
+        let vars = with(&changes);
+        assert_eq!(
+            invalid_name(Config::from_vars(&vars)),
+            "SHH_EXTERNAL_MAX_OBJECT"
+        );
+        changes.pop();
+        changes.push(("SHH_EXTERNAL_MAX_OBJECT", "4294967296"));
+        assert!(Config::from_vars(&with(&changes)).is_ok());
     }
 
     #[test]

@@ -456,7 +456,10 @@ impl Drop for OrphanGuard {
 // The largest padded size a text-only secret can need: the text limit with room for JSON
 // escaping (worst case doubles it) and the manifest around it.
 fn text_only_bucket(settings: &Settings) -> u64 {
-    let payload = 2 * settings.text_max_bytes + 1024;
+    let payload = settings
+        .text_max_bytes
+        .saturating_mul(2)
+        .saturating_add(1024);
     settings.padding.padded_size(payload).unwrap_or(0)
 }
 

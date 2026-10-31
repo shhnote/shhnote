@@ -58,7 +58,8 @@ pub fn padme(len: u64) -> u64 {
     let e = u64::BITS - 1 - len.leading_zeros();
     let s = u32::BITS - e.leading_zeros();
     let mask = (1u64 << (e - s)) - 1;
-    (len + mask) & !mask
+    // Unreachable through the API (the body limit bounds every length), but never a panic.
+    len.checked_add(mask).map_or(u64::MAX, |v| v & !mask)
 }
 
 pub fn chunk_count(bucket: u64) -> u64 {
@@ -66,7 +67,9 @@ pub fn chunk_count(bucket: u64) -> u64 {
 }
 
 pub fn blob_len(bucket: u64) -> u64 {
-    HEADER_LEN as u64 + bucket + TAG_LEN * chunk_count(bucket)
+    (HEADER_LEN as u64)
+        .saturating_add(bucket)
+        .saturating_add(TAG_LEN.saturating_mul(chunk_count(bucket)))
 }
 
 // `[payload_len: u32 BE][payload][0x00 fill]`, sized by the policy.

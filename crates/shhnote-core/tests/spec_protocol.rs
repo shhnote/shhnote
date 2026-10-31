@@ -65,7 +65,6 @@ fn spec_padme_edges() {
 
 // Extreme inputs must fail cleanly, not overflow (SPEC §7.2: arithmetic on sizes is checked).
 #[test]
-#[ignore = "S-10"]
 fn spec_extreme_lengths_do_not_panic() {
     let policy = PaddingPolicy::Padme { min: 65536 };
     let mut panics = Vec::new();

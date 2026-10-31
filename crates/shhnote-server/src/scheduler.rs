@@ -29,7 +29,9 @@ pub fn spawn(
             }
             let retention = settings.load().daily_retention_days;
             if retention > 0
-                && let Err(e) = sweeper.rollup_daily(now - retention * 86_400).await
+                && let Err(e) = sweeper
+                    .rollup_daily(now.saturating_sub(retention.saturating_mul(86_400)))
+                    .await
             {
                 crate::log_error!("scheduler: roll-up failed: {e}");
             }

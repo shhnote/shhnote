@@ -128,7 +128,9 @@ impl RateLimiter {
         let now = Instant::now();
         let mut table = self.table.lock().unwrap_or_else(|e| e.into_inner());
         self.bound(&mut table, now);
-        let per_hour = self.per_hour(endpoint) * self.limits().user_multiplier;
+        let per_hour = self
+            .per_hour(endpoint)
+            .saturating_mul(self.limits().user_multiplier);
         self.take(
             &mut table,
             endpoint,

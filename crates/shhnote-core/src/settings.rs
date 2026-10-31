@@ -8,8 +8,17 @@ use serde::{Deserialize, Serialize};
 use crate::padding::PaddingPolicy;
 
 const DAY: i64 = 86_400;
-// Hard ceiling from SPEC D-7; an override above it is clamped, not honoured.
+// Hard ceiling from SPEC D-7; an override above it is refused, not clamped.
 pub const MAX_TTL_CEILING: i64 = 14 * DAY;
+// Bounds for the numeric settings (SPEC §7.2). A value outside them is refused, so the
+// arithmetic that uses it can never overflow and no policy can be switched off by a typo.
+const MIN_TTL_FLOOR: i64 = 60;
+const CLAIM_WINDOW_RANGE: std::ops::RangeInclusive<i64> = 60..=DAY;
+const SALT_ROTATION_RANGE: std::ops::RangeInclusive<i64> = 60..=DAY;
+const RETENTION_MAX_DAYS: i64 = 36_500;
+const TEXT_MAX_RANGE: std::ops::RangeInclusive<u64> = 1..=(1024 * 1024);
+const RATE_MAX_PER_HOUR: u32 = 1_000_000;
+const MULTIPLIER_RANGE: std::ops::RangeInclusive<u32> = 1..=1000;
 
 // Runtime settings (SPEC §7.2). Every field has a code default; the database stores only
 // values an admin changed, as strings keyed by the field name.
@@ -128,18 +137,9 @@ impl Settings {
                     s.site_name = value.to_string();
                     Ok(())
                 }
-                "contact_email" => {
-                    s.contact_email = value.to_string();
-                    Ok(())
-                }
-                "source_url" => {
-                    s.source_url = value.trim().to_string();
-                    Ok(())
-                }
-                "security_email" => {
-                    s.security_email = value.to_string();
-                    Ok(())
-                }
+                "contact_email" => email(value).map(|v| s.contact_email = v),
+                "source_url" => web_url(value).map(|v| s.source_url = v),
+                "security_email" => email(value).map(|v| s.security_email = v),
                 "padding_mode" => match value {
                     "padme" | "buckets" => {
                         padding_mode = value.to_string();
@@ -147,33 +147,67 @@ impl Settings {
                     }
                     _ => Err("must be padme or buckets".into()),
                 },
-                "padding_min" => parse(value).map(|v| padding_min = v),
-                "padding_ladder" => parse_list(value).map(|v| padding_ladder = v),
-                "claim_window_secs" => parse(value).map(|v| s.claim_window_secs = v),
-                "min_ttl_secs" => parse(value).map(|v| s.min_ttl_secs = v),
-                "max_ttl_secs" => {
-                    parse(value).map(|v: i64| s.max_ttl_secs = v.min(MAX_TTL_CEILING))
-                }
-                "default_ttl_secs" => parse(value).map(|v| s.default_ttl_secs = v),
-                "ttl_presets" => parse_list(value).map(|v| s.ttl_presets = v),
-                "text_max_bytes" => parse(value).map(|v| s.text_max_bytes = v),
+                // D-6: 64 KiB is a floor the instance may raise, never lower.
+                "padding_min" => parse(value)
+                    .and_then(|v: u64| at_least(v, PaddingPolicy::DEFAULT_MIN))
+                    .map(|v| padding_min = v),
+                "padding_ladder" => parse_list(value)
+                    .and_then(ladder)
+                    .map(|v| padding_ladder = v),
+                "claim_window_secs" => parse(value)
+                    .and_then(|v| within(v, CLAIM_WINDOW_RANGE))
+                    .map(|v| s.claim_window_secs = v),
+                "min_ttl_secs" => parse(value)
+                    .and_then(|v: i64| at_least(v, MIN_TTL_FLOOR))
+                    .map(|v| s.min_ttl_secs = v),
+                "max_ttl_secs" => parse(value)
+                    .and_then(|v| within(v, MIN_TTL_FLOOR..=MAX_TTL_CEILING))
+                    .map(|v| s.max_ttl_secs = v),
+                "default_ttl_secs" => parse(value)
+                    .and_then(|v: i64| at_least(v, MIN_TTL_FLOOR))
+                    .map(|v| s.default_ttl_secs = v),
+                "ttl_presets" => parse_list(value)
+                    .and_then(|v: Vec<i64>| {
+                        v.iter()
+                            .try_for_each(|&p| {
+                                within(p, MIN_TTL_FLOOR..=MAX_TTL_CEILING).map(|_| ())
+                            })
+                            .map(|()| v)
+                    })
+                    .map(|v| s.ttl_presets = v),
+                "text_max_bytes" => parse(value)
+                    .and_then(|v| within(v, TEXT_MAX_RANGE))
+                    .map(|v| s.text_max_bytes = v),
                 "files_enabled" => parse(value).map(|v| s.files_enabled = v),
                 "inline_enabled" => parse(value).map(|v| s.inline_enabled = v),
-                "daily_retention_days" => parse(value).map(|v| s.daily_retention_days = v),
-                "rate_create_per_hour" => parse(value).map(|v| s.rate_limits.create_per_hour = v),
-                "rate_reveal_per_hour" => parse(value).map(|v| s.rate_limits.reveal_per_hour = v),
-                "rate_confirm_per_hour" => parse(value).map(|v| s.rate_limits.confirm_per_hour = v),
-                "rate_burn_per_hour" => parse(value).map(|v| s.rate_limits.burn_per_hour = v),
-                "rate_report_per_hour" => parse(value).map(|v| s.rate_limits.report_per_hour = v),
-                "rate_login_per_hour" => parse(value).map(|v| s.rate_limits.login_per_hour = v),
-                "rate_user_multiplier" => parse(value).map(|v| s.rate_limits.user_multiplier = v),
+                "daily_retention_days" => parse(value)
+                    .and_then(|v: i64| {
+                        if v == -1 {
+                            Ok(v)
+                        } else {
+                            within(v, 1..=RETENTION_MAX_DAYS)
+                        }
+                    })
+                    .map(|v| s.daily_retention_days = v),
+                "rate_create_per_hour" => rate(value).map(|v| s.rate_limits.create_per_hour = v),
+                "rate_reveal_per_hour" => rate(value).map(|v| s.rate_limits.reveal_per_hour = v),
+                "rate_confirm_per_hour" => rate(value).map(|v| s.rate_limits.confirm_per_hour = v),
+                "rate_burn_per_hour" => rate(value).map(|v| s.rate_limits.burn_per_hour = v),
+                "rate_report_per_hour" => rate(value).map(|v| s.rate_limits.report_per_hour = v),
+                "rate_login_per_hour" => rate(value).map(|v| s.rate_limits.login_per_hour = v),
+                "rate_user_multiplier" => parse(value)
+                    .and_then(|v| within(v, MULTIPLIER_RANGE))
+                    .map(|v| s.rate_limits.user_multiplier = v),
                 "require_api_key_for_create" => {
                     parse(value).map(|v| s.require_api_key_for_create = v)
                 }
-                "salt_rotation_secs" => parse(value).map(|v| s.salt_rotation_secs = v),
+                "salt_rotation_secs" => parse(value)
+                    .and_then(|v| within(v, SALT_ROTATION_RANGE))
+                    .map(|v| s.salt_rotation_secs = v),
                 "regions" => serde_json::from_str(value)
-                    .map(|v| s.regions = v)
-                    .map_err(|e| e.to_string()),
+                    .map_err(|e| e.to_string())
+                    .and_then(regions)
+                    .map(|v| s.regions = v),
                 _ => Err("unknown setting".into()),
             };
             if let Err(reason) = result {
@@ -200,10 +234,10 @@ impl Settings {
             s.max_ttl_secs = d.max_ttl_secs;
             s.default_ttl_secs = d.default_ttl_secs;
         }
-        if s.daily_retention_days == 0 || s.daily_retention_days < -1 {
-            warnings
-                .push("setting daily_retention_days ignored: use a positive number or -1".into());
-            s.daily_retention_days = Self::default().daily_retention_days;
+        let ttl_range = s.min_ttl_secs..=s.max_ttl_secs;
+        if s.ttl_presets.iter().any(|p| !ttl_range.contains(p)) {
+            warnings.push("setting ttl_presets ignored: a preset is outside min/max TTL".into());
+            s.ttl_presets = Self::default().ttl_presets;
         }
         (s, warnings)
     }
@@ -292,6 +326,81 @@ where
     value.parse().map_err(|e: T::Err| e.to_string())
 }
 
+fn within<T: PartialOrd + std::fmt::Display>(
+    value: T,
+    range: std::ops::RangeInclusive<T>,
+) -> Result<T, String> {
+    if range.contains(&value) {
+        Ok(value)
+    } else {
+        Err(format!(
+            "must be between {} and {}",
+            range.start(),
+            range.end()
+        ))
+    }
+}
+
+fn at_least<T: PartialOrd + std::fmt::Display>(value: T, floor: T) -> Result<T, String> {
+    if value >= floor {
+        Ok(value)
+    } else {
+        Err(format!("must be at least {floor}"))
+    }
+}
+
+fn rate(value: &str) -> Result<u32, String> {
+    parse(value).and_then(|v| within(v, 0..=RATE_MAX_PER_HOUR))
+}
+
+// A ladder is strictly increasing and never below the 64 KiB floor (D-6).
+fn ladder(entries: Vec<u64>) -> Result<Vec<u64>, String> {
+    let ordered = entries.windows(2).all(|w| w[0] < w[1]);
+    let floored = entries
+        .first()
+        .is_none_or(|&first| first >= PaddingPolicy::DEFAULT_MIN);
+    if ordered && floored {
+        Ok(entries)
+    } else {
+        Err(format!(
+            "must be strictly increasing, starting at {} or above",
+            PaddingPolicy::DEFAULT_MIN
+        ))
+    }
+}
+
+// Links rendered into pages: a web URL or nothing. (Production tightens this to https.)
+fn web_url(value: &str) -> Result<String, String> {
+    let value = value.trim();
+    if value.is_empty() || value.starts_with("https://") || value.starts_with("http://") {
+        Ok(value.to_string())
+    } else {
+        Err("must be a web URL".into())
+    }
+}
+
+// Addresses rendered into mailto: links: nothing, or something shaped like an address.
+fn email(value: &str) -> Result<String, String> {
+    let value = value.trim();
+    let shaped = value.contains('@')
+        && !value.contains(|c: char| c.is_whitespace() || "\"<>?#/".contains(c));
+    if value.is_empty() || shaped {
+        Ok(value.to_string())
+    } else {
+        Err("must be an email address".into())
+    }
+}
+
+fn regions(regions: Vec<Region>) -> Result<Vec<Region>, String> {
+    for region in &regions {
+        if region.code.trim().is_empty() || region.name.trim().is_empty() {
+            return Err("every region needs a code and a name".into());
+        }
+        web_url(&region.url).map_err(|_| "every region needs a web URL".to_string())?;
+    }
+    Ok(regions)
+}
+
 fn parse_list<T: std::str::FromStr>(value: &str) -> Result<Vec<T>, String>
 where
     T::Err: std::fmt::Display,
@@ -312,7 +421,7 @@ mod tests {
         let overrides: HashMap<String, String> = [
             ("site_name", "Example"),
             ("padding_mode", "buckets"),
-            ("padding_ladder", "4096, 16384"),
+            ("padding_ladder", "65536, 131072"),
             ("max_ttl_secs", "99999999"),
             ("files_enabled", "maybe"),
             ("nonsense", "1"),
@@ -325,12 +434,50 @@ mod tests {
         assert_eq!(
             s.padding,
             PaddingPolicy::Buckets {
-                ladder: vec![4096, 16384]
+                ladder: vec![65536, 131072]
             }
         );
+        // Over the ceiling is refused, not clamped (D-7).
         assert_eq!(s.max_ttl_secs, MAX_TTL_CEILING);
         assert!(s.files_enabled);
-        assert_eq!(warnings.len(), 2, "{warnings:?}");
+        assert_eq!(warnings.len(), 3, "{warnings:?}");
+    }
+
+    #[test]
+    fn out_of_range_values_are_refused() {
+        for (key, value) in [
+            ("padding_min", "0"),
+            ("padding_min", "65535"),
+            ("padding_ladder", "0,1,5"),
+            ("padding_ladder", "131072,65536"),
+            ("claim_window_secs", "-1"),
+            ("claim_window_secs", "9223372036854775807"),
+            ("min_ttl_secs", "-100"),
+            ("max_ttl_secs", "2592000"),
+            ("ttl_presets", "-5"),
+            ("ttl_presets", "2592000"),
+            ("text_max_bytes", "0"),
+            ("text_max_bytes", "18446744073709551615"),
+            ("rate_user_multiplier", "0"),
+            ("rate_user_multiplier", "4294967295"),
+            ("rate_create_per_hour", "4294967295"),
+            ("salt_rotation_secs", "-1"),
+            ("daily_retention_days", "0"),
+            ("daily_retention_days", "9223372036854775807"),
+            ("source_url", "javascript:alert(1)"),
+            ("contact_email", "a@b.c\"><x"),
+            (
+                "regions",
+                r#"[{"code":"x","name":"X","url":"javascript:alert(1)"}]"#,
+            ),
+        ] {
+            let (s, warnings) = Settings::with_overrides(&overrides(&[(key, value)]));
+            assert_eq!(warnings.len(), 1, "{key}={value}: {warnings:?}");
+            assert_eq!(s, Settings::default(), "{key}={value} changed something");
+        }
+        let (s, warnings) = Settings::with_overrides(&overrides(&[("ttl_presets", "900,3600")]));
+        assert!(warnings.is_empty());
+        assert_eq!(s.ttl_presets, vec![900, 3600]);
     }
 
     #[test]

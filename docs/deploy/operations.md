@@ -19,8 +19,8 @@ Deployment settings come from the environment (or a `.env` file in the working d
 | `SHH_SQLITE_PATH` | | Default `storage/shhnote.db`, relative to the working directory. |
 | `SHH_PG_HOST`, `SHH_PG_PORT`, `SHH_PG_DATABASE`, `SHH_PG_USERNAME`, `SHH_PG_PASSWORD` | with postgres | Connection details. |
 | `SHH_STORAGE` | | `inline` (default: blobs above the inline ceiling are refused), `local` or `s3`. |
-| `SHH_INLINE_MAX` | | Largest padded blob kept in the database (default 2 MiB, minimum 64 KiB). |
-| `SHH_EXTERNAL_MAX_OBJECT` | with local/s3 | Largest padded blob the external tier accepts (default 64 MiB). |
+| `SHH_INLINE_MAX` | | Largest padded blob kept in the database (default 2 MiB, minimum 64 KiB). At most 64 MiB. |
+| `SHH_EXTERNAL_MAX_OBJECT` | with local/s3 | Largest padded blob the external tier accepts (default 64 MiB, at most 4 GiB). |
 | `SHH_MAX_UPLOADS` | optional | Uploads in flight at once; further creates get `503 too_busy` until one finishes (default 64). Each slot can hold up to `SHH_INLINE_MAX` in memory. |
 | `SHH_LOCAL_PATH`, `SHH_LOCAL_MAX_TOTAL_BYTES` | with local | Blob directory (default `storage/blobs`) and its hard ceiling (required). |
 | `SHH_S3_BUCKET`, `SHH_S3_REGION`, `SHH_S3_ENDPOINT`, `SHH_S3_ACCESS_KEY_ID`, `SHH_S3_SECRET_ACCESS_KEY`, `SHH_S3_MAX_TOTAL_BYTES`, `SHH_SPOOL_PATH` | with s3 | Bucket, credentials, hard ceiling (required), and the spool directory uploads wait in (default `storage/spool`). |

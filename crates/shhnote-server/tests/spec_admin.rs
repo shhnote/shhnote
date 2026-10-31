@@ -613,7 +613,6 @@ async fn spec_admin_key_delete_does_not_panic_on_non_ascii() {
 
 // SPEC §7.2: every setting is range-checked as a whole.
 #[tokio::test]
-#[ignore = "S-10"]
 async fn spec_settings_patch_rejects_values_that_break_the_instance() {
     let (app, _) = build("spec-admin-settings").await;
     let auth = bearer(BOOTSTRAP);
