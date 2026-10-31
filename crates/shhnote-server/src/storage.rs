@@ -3,13 +3,14 @@ use std::{
     io,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use axum::body::{Body, Bytes};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use futures_util::{Stream, TryStreamExt, stream};
 use hmac::{Hmac, KeyInit, Mac};
-use http_body_util::{BodyExt, Empty, StreamBody, combinators::BoxBody};
+use http_body_util::{BodyDataStream, BodyExt, Empty, StreamBody, combinators::BoxBody};
 use hyper::{
     Method, Request, Response, StatusCode,
     body::{Frame, Incoming},
@@ -417,6 +418,18 @@ type RequestBody = BoxBody<Bytes, io::Error>;
 const EMPTY_HASH: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 const UNSIGNED: &str = "UNSIGNED-PAYLOAD";
 
+// A hung object store must not hang the server (SPEC §6.1): bounds on reaching the endpoint,
+// on getting a response, and on each piece of a streamed body.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
+const BODY_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+// Uploads get longer, since the response only comes once the whole object has been sent.
+const UPLOAD_MIN_BYTES_PER_SEC: u64 = 128 * 1024;
+
+fn timed_out(what: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::TimedOut, format!("S3 {what} timed out"))
+}
+
 impl S3 {
     async fn open(
         bucket: &str,
@@ -508,8 +521,17 @@ impl S3 {
         let path = self.object_path(key)?;
         let file = tokio::fs::File::open(&spooled.path).await?;
         let body = StreamBody::new(file_stream(file).map_ok(Frame::data)).boxed();
+        let allowance =
+            RESPONSE_TIMEOUT + Duration::from_secs(spooled.len / UPLOAD_MIN_BYTES_PER_SEC);
         let response = self
-            .send(Method::PUT, &path, "", &[], Some((body, spooled.len)))
+            .send_within(
+                allowance,
+                Method::PUT,
+                &path,
+                "",
+                &[],
+                Some((body, spooled.len)),
+            )
             .await?;
         expect_success(response).await
     }
@@ -520,7 +542,23 @@ impl S3 {
         if !response.status().is_success() {
             return Err(status_error(response).await);
         }
-        Ok(Body::new(response.into_body()))
+        // Each piece of the object must keep arriving, or the download is cut.
+        let frames = BodyDataStream::new(response.into_body());
+        let timed = stream::unfold(Some(frames), |frames| async move {
+            let mut frames = frames?;
+            match tokio::time::timeout(
+                BODY_IDLE_TIMEOUT,
+                futures_util::StreamExt::next(&mut frames),
+            )
+            .await
+            {
+                Ok(Some(Ok(bytes))) => Some((Ok(bytes), Some(frames))),
+                Ok(Some(Err(e))) => Some((Err(io::Error::other(e)), None)),
+                Ok(None) => None,
+                Err(_) => Some((Err(timed_out("download")), None)),
+            }
+        });
+        Ok(Body::from_stream(timed))
     }
 
     async fn delete(&self, key: &str) -> io::Result<()> {
@@ -565,6 +603,20 @@ impl S3 {
     // One signed request on its own connection; S3 traffic here is a few calls per secret.
     async fn send(
         &self,
+        method: Method,
+        path: &str,
+        query: &str,
+        extra_headers: &[(&str, &str)],
+        body: Option<(RequestBody, u64)>,
+    ) -> io::Result<Response<Incoming>> {
+        self.send_within(RESPONSE_TIMEOUT, method, path, query, extra_headers, body)
+            .await
+    }
+
+    // `allowance` bounds the wait for the response headers once the connection is up.
+    async fn send_within(
+        &self,
+        allowance: Duration,
         method: Method,
         path: &str,
         query: &str,
@@ -618,29 +670,38 @@ impl S3 {
         }
         let request = request.body(body).map_err(io::Error::other)?;
 
-        let stream = tokio::net::TcpStream::connect((self.host.as_str(), self.port)).await?;
-        let mut sender = match &self.tls {
-            Some(config) => {
-                let name = rustls::pki_types::ServerName::try_from(self.host.clone())
-                    .map_err(|e| io::Error::other(e.to_string()))?;
-                let tls = tokio_rustls::TlsConnector::from(config.clone())
-                    .connect(name, stream)
-                    .await?;
-                let (sender, conn) = http1::handshake(TokioIo::new(tls))
-                    .await
-                    .map_err(io::Error::other)?;
-                tokio::spawn(conn);
-                sender
-            }
-            None => {
-                let (sender, conn) = http1::handshake(TokioIo::new(stream))
-                    .await
-                    .map_err(io::Error::other)?;
-                tokio::spawn(conn);
-                sender
-            }
+        let connect = async {
+            let stream = tokio::net::TcpStream::connect((self.host.as_str(), self.port)).await?;
+            let sender = match &self.tls {
+                Some(config) => {
+                    let name = rustls::pki_types::ServerName::try_from(self.host.clone())
+                        .map_err(|e| io::Error::other(e.to_string()))?;
+                    let tls = tokio_rustls::TlsConnector::from(config.clone())
+                        .connect(name, stream)
+                        .await?;
+                    let (sender, conn) = http1::handshake(TokioIo::new(tls))
+                        .await
+                        .map_err(io::Error::other)?;
+                    tokio::spawn(conn);
+                    sender
+                }
+                None => {
+                    let (sender, conn) = http1::handshake(TokioIo::new(stream))
+                        .await
+                        .map_err(io::Error::other)?;
+                    tokio::spawn(conn);
+                    sender
+                }
+            };
+            Ok::<_, io::Error>(sender)
         };
-        sender.send_request(request).await.map_err(io::Error::other)
+        let mut sender = tokio::time::timeout(CONNECT_TIMEOUT, connect)
+            .await
+            .map_err(|_| timed_out("connect"))??;
+        tokio::time::timeout(allowance, sender.send_request(request))
+            .await
+            .map_err(|_| timed_out("request"))?
+            .map_err(io::Error::other)
     }
 }
 

@@ -5,29 +5,41 @@ use shhnote_store::Store;
 
 use crate::{clock::now, storage::Blobs};
 
-// One task, one duty cycle: destroy expired secrets and lapsed claims, delete external
-// objects whose rows are parked, fold old daily buckets into their year.
+// Parked objects deleted per tick; the rest wait for the next one, so one slow object store
+// never holds the scrubber for longer than a bounded batch.
+pub const SCRUB_BATCH: i64 = 200;
+
+// Two tasks on one duty cycle. Sweep and roll-up are database work and run together; the
+// scrubber talks to the object store and runs on its own, so a slow store (SPEC §6.1) can
+// delay deletions but never expiries.
 pub fn spawn(
     store: Store,
     interval: Duration,
     settings: Arc<SettingsCell>,
     storage: Option<Arc<Blobs>>,
 ) {
+    let sweeper = store.clone();
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(interval);
         loop {
             ticker.tick().await;
             let now = now();
-            if let Err(e) = store.sweep(now).await {
+            if let Err(e) = sweeper.sweep(now).await {
                 crate::log_error!("scheduler: sweep failed: {e}");
             }
-            scrub(&store, storage.as_deref()).await;
             let retention = settings.load().daily_retention_days;
             if retention > 0
-                && let Err(e) = store.rollup_daily(now - retention * 86_400).await
+                && let Err(e) = sweeper.rollup_daily(now - retention * 86_400).await
             {
                 crate::log_error!("scheduler: roll-up failed: {e}");
             }
+        }
+    });
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(interval);
+        loop {
+            ticker.tick().await;
+            scrub(&store, storage.as_deref()).await;
         }
     });
 }
@@ -35,7 +47,7 @@ pub fn spawn(
 // Deletes parked objects and only then their rows, retrying on every pass until each is
 // confirmed gone (SPEC §5). A row is never removed before its object.
 pub async fn scrub(store: &Store, storage: Option<&Blobs>) {
-    let pending = match store.pending_deletes_sized().await {
+    let pending = match store.pending_deletes_sized(SCRUB_BATCH).await {
         Ok(pending) => pending,
         Err(e) => {
             crate::log_error!("scheduler: listing pending deletes failed: {e}");

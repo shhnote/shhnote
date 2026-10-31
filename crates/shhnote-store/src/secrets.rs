@@ -264,11 +264,16 @@ impl Store {
         Ok(n.max(0) as u64)
     }
 
-    // Like `pending_deletes`, with each row's bucket so the caller can account for the bytes.
-    pub async fn pending_deletes_sized(&self) -> Result<Vec<(Vec<u8>, String, u64)>, Error> {
+    // Like `pending_deletes`, with each row's bucket so the caller can account for the bytes,
+    // and at most `limit` rows so one pass over a backlog stays bounded.
+    pub async fn pending_deletes_sized(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<(Vec<u8>, String, u64)>, Error> {
         let rows = sqlx::query(
-            "SELECT lookup_key, external_ref, bucket FROM secrets WHERE status = 'pending_delete'",
+            "SELECT lookup_key, external_ref, bucket FROM secrets WHERE status = 'pending_delete' LIMIT $1",
         )
+        .bind(limit)
         .fetch_all(&self.pool)
         .await?;
         rows.into_iter()

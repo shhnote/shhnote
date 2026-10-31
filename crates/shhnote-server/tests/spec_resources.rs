@@ -718,7 +718,6 @@ async fn s3(name: &str, hang: Arc<AtomicBool>) -> (Router, Store, Arc<Blobs>, Pa
 // SPEC §6.1: the S3 client has timeouts, so a hung endpoint cannot hang the scrubber, a
 // reveal or a create.
 #[tokio::test]
-#[ignore = "S-12"]
 async fn spec_hung_s3_does_not_hang_scheduler_reveal_or_create() {
     let hang = Arc::new(AtomicBool::new(false));
     let (app, store, blobs, spool) = s3("s3-hang", hang.clone()).await;
@@ -740,7 +739,8 @@ async fn spec_hung_s3_does_not_hang_scheduler_reveal_or_create() {
     assert_eq!(send(&app, req).await.status, StatusCode::NO_CONTENT);
 
     hang.store(true, Ordering::SeqCst);
-    let limit = Duration::from_secs(10);
+    // The S3 client gives a response 10 s (plus upload time for a PUT) before giving up.
+    let limit = Duration::from_secs(20);
     let scrub = tokio::time::timeout(limit, scheduler::scrub(&store, Some(&blobs)))
         .await
         .is_ok();
