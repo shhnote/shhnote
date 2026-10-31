@@ -1,0 +1,6 @@
+# Checkouts are byte-identical on every platform, so builds and the asset hash are too.
+* text=auto eol=lf
+*.wasm binary
+*.woff2 binary
+*.png binary
+*.ico binary

@@ -11,6 +11,9 @@ description = "shhnote: a self-hosted service for sharing secrets that the serve
 name = "shhnote"
 path = "src/main.rs"
 
+[build-dependencies]
+sha2.workspace = true
+
 [dependencies]
 shhnote-core.workspace = true
 shhnote-store.workspace = true

@@ -1,16 +1,18 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
 # Builds the Argon2 WASM module, the client bundles and a static musl binary, then ships
 # only the binary. `docker buildx build --target binary --output type=local,dest=out .`
 # extracts the same binary for bare-metal installs.
+#
+# Every image is pinned by digest (the tag is a reminder of what the digest is). To move
+# one: `docker buildx imagetools inspect <image:tag>` prints the new index digest.
 
-ARG RUST_VERSION=1.99
-
-FROM rust:${RUST_VERSION}-alpine AS builder
+# Rust 1.99.1, the same as rust-toolchain.toml.
+FROM rust:1.99-alpine@sha256:7e9e2d068a107a2adafd19930011178d14a78326053cd4c3a9f7ad3fd049557d AS builder
 RUN apk add --no-cache build-base bash
 # Node 24 for the TypeScript build; taken from the official image rather than Alpine's
-# packages so the version is pinned.
-COPY --from=node:24-alpine /usr/local/bin/node /usr/local/bin/node
-COPY --from=node:24-alpine /usr/local/lib/node_modules /usr/local/lib/node_modules
+# packages so the exact version is pinned.
+COPY --from=node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && rustup target add wasm32-unknown-unknown
 WORKDIR /src

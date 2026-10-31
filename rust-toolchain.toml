@@ -1,0 +1,5 @@
+# One toolchain everywhere: developers, CI and the Dockerfile's builder image.
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]

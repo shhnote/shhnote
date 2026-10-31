@@ -4,19 +4,28 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Release runs this workflow first, so nothing ships that CI has not passed.
+  workflow_call:
 
-permissions:
-  contents: read
+# Nothing by default; each job asks for what it needs. Actions are pinned to commits.
+permissions: {}
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # The release binary ships for both architectures, so both are tested.
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
         env:
           POSTGRES_DB: shhnote_test
           POSTGRES_USER: shhnote
@@ -29,20 +38,20 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: dtolnay/rust-toolchain@stable
+      # The toolchain, components and targets come from rust-toolchain.toml.
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10
         with:
-          components: rustfmt, clippy
-          targets: wasm32-unknown-unknown
+          toolchain: 1.99.1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: client/.nvmrc
           cache: npm
           cache-dependency-path: client/package-lock.json
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Format
         run: cargo fmt --all --check
@@ -51,24 +60,44 @@ jobs:
         run: scripts/build-client.sh
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Tests (SQLite and Postgres)
         env:
           SHH_TEST_PG_URL: postgres://shhnote:shhnote@localhost:5432/shhnote_test
-        run: cargo test --workspace
+        run: cargo test --workspace --locked
 
       - name: Client tests
         working-directory: client
         run: npm test
 
+  audit:
+    # Advisories, licenses and sources for the Rust tree (deny.toml); advisories for the
+    # client's dev dependencies.
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: client/.nvmrc
+      - name: npm audit
+        working-directory: client
+        run: npm audit --audit-level=high
+
   image:
     # Proves the Dockerfile still builds; the real image is published by release.yml.
-    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           push: false
