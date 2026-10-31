@@ -127,10 +127,7 @@ async fn main() {
         storage,
     );
     let drain = Arc::new(Drain::default());
-    let app = app::router(&config, state).layer(axum::middleware::from_fn_with_state(
-        drain.clone(),
-        shhnote_server::drain::track,
-    ));
+    let app = app::router_with_drain(&config, state, drain.clone());
 
     let listener = tokio::net::TcpListener::bind(config.bind_addr)
         .await

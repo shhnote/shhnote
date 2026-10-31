@@ -5,7 +5,6 @@ use axum::{
     Router,
     extract::{Request, State},
     http::{HeaderName, HeaderValue, StatusCode, header},
-    middleware,
     response::{Html, IntoResponse, Redirect, Response},
     routing::{any, get},
 };
@@ -44,7 +43,22 @@ pub(crate) struct Shared {
     api_url: String,
     site_url: String,
     max_blob_bytes: u64,
+}
+
+// The SPEC §11 headers, applied to every response by `app::router`.
+#[derive(Clone)]
+pub(crate) struct SecurityHeaders {
     csp: HeaderValue,
+    hsts: bool,
+}
+
+impl SecurityHeaders {
+    pub(crate) fn from_config(config: &Config) -> Self {
+        Self {
+            csp: content_security_policy(config),
+            hsts: config.env == AppEnv::Production,
+        }
+    }
 }
 
 // Each locale gets its own copy of the page routes, so handlers know their language without parsing the URL.
@@ -71,7 +85,6 @@ pub fn router(config: &Config, api: &ApiState) -> Router {
         api_url: config.api_url.clone(),
         site_url: config.url.clone(),
         max_blob_bytes: config.storage.max_blob_bytes(),
-        csp: content_security_policy(config),
     });
 
     let mut router = Router::new()
@@ -90,12 +103,7 @@ pub fn router(config: &Config, api: &ApiState) -> Router {
         router = router.nest(&format!("/{locale}"), pages(state));
     }
 
-    router
-        .fallback_service(any(redirect_to_locale).with_state(offered))
-        .layer(middleware::map_response_with_state(
-            shared,
-            security_headers,
-        ))
+    router.fallback_service(any(redirect_to_locale).with_state(offered))
 }
 
 fn pages(state: PageState) -> Router {
@@ -544,9 +552,12 @@ fn content_security_policy(config: &Config) -> HeaderValue {
     HeaderValue::from_str(&policy).expect("policy is valid header text")
 }
 
-async fn security_headers(State(shared): State<Arc<Shared>>, mut response: Response) -> Response {
+pub(crate) async fn security_headers(
+    State(set): State<SecurityHeaders>,
+    mut response: Response,
+) -> Response {
     let headers = response.headers_mut();
-    headers.insert(header::CONTENT_SECURITY_POLICY, shared.csp.clone());
+    headers.insert(header::CONTENT_SECURITY_POLICY, set.csp.clone());
     // Never tell other sites which page a visitor came from.
     headers.insert(
         header::REFERRER_POLICY,
@@ -565,7 +576,7 @@ async fn security_headers(State(shared): State<Arc<Shared>>, mut response: Respo
              microphone=(), payment=(), usb=()",
         ),
     );
-    if shared.secure_cookies {
+    if set.hsts {
         headers.insert(
             header::STRICT_TRANSPORT_SECURITY,
             HeaderValue::from_static("max-age=63072000; includeSubDomains"),

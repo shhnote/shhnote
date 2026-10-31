@@ -218,7 +218,6 @@ fn missing_headers(seen: &[Seen], hsts: bool) -> Vec<String> {
 
 // SPEC §11: the security headers are on every response, API, redirect and error included.
 #[tokio::test]
-#[ignore = "S-25"]
 async fn spec_every_response_has_the_security_headers() {
     let app = build("spec-web-headers-spec", &[]).await;
     let seen = walk(&app, "localhost", "/api/v1").await;
@@ -228,7 +227,6 @@ async fn spec_every_response_has_the_security_headers() {
 
 // SPEC §11: HSTS and the other headers on every production response, the API subdomain included.
 #[tokio::test]
-#[ignore = "S-25"]
 async fn spec_hsts_on_every_production_response() {
     let app = build(
         "spec-web-headers-hsts",

@@ -35,6 +35,15 @@ pub(crate) fn routes() -> Router<PageState> {
         .route("/settings", get(settings_page).post(settings_save))
         .route("/keys", get(keys_page).post(keys_create))
         .route("/keys/delete", post(keys_delete))
+        .layer(axum::middleware::map_response(no_store))
+}
+
+// Admin responses are never cached (SPEC §8): one of them shows a freshly minted key.
+pub(crate) async fn no_store(mut response: Response) -> Response {
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 // A signed, stateless session: who is logged in and until when. Every request re-checks that

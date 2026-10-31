@@ -368,7 +368,6 @@ async fn spec_bootstrap_cookie_dies_with_token_rotation() {
 // SPEC §8: every admin response carries `Cache-Control: no-store`, the page that shows a new
 // key most of all.
 #[tokio::test]
-#[ignore = "S-18"]
 async fn spec_admin_pages_are_no_store() {
     let (app, _) = build("spec-admin-cache").await;
     let cookie = login(&app, BOOTSTRAP).await;

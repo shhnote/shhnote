@@ -29,6 +29,7 @@ pub fn routes(state: ApiState) -> Router<ApiState> {
         .route("/keys", get(keys).post(keys_create))
         .route("/keys/delete", post(keys_delete))
         .layer(middleware::from_fn_with_state(state, require_admin))
+        .layer(middleware::map_response(crate::admin::no_store))
 }
 
 // Either an `admin` API key or, on a fresh install, the bootstrap token. Failed attempts

@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use axum::{
     Router,
@@ -12,10 +12,31 @@ use tower::ServiceExt;
 
 use crate::{
     api::{self, ApiState},
+    drain::{self, Drain},
     web,
 };
 
 pub fn router(config: &Config, state: ApiState) -> Router {
+    with_headers(core(config, state), config)
+}
+
+// The same router with the drain middleware inside the header layer, so even its
+// "shutting down" answer carries the SPEC §11 headers.
+pub fn router_with_drain(config: &Config, state: ApiState, drain: Arc<Drain>) -> Router {
+    let tracked = core(config, state).layer(middleware::from_fn_with_state(drain, drain::track));
+    with_headers(tracked, config)
+}
+
+// Headers on every response: pages, API, redirects, errors (SPEC §11). Outermost, so no
+// route and no middleware answers without them.
+fn with_headers(router: Router, config: &Config) -> Router {
+    router.layer(middleware::map_response_with_state(
+        web::SecurityHeaders::from_config(config),
+        web::security_headers,
+    ))
+}
+
+fn core(config: &Config, state: ApiState) -> Router {
     let web = web::router(config, &state);
     let api = api::router(state);
 
