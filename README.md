@@ -20,11 +20,12 @@ mkdir shhnote && cd shhnote
 curl -fsSLO https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/docker/docker-compose.yml
 curl -fsSLO https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/docker/Caddyfile
 curl -fsSL https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/docker/.env.example -o .env
-# edit .env: DOMAIN, SHH_URL, SHH_SECRET_KEY, SHH_ADMIN_TOKEN
+docker run --rm -v "$PWD/.env:/env" ghcr.io/shhnote/shhnote init --env /env   # the two secrets
+# edit .env: DOMAIN, SHH_URL
 docker compose up -d
 ```
 
-Caddy fetches the TLS certificate; the site is up at your domain and the admin panel at `/en/admin` (sign in with the bootstrap token, create an admin key, remove the token). Details and the other ways to run it:
+Caddy fetches the TLS certificate; the admin panel is at `/en/admin`. Sign in with the bootstrap token, create an admin key, set the site name and a contact address, remove the token — until then the site serves only its admin panel. Details and the other ways to run it:
 
 - [Docker](docs/deploy/docker.md): compose with Caddy, with your own proxy, with Postgres
 - [Bare metal](docs/deploy/bare-metal.md): release binary, systemd, an existing proxy and database
@@ -37,7 +38,8 @@ Caddy fetches the TLS certificate; the site is up at your domain and the admin p
 Rust (stable, with the `wasm32-unknown-unknown` target) and Node 24.
 
 ```sh
-cp .env.example .env            # SQLite and local addresses; set SHH_SECRET_KEY to any 32+ characters
+cp .env.example .env            # SQLite and local addresses
+cargo run -p shhnote-server -- init --env .env   # fills in SHH_SECRET_KEY and SHH_ADMIN_TOKEN
 scripts/build-client.sh         # Argon2 WASM module and the JavaScript bundles
 cargo run -p shhnote-server     # http://localhost:3000
 cargo test --workspace          # add SHH_TEST_PG_URL=postgres://… to cover Postgres too

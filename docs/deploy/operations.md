@@ -34,13 +34,14 @@ Deployment settings come from the environment (or a `.env` file in the working d
 | Command | Does |
 |---|---|
 | `shhnote` | Runs the server. SIGTERM or Ctrl-C stops accepting requests, finishes the ones in flight (up to 30 s), then exits. |
+| `shhnote init` | Generates `SHH_SECRET_KEY` and `SHH_ADMIN_TOKEN` and prints them as `KEY=value` lines. `shhnote init --env <path>` writes them into that file instead: creates it (owner-readable only), fills an empty `KEY=` line in place, appends a missing key, and never overwrites a value that is set. Needs no configuration; the first command of every install. |
 | `shhnote check` | Loads the configuration and pings the database; exit code 0 when a start would succeed. |
 | `shhnote health` | Asks the running server's `/api/v1/health`; used as the container health check. |
 | `shhnote reset-admin` | Deletes every admin API key, so `SHH_ADMIN_TOKEN` works again. For lockouts. |
 
 ## First admin, and retiring the token
 
-Sign in at `/en/admin` with `SHH_ADMIN_TOKEN`, create an admin API key (keep it in a password manager; it is shown once), sign out, sign in with the key. From that moment the token is ignored and the server logs a warning as long as it is still set: remove it. The admin JSON API under `/api/v1/admin` takes the same keys as `Authorization: Bearer`.
+Until setup is done the site serves only its admin panel and admin API (every other page and API call answers 503 with a setup page; `/health` says `configured: false`). Setup is three things: sign in at `/en/admin` with `SHH_ADMIN_TOKEN`, create an admin API key (keep it in a password manager; it is shown once), then set the site name and the contact address under Settings. Sign out and sign in with the key. From that moment the token is ignored and the server logs a warning as long as it is still set: remove it. The admin JSON API under `/api/v1/admin` takes the same keys as `Authorization: Bearer`.
 
 ## Backups
 

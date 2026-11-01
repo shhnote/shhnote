@@ -6,6 +6,16 @@ use shhnote_store::Store;
 
 #[tokio::main]
 async fn main() {
+    // `init` runs before any configuration exists: it makes the secrets a start needs.
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("init") {
+        if let Err(e) = shhnote_server::init::run(&args[2..]) {
+            shhnote_server::log_error!("init: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     let config = match Config::load() {
         Ok(config) => config,
         Err(e) => {
@@ -65,7 +75,7 @@ async fn main() {
         }
         Some(other) => {
             shhnote_server::log_error!(
-                "unknown command {other:?}; commands: check, health, reset-admin"
+                "unknown command {other:?}; commands: init, check, health, reset-admin"
             );
             std::process::exit(2);
         }

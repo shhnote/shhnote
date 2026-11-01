@@ -4,7 +4,7 @@
 #
 #   fly launch --no-deploy --copy-config
 #   fly volumes create shhnote_data --size 10
-#   fly secrets set SHH_SECRET_KEY=... SHH_ADMIN_TOKEN=...
+#   fly secrets set $(shhnote init)        # or $(docker run --rm ghcr.io/shhnote/shhnote init)
 #   fly deploy
 
 # Placeholders: your app name and its public address.

@@ -10,7 +10,7 @@ cp deploy/fly/fly.toml.example fly.toml
 # edit fly.toml: app name, primary_region, SHH_URL
 fly launch --no-deploy --copy-config
 fly volumes create shhnote_data --size 10 --region <primary_region>
-fly secrets set SHH_SECRET_KEY="$(openssl rand -base64 48)" SHH_ADMIN_TOKEN="$(openssl rand -base64 48)"
+fly secrets set $(docker run --rm ghcr.io/shhnote/shhnote init)   # or: $(shhnote init) with a local binary
 fly deploy
 ```
 

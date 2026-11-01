@@ -19,10 +19,11 @@ To build from source instead you need Rust stable with the `wasm32-unknown-unkno
 sudo mkdir -p /etc/shhnote
 sudo curl -fsSL https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/systemd/env.example -o /etc/shhnote/env
 sudo chmod 0640 /etc/shhnote/env
+sudo shhnote init --env /etc/shhnote/env     # fills in SHH_SECRET_KEY and SHH_ADMIN_TOKEN
 sudo editor /etc/shhnote/env
 ```
 
-Set `SHH_URL`, `SHH_SECRET_KEY` (`openssl rand -base64 48`) and `SHH_ADMIN_TOKEN`. The example binds `127.0.0.1:3000` and trusts `X-Forwarded-For` from `127.0.0.1` and `::1`, which is right for a proxy on the same host. Relative paths resolve under `/var/lib/shhnote`.
+Set `SHH_URL`; `init` has filled in the two secrets. The example binds `127.0.0.1:3000` and trusts `X-Forwarded-For` from `127.0.0.1` and `::1`, which is right for a proxy on the same host. Relative paths resolve under `/var/lib/shhnote`.
 
 For Postgres, create a role and database, then:
 

@@ -13,14 +13,17 @@ curl -fsSLO https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/docker
 curl -fsSL https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/docker/.env.example -o .env
 ```
 
-Edit `.env`:
+Let the image fill in the two secrets, then edit the rest of `.env`:
+
+```sh
+docker run --rm -v "$PWD/.env:/env" ghcr.io/shhnote/shhnote init --env /env
+```
 
 | Variable | Value |
 |---|---|
 | `DOMAIN` | the site's domain, for Caddy's certificate |
 | `SHH_URL` | `https://` plus the same domain |
-| `SHH_SECRET_KEY` | `openssl rand -base64 48` |
-| `SHH_ADMIN_TOKEN` | another random string of at least 32 characters |
+| `SHH_SECRET_KEY`, `SHH_ADMIN_TOKEN` | filled in by `init` above |
 
 Then:
 
@@ -29,7 +32,7 @@ docker compose up -d
 docker compose logs -f shhnote      # "listening on http://0.0.0.0:3000"
 ```
 
-Open `https://<domain>/en/admin`, sign in with the bootstrap token, create an admin API key under "API keys", and delete the `SHH_ADMIN_TOKEN` line from `.env` (the token stops working anyway once an admin key exists). Settings such as the site name, lifetimes and rate limits live in the admin panel, not in `.env`.
+Open `https://<domain>/en/admin`, sign in with the bootstrap token, create an admin API key under "API keys", sign in with it, and set the site name and contact address under "Settings": until then the site serves nothing but the admin panel. Then delete the `SHH_ADMIN_TOKEN` line from `.env` (the token stops working anyway once an admin key exists). Settings such as lifetimes and rate limits live in the admin panel too, not in `.env`.
 
 ## With your own reverse proxy
 

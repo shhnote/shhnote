@@ -7,6 +7,7 @@ pub mod content;
 pub mod drain;
 pub mod health;
 pub mod i18n;
+pub mod init;
 pub mod log;
 pub mod ratelimit;
 pub mod scheduler;
