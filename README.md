@@ -7,6 +7,7 @@ Zero-knowledge secret sharing: hand someone a password, a key or a file with a l
 - Padded blobs (Padmé) so sizes reveal nothing; uniform "not found" answers so probing reveals nothing
 - Reports remove a secret without anyone seeing it; aggregate daily counters are the only statistics
 - Admin panel and JSON admin API, rate limiting without storing addresses, multi-language UI
+- A minimal built-in website, or your own frontend against the API (`SHH_WEB=api`) built on the `@shhnote/client` package
 - One static binary; SQLite or PostgreSQL; blobs inline, on disk or on S3
 - AGPL-3.0; the protocol is specified in [`SPEC.md`](SPEC.md) and pinned by test vectors
 
@@ -41,7 +42,7 @@ cargo run -p shhnote-server     # http://localhost:3000
 cargo test --workspace          # add SHH_TEST_PG_URL=postgres://… to cover Postgres too
 ```
 
-The layout: `crates/shhnote-core` (protocol), `crates/shhnote-store` (database), `crates/shhnote-server` (API and website), `crates/shhnote-argon2-wasm` (Argon2id for browsers), `client/` (TypeScript: crypto library and page scripts). `vectors/v1.json` holds the conformance vectors both implementations must pass.
+The layout: `crates/shhnote-core` (protocol), `crates/shhnote-store` (database), `crates/shhnote-server` (API and website), `crates/shhnote-argon2-wasm` (Argon2id for browsers), `client/` (TypeScript: the `@shhnote/client` package in three layers, `crypto/`, `lib/`, `ui/`, and the built-in page bundle). `vectors/v1.json` holds the conformance vectors both implementations must pass.
 
 ## API and clients
 
