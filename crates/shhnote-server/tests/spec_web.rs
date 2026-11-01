@@ -11,14 +11,26 @@ use axum::{
     extract::ConnectInfo,
     http::{HeaderMap, Method, Request, StatusCode, header},
 };
+use shhnote_core::secret::credential_hash;
 use shhnote_core::{config::Config, settings::Settings};
 use shhnote_server::{api::ApiState, app};
-use shhnote_store::{Store, sqlite_path_for_tests};
+use shhnote_store::{Scope, Store, sqlite_path_for_tests};
 use tower::ServiceExt;
+
+const ADMIN_KEY: &str = "spec-admin-key-of-at-least-32-characters-ok";
 
 const BOOTSTRAP: &str = "spec-web-bootstrap-token-of-at-least-32-char";
 
 async fn build(name: &str, extra: &[(&str, &str)]) -> Router {
+    build_with(name, extra, true).await
+}
+
+// Before setup (D-29): no admin key, no name, no contact address.
+async fn build_unconfigured(name: &str, extra: &[(&str, &str)]) -> Router {
+    build_with(name, extra, false).await
+}
+
+async fn build_with(name: &str, extra: &[(&str, &str)], configured: bool) -> Router {
     let mut vars: HashMap<String, String> = [
         ("SHH_ENV", "local"),
         ("SHH_URL", "http://localhost:3000"),
@@ -37,10 +49,21 @@ async fn build(name: &str, extra: &[(&str, &str)]) -> Router {
     let store = Store::connect_url(&format!("sqlite://{}?mode=rwc", path.display()))
         .await
         .unwrap();
-    app::router(
-        &config,
-        ApiState::new(store, Settings::default(), &config, None),
-    )
+    let mut settings = Settings::default();
+    if configured {
+        store
+            .create_api_key(
+                &credential_hash(ADMIN_KEY.as_bytes()),
+                "test",
+                Scope::Admin,
+                0,
+            )
+            .await
+            .unwrap();
+        settings.site_name = "Test".into();
+        settings.contact_email = "ops@example.test".into();
+    }
+    app::router(&config, ApiState::new(store, settings, &config, None))
 }
 
 struct Seen {
@@ -295,7 +318,7 @@ fn inline_problems(html: &str) -> Vec<String> {
 async fn spec_no_inline_styles_or_scripts_on_any_page() {
     let app = build("spec-web-inline", &[]).await;
     let bearer_free = walk(&app, "localhost", "/api/v1").await;
-    // Admin pages need a session; log in with the bootstrap token.
+    // Admin pages need a session; log in with the admin key.
     let login = fetch(
         &app,
         "localhost",
@@ -303,7 +326,7 @@ async fn spec_no_inline_styles_or_scripts_on_any_page() {
         "/en/admin/login",
         Some("application/x-www-form-urlencoded"),
         None,
-        &format!("credential={BOOTSTRAP}"),
+        &format!("credential={ADMIN_KEY}"),
     )
     .await;
     let cookie = login.headers[header::SET_COOKIE]
@@ -553,7 +576,7 @@ async fn spec_admin_subdomain_routing() {
         "/en/login",
         Some("application/x-www-form-urlencoded"),
         None,
-        &format!("credential={BOOTSTRAP}"),
+        &format!("credential={ADMIN_KEY}"),
     )
     .await;
     assert_eq!(
@@ -623,4 +646,101 @@ async fn spec_server_version_is_public() {
         "placeholder not replaced"
     );
     assert!(!docs.body.contains("{{version}}"));
+}
+
+// D-29: until setup is met, the admin panel, the admin API, `/static/*` and `/health`
+// answer; everything else is 503 with the headers and `no-store`, the setup page for
+// pages and the error envelope for the API. The gate lifts once setup is done, by the
+// operator's own flow: the first admin key through the bootstrap token, then the settings.
+#[tokio::test]
+async fn spec_setup_gate() {
+    let app = build_unconfigured("spec-web-setup-gate", &[]).await;
+    let host = "localhost";
+    let setup = fetch(&app, host, Method::GET, "/en/s", None, None, "").await;
+    assert_eq!(setup.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(setup.body.contains("not set up yet"), "{}", setup.body);
+    assert_eq!(setup.headers[header::CACHE_CONTROL], "no-store");
+    assert!(setup.headers.contains_key("content-security-policy"));
+    assert!(
+        !setup.body.contains("SHH_ADMIN_TOKEN") && !setup.body.contains(BOOTSTRAP),
+        "the setup page must not say anything about the token"
+    );
+    assert!(
+        setup.body.contains("/en/admin/login"),
+        "no link to the panel"
+    );
+    for path in ["/", "/en", "/en/privacy", "/en/docs"] {
+        let r = fetch(&app, host, Method::GET, path, None, None, "").await;
+        assert_eq!(r.status, StatusCode::SERVICE_UNAVAILABLE, "{path}");
+    }
+    let api = fetch(
+        &app,
+        host,
+        Method::POST,
+        "/api/v1/secrets/reveal",
+        Some("application/json"),
+        None,
+        r#"{"lookup":"x"}"#,
+    )
+    .await;
+    assert_eq!(api.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(
+        api.body.contains(r#""code":"not_configured""#),
+        "{}",
+        api.body
+    );
+    assert_eq!(api.headers[header::CACHE_CONTROL], "no-store");
+    for path in ["/static/app.css?v=x", "/en/admin/login", "/api/v1/health"] {
+        let r = fetch(&app, host, Method::GET, path, None, None, "").await;
+        assert_eq!(r.status, StatusCode::OK, "{path}");
+    }
+    let health = fetch(&app, host, Method::GET, "/api/v1/health", None, None, "").await;
+    assert!(health.body.contains(r#""configured":false"#));
+
+    // The operator's flow lifts the gate.
+    let bearer = format!("Bearer {BOOTSTRAP}");
+    let minted = fetch(
+        &app,
+        host,
+        Method::POST,
+        "/api/v1/admin/keys",
+        Some("application/json"),
+        Some(&bearer),
+        r#"{"name":"ops","scope":"admin"}"#,
+    )
+    .await;
+    assert_eq!(minted.status, StatusCode::CREATED, "{}", minted.body);
+    let key = minted
+        .body
+        .split(r#""key":""#)
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        fetch(&app, host, Method::GET, "/en", None, None, "")
+            .await
+            .status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "a key alone"
+    );
+    let set = fetch(
+        &app,
+        host,
+        Method::PATCH,
+        "/api/v1/admin/settings",
+        Some("application/json"),
+        Some(&format!("Bearer {key}")),
+        r#"{"site_name":"Test","contact_email":"ops@example.test"}"#,
+    )
+    .await;
+    assert_eq!(set.status, StatusCode::OK, "{}", set.body);
+    for path in ["/en", "/en/s", "/api/v1/config"] {
+        let r = fetch(&app, host, Method::GET, path, None, None, "").await;
+        assert_eq!(r.status, StatusCode::OK, "{path}");
+    }
+    let health = fetch(&app, host, Method::GET, "/api/v1/health", None, None, "").await;
+    assert!(health.body.contains(r#""configured":true"#));
 }

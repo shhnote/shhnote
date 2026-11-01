@@ -189,6 +189,12 @@ contact-no-secrets = Bitte schick uns niemals geheime Links oder deren Inhalt pe
 ## Errors
 
 error-badge = Fehler
+setup-title = Diese Website ist noch nicht eingerichtet
+setup-intro = Sie liefert nichts Öffentliches, bis der Betreiber drei Dinge im Admin-Bereich erledigt hat:
+setup-step-key = einen Admin-API-Schlüssel erstellt (der erste wird mit den Bootstrap-Zugangsdaten aus der Serverumgebung erstellt),
+setup-step-name = der Website einen Namen gegeben,
+setup-step-contact = ihr eine Kontaktadresse gegeben.
+setup-login = Admin-Bereich öffnen
 error-404-title = Seite nicht gefunden
 error-404-body = Diese Seite gibt es nicht. Wenn du einem geheimen Link gefolgt bist, ist das Geheimnis vielleicht abgelaufen oder wurde schon geöffnet.
 error-500-title = Etwas ist schiefgelaufen
@@ -227,9 +233,9 @@ admin-settings-saved = Gespeichert.
 admin-settings-save = Einstellungen speichern
 admin-settings-default = Standard:
 setting-site_name = Name der Seite
-setting-site_name-help = Erscheint im Seitentitel und in der Fußzeile.
+setting-site_name-help = Erscheint im Seitentitel und in der Fußzeile. Pflichtfeld: Die Website liefert nichts Öffentliches, bis sie einen Namen und eine Kontaktadresse hat, und beides lässt sich danach nicht mehr leeren.
 setting-contact_email = Kontakt-E-Mail
-setting-contact_email-help = Erscheint auf der Kontaktseite.
+setting-contact_email-help = Erscheint auf der Kontaktseite und dient Sicherheitsmeldungen, solange keine eigene Adresse gesetzt ist. Pflichtfeld wie der Name der Seite.
 setting-security_email = Sicherheits-E-Mail
 setting-security_email-help = Für Schwachstellenmeldungen, erscheint auf der Kontaktseite.
 setting-source_url = Link zum Quellcode

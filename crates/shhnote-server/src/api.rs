@@ -50,6 +50,40 @@ pub struct ApiState {
     // Decides the URL rule for settings (SPEC §7.2).
     pub env: AppEnv,
     pub web_mode: WebMode,
+    pub setup: Arc<Setup>,
+}
+
+// Whether setup has been met (D-29). Derived from the store and the settings while unmet,
+// then remembered for the life of the process: an unconfigured instance has no traffic to
+// speak of, so the per-request derivation costs nothing that matters, and once met the gate
+// never re-arms (the two settings cannot be cleared; deleting the last admin key is the
+// operator's own lockout, handled by `reset-admin`).
+#[derive(Default)]
+pub struct Setup {
+    configured: std::sync::atomic::AtomicBool,
+}
+
+impl Setup {
+    pub fn is_set(&self) -> bool {
+        self.configured.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn mark(&self) {
+        self.configured
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+// True once setup is met; re-derives it while it is not.
+pub async fn ensure_configured(state: &ApiState) -> bool {
+    if state.setup.is_set() {
+        return true;
+    }
+    if is_configured(state).await {
+        state.setup.mark();
+        return true;
+    }
+    false
 }
 
 impl ApiState {
@@ -74,6 +108,7 @@ impl ApiState {
                 .map(|t| credential_hash(t.expose().as_bytes())),
             env: config.env,
             web_mode: config.web,
+            setup: Arc::new(Setup::default()),
         }
     }
 }
@@ -213,7 +248,7 @@ async fn health(State(state): State<ApiState>) -> Response {
             (StatusCode::SERVICE_UNAVAILABLE, "degraded")
         }
     };
-    let configured = is_configured(&state).await;
+    let configured = ensure_configured(&state).await;
     let mut response = (
         status,
         Json(serde_json::json!({

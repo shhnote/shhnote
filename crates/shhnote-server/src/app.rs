@@ -37,7 +37,23 @@ fn with_headers(router: Router, config: &Config) -> Router {
 }
 
 fn core(config: &Config, state: ApiState) -> Router {
-    let web::WebRouters { mut web, admin } = web::router(config, &state);
+    let web::WebRouters {
+        mut web,
+        admin,
+        setup,
+    } = web::router(config, &state);
+    let gate = GateState {
+        api: state.clone(),
+        setup,
+        api_host: match &config.api_routing {
+            ApiRouting::Subdomain { host } => Some(host.clone()),
+            ApiRouting::Path => None,
+        },
+        admin_host: match &config.admin_routing {
+            AdminRouting::Subdomain { host } => Some(host.clone()),
+            AdminRouting::Path => None,
+        },
+    };
     let cors_state = CorsState {
         site: config.url.trim_end_matches('/').to_ascii_lowercase(),
         settings: state.settings.clone(),
@@ -61,6 +77,78 @@ fn core(config: &Config, state: ApiState) -> Router {
     };
     app.layer(middleware::from_fn(redirect_trailing_slash))
         .layer(middleware::from_fn(request_timeout))
+        // Outermost of the core layers, inside the headers: the setup gate answers before
+        // any route does, and its 503 still carries the SPEC §11 headers.
+        .layer(middleware::from_fn_with_state(gate, setup_gate))
+}
+
+#[derive(Clone)]
+struct GateState {
+    api: ApiState,
+    setup: web::SetupRenderer,
+    api_host: Option<String>,
+    admin_host: Option<String>,
+}
+
+impl GateState {
+    fn on_api_host(&self, host: Option<&str>) -> bool {
+        matches!((host, &self.api_host), (Some(h), Some(api)) if h.eq_ignore_ascii_case(api))
+    }
+
+    fn on_admin_host(&self, host: Option<&str>) -> bool {
+        matches!((host, &self.admin_host), (Some(h), Some(admin)) if h.eq_ignore_ascii_case(admin))
+    }
+}
+
+// Until setup is met (D-29) only the admin panel, the admin API, `/static/*` and `/health`
+// answer; every other route is 503: the setup page for pages, the error envelope for the API.
+async fn setup_gate(State(gate): State<GateState>, req: Request, next: Next) -> Response {
+    if api::ensure_configured(&gate.api).await {
+        return next.run(req).await;
+    }
+    let host = request_host(&req);
+    let path = req.uri().path();
+    let is_api = gate.on_api_host(host) || path == "/api" || path.starts_with("/api/");
+    let api_path = if gate.on_api_host(host) {
+        path
+    } else {
+        path.strip_prefix("/api").unwrap_or(path)
+    };
+    let open = path.starts_with("/static/")
+        || (is_api && api_path.trim_end_matches('/') == "/v1/health")
+        || (is_api && (api_path == "/v1/admin" || api_path.starts_with("/v1/admin/")))
+        || gate.on_admin_host(host)
+        || (gate.admin_host.is_none() && is_admin_path(path));
+    if open {
+        return next.run(req).await;
+    }
+    if is_api {
+        let mut response = api::error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "not_configured",
+            "This instance has not been set up yet.",
+        );
+        response
+            .headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        return response;
+    }
+    let accept_language = req
+        .headers()
+        .get(header::ACCEPT_LANGUAGE)
+        .and_then(|v| v.to_str().ok());
+    gate.setup.render(accept_language)
+}
+
+// `/{locale}/admin` and everything under it, for any locale code the server knows.
+fn is_admin_path(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix('/') else {
+        return false;
+    };
+    let Some((locale, tail)) = rest.split_once('/') else {
+        return false;
+    };
+    crate::i18n::LOCALES.contains(&locale) && (tail == "admin" || tail.starts_with("admin/"))
 }
 
 // Time a handler may take to produce its response head (SPEC §7.1). Uploads are the exception:
@@ -200,7 +288,17 @@ mod tests {
         let store = Store::connect_url(&format!("sqlite://{}?mode=rwc", path.display()))
             .await
             .unwrap();
-        ApiState::new(store, Settings::default(), config, None)
+        // A set-up instance (D-29): an admin key, a name and a contact address.
+        store
+            .create_api_key(&[9; 32], "test", shhnote_store::Scope::Admin, 0)
+            .await
+            .unwrap();
+        let settings = Settings {
+            site_name: "Test".into(),
+            contact_email: "ops@example.test".into(),
+            ..Settings::default()
+        };
+        ApiState::new(store, settings, config, None)
     }
 
     async fn build(changes: &[(&str, &str)]) -> Router {

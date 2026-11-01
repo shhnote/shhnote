@@ -33,8 +33,10 @@ use shhnote_server::{
     app, scheduler,
     storage::Blobs,
 };
-use shhnote_store::{Store, sqlite_path_for_tests};
+use shhnote_store::{Scope, Store, sqlite_path_for_tests};
 use tower::ServiceExt;
+
+const ADMIN_KEY: &str = "spec-admin-key-of-at-least-32-characters-ok";
 
 // --- harness
 
@@ -64,6 +66,20 @@ fn map(pairs: &[(&str, &str)]) -> HashMap<String, String> {
 }
 
 async fn srv(name: &str, env: &[(&str, &str)], overrides: &[(&str, &str)]) -> Srv {
+    srv_with(name, env, overrides, true).await
+}
+
+// Before setup (D-29): no admin key, so the bootstrap token still works.
+async fn srv_unconfigured(name: &str, env: &[(&str, &str)], overrides: &[(&str, &str)]) -> Srv {
+    srv_with(name, env, overrides, false).await
+}
+
+async fn srv_with(
+    name: &str,
+    env: &[(&str, &str)],
+    overrides: &[(&str, &str)],
+    configured: bool,
+) -> Srv {
     let mut vars = map(&[
         ("SHH_ENV", "local"),
         ("SHH_URL", "http://localhost:3000"),
@@ -81,7 +97,25 @@ async fn srv(name: &str, env: &[(&str, &str)], overrides: &[(&str, &str)]) -> Sr
     let store = Store::connect_url(&format!("sqlite://{}?mode=rwc", db.display()))
         .await
         .unwrap();
-    let (settings, warnings) = Settings::with_overrides(&map(overrides), AppEnv::Local);
+    let mut overrides = map(overrides);
+    if configured {
+        overrides
+            .entry("site_name".to_string())
+            .or_insert_with(|| "Test".to_string());
+        overrides
+            .entry("contact_email".to_string())
+            .or_insert_with(|| "ops@example.test".to_string());
+        store
+            .create_api_key(
+                &credential_hash(ADMIN_KEY.as_bytes()),
+                "test",
+                Scope::Admin,
+                0,
+            )
+            .await
+            .unwrap();
+    }
+    let (settings, warnings) = Settings::with_overrides(&overrides, AppEnv::Local);
     assert!(warnings.is_empty(), "{warnings:?}");
     let app = app::router(
         &config,
@@ -729,18 +763,7 @@ async fn spec_ipv6_neighbours_xff_and_garbage_bearer_share_the_limit() {
     assert_eq!(statuses[2], StatusCode::TOO_MANY_REQUESTS, "{statuses:?}");
 
     // Garbage bearers of every shape, and an admin key, are all the same anonymous client.
-    let admin_key = admin(
-        &s.app,
-        "POST",
-        "/api/v1/admin/keys",
-        BOOTSTRAP,
-        Some(json!({"name": "ops", "scope": "admin"})),
-    )
-    .await
-    .json()["key"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let admin_key = ADMIN_KEY.to_string();
     let mut statuses = Vec::new();
     for bearer in [
         format!("Bearer {}", b64(&random32())),
@@ -921,7 +944,7 @@ fn logged_in(r: &Reply) -> bool {
 
 #[tokio::test]
 async fn spec_admin_needs_session_csrf_and_retires_bootstrap() {
-    let s = srv("m-admin", &[], &[]).await;
+    let s = srv_unconfigured("m-admin", &[], &[]).await;
     let boot = form(&s.app, "/en/admin/login", "", &[("credential", BOOTSTRAP)]).await;
     let boot_cookie = cookie_of(&boot);
     let settings = page(&s.app, "/en/admin/settings", &boot_cookie).await;
@@ -1082,7 +1105,7 @@ async fn patch(s: &Srv, body: Value) -> Reply {
         &s.app,
         "PATCH",
         "/api/v1/admin/settings",
-        BOOTSTRAP,
+        ADMIN_KEY,
         Some(body),
     )
     .await

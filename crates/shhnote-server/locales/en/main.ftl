@@ -189,6 +189,12 @@ contact-no-secrets = Please never email us secret links or their contents. We do
 ## Errors
 
 error-badge = Error
+setup-title = This site is not set up yet
+setup-intro = It serves nothing public until its operator has finished three things in the admin panel:
+setup-step-key = created an admin API key (the first one is created with the bootstrap credential from the server's environment),
+setup-step-name = given the site a name,
+setup-step-contact = given it a contact address.
+setup-login = Open the admin panel
 error-404-title = Page not found
 error-404-body = This page doesn't exist. If you followed a secret link, the secret may have expired or already been opened.
 error-500-title = Something went wrong
@@ -227,9 +233,9 @@ admin-settings-saved = Saved.
 admin-settings-save = Save settings
 admin-settings-default = Default:
 setting-site_name = Site name
-setting-site_name-help = Shown in the page title and footer.
+setting-site_name-help = Shown in the page title and footer. Required: the site serves nothing public until it has a name and a contact address, and neither can be cleared once set.
 setting-contact_email = Contact email
-setting-contact_email-help = Shown on the contact page.
+setting-contact_email-help = Shown on the contact page, and used for security reports while no separate address is set. Required, like the site name.
 setting-security_email = Security email
 setting-security_email-help = For vulnerability reports, shown on the contact page.
 setting-source_url = Source code link

@@ -17,10 +17,13 @@ use axum::{
     body::Body,
     http::{Request, StatusCode, header},
 };
+use shhnote_core::secret::credential_hash;
 use shhnote_core::{config::AppEnv, config::Config, settings::Settings};
 use shhnote_server::{api::ApiState, app, storage::Blobs};
-use shhnote_store::{Store, sqlite_path_for_tests};
+use shhnote_store::{Scope, Store, sqlite_path_for_tests};
 use tower::ServiceExt;
+
+const ADMIN_KEY: &str = "spec-admin-key-of-at-least-32-characters-ok";
 
 struct Counting;
 
@@ -64,10 +67,16 @@ async fn app(name: &str, env: &[(&str, &str)], overrides: &[(&str, &str)]) -> Ro
     .collect();
     vars.extend(env.iter().map(|(k, v)| (k.to_string(), v.to_string())));
     let config = Config::from_vars(&vars).unwrap();
-    let overrides: HashMap<String, String> = overrides
+    let mut overrides: HashMap<String, String> = overrides
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
+    overrides
+        .entry("site_name".to_string())
+        .or_insert_with(|| "Test".to_string());
+    overrides
+        .entry("contact_email".to_string())
+        .or_insert_with(|| "ops@example.test".to_string());
     let (settings, _) = Settings::with_overrides(&overrides, AppEnv::Local);
     let blobs = match &config.storage.external {
         Some(ext) => Some(Arc::new(Blobs::open(ext).await.unwrap())),
@@ -75,6 +84,16 @@ async fn app(name: &str, env: &[(&str, &str)], overrides: &[(&str, &str)]) -> Ro
     };
     let path = sqlite_path_for_tests(name);
     let store = Store::connect_url(&format!("sqlite://{}?mode=rwc", path.display()))
+        .await
+        .unwrap();
+    // A set-up instance (D-29): an admin key, a name and a contact address.
+    store
+        .create_api_key(
+            &credential_hash(ADMIN_KEY.as_bytes()),
+            "test",
+            Scope::Admin,
+            0,
+        )
         .await
         .unwrap();
     app::router(&config, ApiState::new(store, settings, &config, blobs))

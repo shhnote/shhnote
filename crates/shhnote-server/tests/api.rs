@@ -8,6 +8,7 @@ use axum::{
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde_json::{Value, json};
+use shhnote_core::secret::credential_hash;
 use shhnote_core::{
     config::AppEnv,
     config::Config,
@@ -22,8 +23,10 @@ use shhnote_server::{
     app, scheduler,
     storage::Blobs,
 };
-use shhnote_store::{Store, sqlite_path_for_tests};
+use shhnote_store::{Scope, Store, sqlite_path_for_tests};
 use tower::ServiceExt;
+
+const ADMIN_KEY: &str = "spec-admin-key-of-at-least-32-characters-ok";
 
 const BOUNDARY: &str = "----shhnote-test-boundary";
 
@@ -46,12 +49,28 @@ async fn server_with(name: &str, overrides: &[(&str, &str)]) -> Router {
     let store = Store::connect_url(&format!("sqlite://{}?mode=rwc", path.display()))
         .await
         .unwrap();
-    let overrides: HashMap<String, String> = overrides
+    let mut overrides: HashMap<String, String> = overrides
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
+    overrides
+        .entry("site_name".to_string())
+        .or_insert_with(|| "Test".to_string());
+    overrides
+        .entry("contact_email".to_string())
+        .or_insert_with(|| "ops@example.test".to_string());
     let (settings, warnings) = Settings::with_overrides(&overrides, AppEnv::Local);
     assert!(warnings.is_empty(), "{warnings:?}");
+    // A set-up instance (D-29): an admin key, a name and a contact address.
+    store
+        .create_api_key(
+            &credential_hash(ADMIN_KEY.as_bytes()),
+            "test",
+            Scope::Admin,
+            0,
+        )
+        .await
+        .unwrap();
     app::router(&config, ApiState::new(store, settings, &config, None))
 }
 
@@ -771,6 +790,7 @@ async fn admin_settings_apply_live_and_store_only_overrides() {
         match k.as_str() {
             "rate_reveal_per_hour" => *v = "1".to_string(),
             "site_name" => *v = "Vault".to_string(),
+            "contact_email" => *v = "ops@example.test".to_string(),
             _ => {}
         }
     }
@@ -785,8 +805,19 @@ async fn admin_settings_apply_live_and_store_only_overrides() {
     assert!(text(&page).contains("Saved."));
 
     let overrides = store.setting_overrides().await.unwrap();
-    assert_eq!(overrides.len(), 2, "{overrides:?}");
+    assert_eq!(overrides.len(), 3, "{overrides:?}");
     assert_eq!(overrides["rate_reveal_per_hour"], "1");
+    // The public API is gated until an admin key exists (D-29); the panel session so far is
+    // the bootstrap one, so mint the key that completes setup, which also ends that session
+    // (SPEC §8); carry on with a session for the new key.
+    let admin_key = create_key(&app, &cookie, &csrf, "ops", "admin").await;
+    let cookie = session_cookie(&login(&app, &admin_key).await);
+    let csrf = csrf_of(&get_page(&app, "/en/admin/settings", &cookie).await);
+    for (k, v) in &mut fields {
+        if k == "csrf" {
+            *v = csrf.clone();
+        }
+    }
 
     // The new limit applies without a restart: one reveal passes, the next is refused.
     let body = json!({"lookup": b64(&random32())});
@@ -828,7 +859,7 @@ async fn admin_settings_apply_live_and_store_only_overrides() {
         .collect();
     let reply = post_form(&app, "/en/admin/settings", &cookie, &borrowed).await;
     assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(store.setting_overrides().await.unwrap().len(), 2);
+    assert_eq!(store.setting_overrides().await.unwrap().len(), 3);
 
     // Private instance: creating needs a user key, everything else stays open.
     for (k, v) in &mut fields {
@@ -900,12 +931,28 @@ async fn external_server_with(
     let store = Store::connect_url(&format!("sqlite://{}?mode=rwc", path.display()))
         .await
         .unwrap();
-    let overrides: HashMap<String, String> = overrides
+    let mut overrides: HashMap<String, String> = overrides
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
+    overrides
+        .entry("site_name".to_string())
+        .or_insert_with(|| "Test".to_string());
+    overrides
+        .entry("contact_email".to_string())
+        .or_insert_with(|| "ops@example.test".to_string());
     let (settings, warnings) = Settings::with_overrides(&overrides, AppEnv::Local);
     assert!(warnings.is_empty(), "{warnings:?}");
+    // A set-up instance (D-29): an admin key, a name and a contact address.
+    store
+        .create_api_key(
+            &credential_hash(ADMIN_KEY.as_bytes()),
+            "test",
+            Scope::Admin,
+            0,
+        )
+        .await
+        .unwrap();
     let app = app::router(
         &config,
         ApiState::new(store.clone(), settings, &config, Some(blobs.clone())),
@@ -1303,6 +1350,16 @@ async fn admin_api_bootstraps_keys_settings_and_stats() {
     assert_eq!(patched.json()["values"]["ttl_presets"], "900,3600");
     assert_eq!(patched.json()["overridden"].as_array().unwrap().len(), 4);
     assert_eq!(store.setting_overrides().await.unwrap().len(), 4);
+    // Setup (D-29): with the admin key, a name and a contact address the public API opens.
+    let setup = admin_api(
+        &app,
+        "PATCH",
+        "/api/v1/admin/settings",
+        &admin_key,
+        Some(json!({"site_name": "Vault", "contact_email": "ops@example.test"})),
+    )
+    .await;
+    assert_eq!(setup.status, StatusCode::OK, "{}", text(&setup));
     let body = json!({"lookup": b64(&random32())});
     assert_uniform_negative(
         &post_json_from(&app, "/api/v1/secrets/reveal", body.clone(), "203.0.113.77").await,
@@ -1352,7 +1409,7 @@ async fn admin_api_bootstraps_keys_settings_and_stats() {
     assert_eq!(bad.status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(bad.json()["error"]["code"], "invalid_settings");
     assert_eq!(bad.json()["details"].as_array().unwrap().len(), 1);
-    assert_eq!(store.setting_overrides().await.unwrap().len(), 3);
+    assert_eq!(store.setting_overrides().await.unwrap().len(), 4);
 
     // There is no reports ledger (D-19); reports are a daily counter in the stats.
     let stats = admin_api(&app, "GET", "/api/v1/admin/stats", &admin_key, None).await;
@@ -1424,10 +1481,21 @@ async fn locale_server(name: &str, extra: &[(&str, &str)]) -> Router {
     let store = Store::connect_url(&format!("sqlite://{}?mode=rwc", path.display()))
         .await
         .unwrap();
-    app::router(
-        &config,
-        ApiState::new(store, Settings::default(), &config, None),
-    )
+    store
+        .create_api_key(
+            &credential_hash(ADMIN_KEY.as_bytes()),
+            "test",
+            Scope::Admin,
+            0,
+        )
+        .await
+        .unwrap();
+    let settings = Settings {
+        site_name: "Test".into(),
+        contact_email: "ops@example.test".into(),
+        ..Settings::default()
+    };
+    app::router(&config, ApiState::new(store, settings, &config, None))
 }
 
 async fn redirect_for(app: &Router, accept_language: &str) -> Reply {
@@ -1483,7 +1551,7 @@ async fn health_reports_the_database() {
     assert_eq!(reply.status, StatusCode::OK);
     assert_eq!(
         reply.json(),
-        json!({"status": "ok", "version": env!("CARGO_PKG_VERSION"), "configured": false})
+        json!({"status": "ok", "version": env!("CARGO_PKG_VERSION"), "configured": true})
     );
     assert_eq!(reply.headers[header::CACHE_CONTROL], "no-store");
 }

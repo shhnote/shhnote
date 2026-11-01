@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}{{ ctx.t("setup-title") }}{% endblock %}
+
+{% block content %}
+<section class="section">
+  <div class="container">
+    <div class="vault">
+      <div class="panel stack">
+        <div class="stack--sm">
+          <h1 class="panel__heading">{{ ctx.t("setup-title") }}</h1>
+          <p>{{ ctx.t("setup-intro") }}</p>
+        </div>
+        <ol class="prose">
+          <li>{{ ctx.t("setup-step-key") }}</li>
+          <li>{{ ctx.t("setup-step-name") }}</li>
+          <li>{{ ctx.t("setup-step-contact") }}</li>
+        </ol>
+        <p class="btn-row"><a class="btn btn--primary" href="{{ ctx.admin_href("/login") }}">{{ ctx.t("setup-login") }}</a></p>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

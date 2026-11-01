@@ -208,6 +208,23 @@ fn bearer(token: &str) -> String {
     format!("Bearer {token}")
 }
 
+// Completes setup (D-29) the way an operator would: the first admin key through the
+// bootstrap token, then a name and a contact address. Returns the admin key; the bootstrap
+// token is dead from here on.
+async fn configure(app: &Router) -> String {
+    let admin_key = mint(app, &bearer(BOOTSTRAP), "admin").await;
+    let set = admin_api(
+        app,
+        Method::PATCH,
+        "/settings",
+        &bearer(&admin_key),
+        Some(json!({"site_name": "Test", "contact_email": "ops@example.test"})),
+    )
+    .await;
+    assert_eq!(set.status, StatusCode::OK, "{}", set.text());
+    admin_key
+}
+
 async fn mint(app: &Router, auth: &str, scope: &str) -> String {
     let reply = admin_api(
         app,
@@ -583,7 +600,8 @@ async fn spec_bearer_parsing_and_scopes() {
         "user key on admin route"
     );
     // An admin key on a user route is treated as anonymous: it works but gets no special limit.
-    let admin_key = mint(&app, &bearer(BOOTSTRAP), "admin").await;
+    // (Minting it also completes setup, which the public route below needs.)
+    let admin_key = configure(&app).await;
     let reveal = send(
         &app,
         request(
@@ -861,7 +879,7 @@ async fn spec_key_create_resubmit_mints_nothing() {
 #[tokio::test]
 async fn spec_cors_allowed_origins() {
     let (app, _) = build("spec-admin-cors").await;
-    let auth = bearer(BOOTSTRAP);
+    let auth = bearer(&configure(&app).await);
     let with_origin = |method: Method, path: &str, origin: &str| {
         let req = Request::builder()
             .method(method)

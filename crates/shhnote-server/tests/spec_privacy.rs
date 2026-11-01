@@ -11,6 +11,7 @@ use axum::{
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde_json::{Value, json};
+use shhnote_core::secret::credential_hash;
 use shhnote_core::{config::AppEnv, config::Config, padding::blob_len, secret, settings::Settings};
 use shhnote_server::{
     api::{ApiState, now},
@@ -18,6 +19,8 @@ use shhnote_server::{
 };
 use shhnote_store::{Lifetime, NewSecret, Scope, Store, sqlite_path_for_tests};
 use tower::ServiceExt;
+
+const ADMIN_KEY: &str = "spec-admin-key-of-at-least-32-characters-ok";
 
 const BOUNDARY: &str = "----spec-boundary";
 const BUCKET: u64 = 65536;
@@ -45,12 +48,28 @@ async fn server_with(name: &str, overrides: &[(&str, &str)]) -> (Router, Store) 
     let store = Store::connect_url(&format!("sqlite://{}?mode=rwc", path.display()))
         .await
         .unwrap();
-    let overrides: HashMap<String, String> = overrides
+    let mut overrides: HashMap<String, String> = overrides
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
+    overrides
+        .entry("site_name".to_string())
+        .or_insert_with(|| "Test".to_string());
+    overrides
+        .entry("contact_email".to_string())
+        .or_insert_with(|| "ops@example.test".to_string());
     let (settings, warnings) = Settings::with_overrides(&overrides, AppEnv::Local);
     assert!(warnings.is_empty(), "{warnings:?}");
+    // A set-up instance (D-29): an admin key, a name and a contact address.
+    store
+        .create_api_key(
+            &credential_hash(ADMIN_KEY.as_bytes()),
+            "test",
+            Scope::Admin,
+            0,
+        )
+        .await
+        .unwrap();
     let app = app::router(
         &config,
         ApiState::new(store.clone(), settings, &config, None),

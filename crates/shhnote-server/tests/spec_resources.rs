@@ -21,15 +21,18 @@ use axum::{
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use futures_util::stream;
 use serde_json::{Value, json};
+use shhnote_core::secret::credential_hash;
 use shhnote_core::{config::AppEnv, config::Config, padding::blob_len, secret, settings::Settings};
 use shhnote_server::{api::ApiState, app, scheduler, storage::Blobs};
-use shhnote_store::{Store, sqlite_path_for_tests};
+use shhnote_store::{Scope, Store, sqlite_path_for_tests};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     sync::mpsc,
 };
 use tower::ServiceExt;
+
+const ADMIN_KEY: &str = "spec-admin-key-of-at-least-32-characters-ok";
 
 const BOUNDARY: &str = "----spec-resources";
 const LARGE: u64 = 131_072;
@@ -67,12 +70,28 @@ async fn build(name: &str, tier: &[(&str, &str)]) -> (Router, Store, Option<Arc<
     let store = Store::connect_url(&format!("sqlite://{}?mode=rwc", path.display()))
         .await
         .unwrap();
-    let overrides: HashMap<String, String> = LOOSE
+    let mut overrides: HashMap<String, String> = LOOSE
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
+    overrides
+        .entry("site_name".to_string())
+        .or_insert_with(|| "Test".to_string());
+    overrides
+        .entry("contact_email".to_string())
+        .or_insert_with(|| "ops@example.test".to_string());
     let (settings, warnings) = Settings::with_overrides(&overrides, AppEnv::Local);
     assert!(warnings.is_empty(), "{warnings:?}");
+    // A set-up instance (D-29): an admin key, a name and a contact address.
+    store
+        .create_api_key(
+            &credential_hash(ADMIN_KEY.as_bytes()),
+            "test",
+            Scope::Admin,
+            0,
+        )
+        .await
+        .unwrap();
     let app = app::router(
         &config,
         ApiState::new(store.clone(), settings, &config, blobs.clone()),

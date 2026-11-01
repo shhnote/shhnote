@@ -12,6 +12,7 @@ use axum::{
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde_json::json;
+use shhnote_core::secret::credential_hash;
 use shhnote_core::{
     config::Config,
     padding::blob_len,
@@ -24,8 +25,10 @@ use shhnote_server::{
     ratelimit::{Endpoint, RateLimiter},
     storage::Blobs,
 };
-use shhnote_store::{Store, sqlite_path_for_tests};
+use shhnote_store::{Scope, Store, sqlite_path_for_tests};
 use tower::ServiceExt;
+
+const ADMIN_KEY: &str = "spec-admin-key-of-at-least-32-characters-ok";
 
 const BOUNDARY: &str = "----spec-hardening";
 const BOOTSTRAP: &str = "spec-hardening-bootstrap-token-0123456789";
@@ -50,10 +53,22 @@ async fn server(name: &str) -> Router {
     let store = Store::connect_url(&format!("sqlite://{}?mode=rwc", path.display()))
         .await
         .unwrap();
-    app::router(
-        &config,
-        ApiState::new(store, Settings::default(), &config, None),
-    )
+    // A set-up instance (D-29): an admin key, a name and a contact address.
+    store
+        .create_api_key(
+            &credential_hash(ADMIN_KEY.as_bytes()),
+            "test",
+            Scope::Admin,
+            0,
+        )
+        .await
+        .unwrap();
+    let settings = Settings {
+        site_name: "Test".into(),
+        contact_email: "ops@example.test".into(),
+        ..Settings::default()
+    };
+    app::router(&config, ApiState::new(store, settings, &config, None))
 }
 
 async fn status(app: &Router, req: Request<Body>) -> StatusCode {

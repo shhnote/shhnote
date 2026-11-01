@@ -76,10 +76,52 @@ pub(crate) struct PageState {
     pub(crate) locale: &'static str,
 }
 
-// The website, and the admin site when the panel has its own host.
+// The website, the admin site when the panel has its own host, and the setup page the gate
+// shows while setup is unmet (D-29).
 pub struct WebRouters {
     pub web: Router,
     pub admin: Option<Router>,
+    pub setup: SetupRenderer,
+}
+
+#[derive(Clone)]
+pub struct SetupRenderer {
+    shared: Arc<Shared>,
+}
+
+#[derive(Template)]
+#[template(path = "setup.html")]
+struct SetupPage<'a> {
+    ctx: Ctx<'a>,
+}
+
+impl SetupRenderer {
+    // The page says what is missing and where to log in; never whether a bootstrap token
+    // is set. 503 with `no-store`, so nothing caches an instance's setup state.
+    pub fn render(&self, accept_language: Option<&str>) -> Response {
+        let locale = i18n::negotiate(accept_language, &self.shared.offered);
+        let state = PageState {
+            shared: self.shared.clone(),
+            locale,
+        };
+        let page = SetupPage {
+            ctx: state.ctx("/setup"),
+        };
+        let mut response = match page.render() {
+            Ok(html) => (StatusCode::SERVICE_UNAVAILABLE, Html(html)).into_response(),
+            Err(e) => {
+                crate::log_error!("template error: {e}");
+                StatusCode::SERVICE_UNAVAILABLE.into_response()
+            }
+        };
+        response
+            .headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        response
+            .headers_mut()
+            .append(header::VARY, HeaderValue::from_static("Accept-Language"));
+        response
+    }
 }
 
 pub fn router(config: &Config, api: &ApiState) -> WebRouters {
@@ -140,7 +182,11 @@ pub fn router(config: &Config, api: &ApiState) -> WebRouters {
     // `/` on the admin host goes to the panel in the browser's language.
     let admin =
         admin.map(|site| site.fallback_service(any(redirect_to_locale).with_state(offered)));
-    WebRouters { web, admin }
+    WebRouters {
+        web,
+        admin,
+        setup: SetupRenderer { shared },
+    }
 }
 
 // The embedded assets, served on every host the server answers for.
