@@ -30,6 +30,7 @@ Caddy fetches the TLS certificate; the site is up at your domain and the admin p
 - [Bare metal](docs/deploy/bare-metal.md): release binary, systemd, an existing proxy and database
 - [Fly.io](docs/deploy/fly.md): one app per region
 - [Reverse proxies](docs/deploy/reverse-proxies.md) and [operations](docs/deploy/operations.md): configuration reference, backups, upgrades, storage tiers
+- [Your own frontend](docs/deploy/own-frontend.md) with `SHH_WEB=api`, and the [frontend conformance checklist](docs/frontend-conformance.md)
 
 ## Development
 
