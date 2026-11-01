@@ -35,6 +35,7 @@
 | D-25 | The admin panel is routed like the API: `SHH_ADMIN_ROUTING=path` (`/{locale}/admin`) or `subdomain` (`admin.<host>/{locale}/`). | Operators choose where the panel is reachable; a subdomain is easy to firewall. |
 | D-26 | `allowed_origins` is a settings list of origins the API answers to with CORS headers. Empty (the default) means the site origin only, as before. | A frontend on another origin needs it; nothing else does. |
 | D-27 | The server version is public: in `GET /config`, in the footer of every built-in page, and in `/health`. | Open-source software with tagged releases; a visitor can see what an instance runs. |
+| D-29 | Setup is a derived state, never stored: an admin-scoped key exists, `site_name` is non-empty and `contact_email` is non-empty. `site_name` has no default; `security_email` falls back to `contact_email` at the settings layer; once set, neither `site_name` nor `contact_email` can be cleared. Until setup is met, `/health` reports `configured: false` and (step 12b) every route but the admin panel, `/static/*` and `/health` answers `503`. | Secure by default and usable once the operator has said who runs the site; a derived state cannot drift from the facts. |
 | D-28 | The reference frontend is minimal: the create form, the reveal, burn and report pages, the policy pages, a short how-it-works, the public API docs, and the admin panel. Every page is written for "this site", with `{{site_name}}` and contact placeholders. | The binary is the same for every operator; nothing in it should read as one operator's marketing. |
 
 ---
@@ -210,7 +211,7 @@ All identifiers travel in POST bodies (or multipart fields), never in URLs. Base
 
 | Endpoint | Body | Success | Notes |
 |---|---|---|---|
-| `GET /health` | – | `200 {"status":"ok","version":…}` or `503 {"status":"degraded","version":…}` | Readiness: the database answers; `version` is the server version (D-27). `GET /` is liveness only. Never rate-limited, `no-store`. |
+| `GET /health` | – | `200 {"status":"ok","version":…,"configured":…}` or `503 {"status":"degraded",…}` | Readiness: the database answers; `version` is the server version (D-27); `configured` is the setup state (D-29). `GET /` is liveness only. Never rate-limited, `no-store`. |
 | `GET /config` | – | JSON: `fragment_version`, `padding` policy, `inline_max`, `max_blob_bytes`, `claim_window_secs`, TTL bounds, default and presets, `text_max_bytes`, `files_enabled`, `regions`, `server_version` (the crate version, a string), `web_mode` (`full` \| `api`) | Instance policy for clients and integrators. Nothing per-secret. |
 | `POST /secrets` | multipart: `meta` JSON `{lookup_key, burn_key, lifetime, ttl_seconds}` then `blob` | `201`, empty | `meta` precedes `blob` so the server can validate before streaming; `meta` is read in bounded chunks and refused past 4 KiB. Blob length must match a ladder entry exactly. A `lookup_key` that already exists returns `201` and writes nothing (D-21). |
 | `POST /secrets/reveal` | `{lookup, claim_token?}` | `200` blob stream; header `X-Shh-Claim-Token` on a single-view secret, nothing else on a TTL secret | Single-view: one conditional UPDATE claims the row; with `claim_token`, re-download within the window (§5). TTL: pure read. |
@@ -391,7 +392,7 @@ Two anchors resolve every conflict: **minimal attack surface** (fewer features, 
 9. **Works on every device and over Tor.** No CAPTCHAs, no fingerprinting, no reliance on APIs absent from privacy browsers. Client crypto cost is tuned to the weakest supported device.
 10. **No external requests from the client.** Fonts, styles, scripts, and images are same-origin. No framework runtime.
 11. **Minimal, auditable dependencies.** A single binary; a small, vetted crate set; three npm dev-dependencies and none at runtime. AGPL-3.0. The crypto module is isolated, DOM-free, and proven against shared vectors.
-12. **Secure and functional by default; configurable by choice.** A zero-configuration deployment is production-safe. Relaxing a default is always an explicit step away from the baseline. The built-in website is a reference, not a product: an operator may replace it entirely with their own frontend against the API without losing any property above.
+12. **Secure by default; usable once the operator has set a site name and a contact address.** A zero-configuration deployment is production-safe and, until those two are set and an admin key exists (D-29), serves only its admin panel. Relaxing a default is always an explicit step away from the baseline. The built-in website is a reference, not a product: an operator may replace it entirely with their own frontend against the API without losing any property above.
 13. **Every feature must hold or reduce attack surface.** Reactive, content-agnostic takedown on report is the only moderation lever compatible with zero knowledge, and it is load-bearing once files are hosted.
 
 ---

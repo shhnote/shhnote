@@ -213,15 +213,29 @@ async fn health(State(state): State<ApiState>) -> Response {
             (StatusCode::SERVICE_UNAVAILABLE, "degraded")
         }
     };
+    let configured = is_configured(&state).await;
     let mut response = (
         status,
-        Json(serde_json::json!({ "status": text, "version": SERVER_VERSION })),
+        Json(serde_json::json!({
+            "status": text,
+            "version": SERVER_VERSION,
+            "configured": configured,
+        })),
     )
         .into_response();
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     response
+}
+
+// Setup is a derived state, never stored (D-29): an admin key exists and the operator has
+// named the site and given a contact address.
+pub async fn is_configured(state: &ApiState) -> bool {
+    let settings = state.settings.load();
+    !settings.site_name.is_empty()
+        && !settings.contact_email.is_empty()
+        && matches!(state.store.admin_key_count().await, Ok(n) if n > 0)
 }
 
 #[derive(Deserialize)]

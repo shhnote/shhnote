@@ -92,7 +92,8 @@ pub struct Region {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            site_name: "shhnote".into(),
+            // No default: the operator names the site during setup (D-29).
+            site_name: String::new(),
             contact_email: String::new(),
             security_email: String::new(),
             source_url: "https://github.com/shhnote/shhnote".into(),
@@ -259,6 +260,16 @@ impl Settings {
 impl Settings {
     // Every setting as the string an admin form or the database holds it in. The admin panel
     // stores only entries that differ from `Settings::default().as_strings()`.
+    // The address for security reports: the dedicated one, or the contact address while none
+    // is set, so one address serves everywhere (D-29).
+    pub fn security_email(&self) -> &str {
+        if self.security_email.is_empty() {
+            &self.contact_email
+        } else {
+            &self.security_email
+        }
+    }
+
     pub fn as_strings(&self) -> BTreeMap<&'static str, String> {
         let (padding_mode, padding_min, padding_ladder) = match &self.padding {
             PaddingPolicy::Padme { min } => ("padme", min.to_string(), String::new()),
@@ -577,6 +588,26 @@ mod tests {
         );
         assert!(warnings.is_empty(), "{warnings:?}");
         assert_eq!(s.allowed_origins, vec!["http://localhost:5173"]);
+    }
+
+    #[test]
+    fn security_email_falls_back_to_contact() {
+        let (s, _) = Settings::with_overrides(
+            &overrides(&[("contact_email", "ops@example.test")]),
+            AppEnv::Production,
+        );
+        assert_eq!(s.security_email(), "ops@example.test");
+        // The stored value stays empty: the fallback is read-time only.
+        assert_eq!(s.as_strings()["security_email"], "");
+        let (s, _) = Settings::with_overrides(
+            &overrides(&[
+                ("contact_email", "ops@example.test"),
+                ("security_email", "security@example.test"),
+            ]),
+            AppEnv::Production,
+        );
+        assert_eq!(s.security_email(), "security@example.test");
+        assert_eq!(Settings::default().site_name, "");
     }
 
     #[test]

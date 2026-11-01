@@ -1313,8 +1313,21 @@ async fn admin_api_bootstraps_keys_settings_and_stats() {
             .status,
         StatusCode::TOO_MANY_REQUESTS
     );
-    // null resets a key; a bad value or unknown key changes nothing.
+    // null resets a key, except the two setup fields, which cannot go back to empty (D-29);
+    // a bad value or unknown key changes nothing.
     let reset = admin_api(
+        &app,
+        "PATCH",
+        "/api/v1/admin/settings",
+        &admin_key,
+        Some(json!({"ttl_presets": null})),
+    )
+    .await;
+    assert_eq!(
+        reset.json()["values"]["ttl_presets"],
+        Settings::default().as_strings()["ttl_presets"]
+    );
+    let kept = admin_api(
         &app,
         "PATCH",
         "/api/v1/admin/settings",
@@ -1322,7 +1335,12 @@ async fn admin_api_bootstraps_keys_settings_and_stats() {
         Some(json!({"site_name": null})),
     )
     .await;
-    assert_eq!(reset.json()["values"]["site_name"], "shhnote");
+    assert_eq!(
+        kept.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{}",
+        text(&kept)
+    );
     let bad = admin_api(
         &app,
         "PATCH",
@@ -1465,7 +1483,7 @@ async fn health_reports_the_database() {
     assert_eq!(reply.status, StatusCode::OK);
     assert_eq!(
         reply.json(),
-        json!({"status": "ok", "version": env!("CARGO_PKG_VERSION")})
+        json!({"status": "ok", "version": env!("CARGO_PKG_VERSION"), "configured": false})
     );
     assert_eq!(reply.headers[header::CACHE_CONTROL], "no-store");
 }

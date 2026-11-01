@@ -987,3 +987,63 @@ async fn spec_cors_allowed_origins() {
             .any(|v| v == "Origin")
     );
 }
+
+// D-29: setup is derived (an admin key, a site name, a contact address) and reported on
+// /health; the two settings can change but never go back to empty.
+#[tokio::test]
+async fn spec_setup_state_is_derived_and_sticky() {
+    let (app, _) = build("spec-admin-setup-state").await;
+    async fn health(app: &Router) -> String {
+        get(app, "/api/v1/health", "").await.text()
+    }
+    assert!(health(&app).await.contains(r#""configured":false"#));
+
+    let admin_key = mint(&app, &bearer(BOOTSTRAP), "admin").await;
+    let auth = bearer(&admin_key);
+    assert!(
+        health(&app).await.contains(r#""configured":false"#),
+        "a key alone"
+    );
+    let set = admin_api(
+        &app,
+        Method::PATCH,
+        "/settings",
+        &auth,
+        Some(json!({"site_name": "Example", "contact_email": "ops@example.test"})),
+    )
+    .await;
+    assert_eq!(set.status, StatusCode::OK, "{}", set.text());
+    assert!(health(&app).await.contains(r#""configured":true"#));
+
+    // Changing is fine; clearing is refused, for either field, by null or by "".
+    let renamed = admin_api(
+        &app,
+        Method::PATCH,
+        "/settings",
+        &auth,
+        Some(json!({"site_name": "Example 2"})),
+    )
+    .await;
+    assert_eq!(renamed.status, StatusCode::OK);
+    for body in [
+        json!({"site_name": null}),
+        json!({"site_name": ""}),
+        json!({"contact_email": null}),
+        json!({"contact_email": "  "}),
+    ] {
+        let r = admin_api(&app, Method::PATCH, "/settings", &auth, Some(body.clone())).await;
+        assert_eq!(
+            r.status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{body} was accepted"
+        );
+    }
+    assert!(health(&app).await.contains(r#""configured":true"#));
+    // The security address falls back to the contact address on the pages.
+    let contact = get(&app, "/en/contact", "").await.text();
+    assert_eq!(
+        contact.matches("mailto:ops@example.test").count(),
+        2,
+        "{contact}"
+    );
+}

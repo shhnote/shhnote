@@ -270,8 +270,15 @@ impl Ctx<'_> {
     }
 
     // The configured site name; the Fluent `brand-name` term stays the project name.
+    // The configured name; the software's name only while setup is not done (D-29), which
+    // is when only the admin pages can be seen.
     pub(crate) fn site_name(&self) -> String {
-        self.shared.settings.load().site_name.clone()
+        let name = self.shared.settings.load().site_name.clone();
+        if name.is_empty() {
+            "shhnote".to_string()
+        } else {
+            name
+        }
     }
 
     pub(crate) fn api_url(&self) -> &str {
@@ -495,7 +502,7 @@ async fn contact(State(state): State<PageState>) -> Response {
         ContactPage {
             ctx: state.ctx("/contact"),
             contact_email: &settings.contact_email,
-            security_email: &settings.security_email,
+            security_email: settings.security_email(),
         },
     )
 }
@@ -543,14 +550,9 @@ fn doc_page(state: &PageState, doc: Doc, path: &str, title_key: &str) -> Respons
         state.shared.site_url.trim_end_matches('/'),
         state.locale
     );
-    // `{{project_url}}` is the project page, or the source link while none is set; the
-    // security address falls back to the contact address while none is set.
+    // `{{project_url}}` is the project page, or the source link while none is set.
     let settings = state.shared.settings.load();
-    let security_email = if settings.security_email.is_empty() {
-        &settings.contact_email
-    } else {
-        &settings.security_email
-    };
+    let security_email = settings.security_email();
     let project = if settings.project_url.is_empty() {
         settings.source_url.clone()
     } else {

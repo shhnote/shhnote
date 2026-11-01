@@ -780,7 +780,22 @@ pub(crate) async fn save_settings(
     submitted: &HashMap<String, String>,
     env: AppEnv,
 ) -> Result<Settings, SaveError> {
-    let (settings, errors) = Settings::with_overrides(submitted, env);
+    let (settings, mut errors) = Settings::with_overrides(submitted, env);
+    // Setup is derived from these two being set (D-29); once set they can change but not go
+    // back to empty, so the setup gate never re-arms.
+    let current = cell.load();
+    for (key, before, after) in [
+        ("site_name", &current.site_name, &settings.site_name),
+        (
+            "contact_email",
+            &current.contact_email,
+            &settings.contact_email,
+        ),
+    ] {
+        if !before.is_empty() && after.is_empty() {
+            errors.push(format!("setting {key} cannot be cleared once set"));
+        }
+    }
     if !errors.is_empty() {
         return Err(SaveError::Invalid(errors));
     }
