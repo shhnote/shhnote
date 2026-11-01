@@ -29,7 +29,6 @@ page-privacy = Datenschutzerklärung
 page-acceptable-use = Nutzungsrichtlinie
 page-docs = API-Dokumentation
 page-security = Sicherheit
-page-how-technical = Technische Details
 
 ## Home
 

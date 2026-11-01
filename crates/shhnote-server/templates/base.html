@@ -21,7 +21,7 @@
 
   <header class="header">
     <div class="container header__inner">
-      <a class="logo" href="{{ ctx.href("") }}"><span class="color-accent">shh</span>note</a>
+      <a class="logo" href="{{ ctx.href("") }}">{{ ctx.site_name() }}</a>
       <nav class="header__nav" aria-label="{{ ctx.t("nav-label") }}">
         <a href="{{ ctx.href("") }}"{% if ctx.path == "" %} aria-current="page"{% endif %}>{{ ctx.t("nav-home") }}</a>
         <a href="{{ ctx.href("/how-it-works") }}"{% if ctx.path == "/how-it-works" %} aria-current="page"{% endif %}>{{ ctx.t("nav-how-it-works") }}</a>
@@ -43,14 +43,13 @@
     <div class="container">
       <div class="footer-grid">
         <div class="footer-brand">
-          <a class="logo" href="{{ ctx.href("") }}"><span class="color-accent">shh</span>note</a>
+          <a class="logo" href="{{ ctx.href("") }}">{{ ctx.site_name() }}</a>
           <p>{{ ctx.t("footer-tagline") }}</p>
         </div>
         <nav class="footer-col" aria-label="{{ ctx.t("footer-product") }}">
           <h2>{{ ctx.t("footer-product") }}</h2>
           <ul>
             <li><a href="{{ ctx.href("/how-it-works") }}">{{ ctx.t("nav-how-it-works") }}</a></li>
-            <li><a href="{{ ctx.href("/how-it-works#technical") }}">{{ ctx.t("page-how-technical") }}</a></li>
             <li><a href="{{ ctx.href("/docs") }}">{{ ctx.t("page-docs") }}</a></li>
             <li><a href="{{ ctx.href("/about") }}">{{ ctx.t("nav-about") }}</a></li>
             <li><a href="{{ ctx.href("/contact") }}">{{ ctx.t("nav-contact") }}</a></li>

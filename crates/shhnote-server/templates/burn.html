@@ -9,8 +9,7 @@
   <div class="container">
     <article class="vault" data-shh-page="burn">
       <div class="panel panel--center stack" data-shh-state="armed">
-        <span class="badge badge--danger"><span class="dot"></span>{{ ctx.t("burn-badge") }}</span>
-        <div class="lock-badge lock-badge--danger">{% call icons::icon("flame", 28) %}{% endcall %}</div>
+        <span class="badge badge--danger">{{ ctx.t("burn-badge") }}</span>
         <div class="stack--sm">
           <h1 class="panel__heading">{{ ctx.t("burn-title") }}</h1>
           <p>{{ ctx.t("burn-intro") }}</p>
@@ -23,8 +22,7 @@
       </div>
 
       <div class="panel panel--center stack" data-shh-state="done" hidden>
-        <span class="badge badge--danger"><span class="dot"></span>{{ ctx.t("burn-done-badge") }}</span>
-        <div class="lock-badge lock-badge--danger">{% call icons::icon("flame", 28) %}{% endcall %}</div>
+        <span class="badge badge--danger">{{ ctx.t("burn-done-badge") }}</span>
         <div class="stack--sm">
           <h1 class="panel__heading">{{ ctx.t("burn-done-title") }}</h1>
           <p>{{ ctx.t("burn-done-body") }}</p>
@@ -40,8 +38,7 @@
       </div>
 
       <div class="panel panel--center stack" data-shh-state="notfound" hidden>
-        <span class="badge badge--muted"><span class="dot"></span>{{ ctx.t("burn-not-found-badge") }}</span>
-        <div class="lock-badge lock-badge--muted">{% call icons::icon("lock-open", 28) %}{% endcall %}</div>
+        <span class="badge badge--muted">{{ ctx.t("burn-not-found-badge") }}</span>
         <div class="stack--sm">
           <h1 class="panel__heading">{{ ctx.t("burn-not-found-title") }}</h1>
           <p>{{ ctx.t("burn-not-found-body") }}</p>

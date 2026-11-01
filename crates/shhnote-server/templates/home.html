@@ -4,7 +4,7 @@
 {% block title %}{{ ctx.t("home-title") }}{% endblock %}
 
 {% block content %}
-<section class="section section--hero" id="create" data-shh-page="create">
+<section class="section" id="create" data-shh-page="create">
   <div class="container">
     <header class="section__header">
       <h1>{{ ctx.t("home-title") }}</h1>
@@ -26,7 +26,7 @@
             <label class="dropzone" data-shh-dropzone>
               <input type="file" name="files" multiple aria-labelledby="files-label" aria-describedby="files-hint">
               <span class="dropzone-icon">{% call icons::icon("upload", 24) %}{% endcall %}</span>
-              <span class="dropzone-title"><span class="color-accent">{{ ctx.t("form-files-drop") }}</span> {{ ctx.t("form-files-click") }}</span>
+              <span class="dropzone-title">{{ ctx.t("form-files-drop") }} {{ ctx.t("form-files-click") }}</span>
               <span class="dropzone-hint" id="files-hint">{{ upload_hint }}</span>
             </label>
             <ul class="file-list" data-shh-file-list></ul>

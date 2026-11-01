@@ -8,8 +8,7 @@
   <div class="container">
     <article class="vault" data-shh-page="report">
       <div class="panel panel--center stack" data-shh-state="armed">
-        <span class="badge badge--muted"><span class="dot"></span>{{ ctx.t("report-badge") }}</span>
-        <div class="lock-badge lock-badge--muted">{% call icons::icon("shield", 28) %}{% endcall %}</div>
+        <span class="badge badge--muted">{{ ctx.t("report-badge") }}</span>
         <div class="stack--sm">
           <h1 class="panel__heading">{{ ctx.t("report-title") }}</h1>
           <p>{{ ctx.t("report-intro") }}</p>
@@ -27,8 +26,7 @@
       </div>
 
       <div class="panel panel--center stack" data-shh-state="done" hidden>
-        <span class="badge badge--muted"><span class="dot"></span>{{ ctx.t("report-done-badge") }}</span>
-        <div class="lock-badge lock-badge--muted">{% call icons::icon("shield", 28) %}{% endcall %}</div>
+        <span class="badge badge--muted">{{ ctx.t("report-done-badge") }}</span>
         <div class="stack--sm">
           <h1 class="panel__heading">{{ ctx.t("report-done-title") }}</h1>
           <p>{{ ctx.t("report-done-body") }}</p>

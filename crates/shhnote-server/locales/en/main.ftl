@@ -29,7 +29,6 @@ page-privacy = Privacy policy
 page-security = Security
 page-acceptable-use = Acceptable use
 page-docs = API documentation
-page-how-technical = Technical details
 
 ## Home
 
