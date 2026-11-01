@@ -44,6 +44,12 @@ export function wireCopy(button: HTMLButtonElement, getText: () => string, copie
   });
 }
 
+// The instance's Argon2 module, versioned like every other asset.
+export function argon2Url(): string {
+  const version = document.body.dataset["assetVersion"] ?? "";
+  return `/static/argon2.wasm?v=${version}`;
+}
+
 export function formatSize(bytes: number): string {
   const units = ["B", "KB", "MB", "GB"];
   let size = bytes;

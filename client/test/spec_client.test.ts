@@ -17,8 +17,8 @@ import { ARGON2_MIN, INFO, checkArgon2Bounds, hkdfAesKey } from "../src/crypto/k
 import { CHUNK_SIZE, pad } from "../src/crypto/padding.ts";
 import { decrypt, decryptStream } from "../src/crypto/secret.ts";
 import { burnSecret, createSecret, parseFragment, revealSecret } from "../src/client.ts";
-import { ApiError } from "../src/ui/api.ts";
-import { sanitiseFileName } from "../src/ui/filename.ts";
+import { ApiError } from "../src/lib/api.ts";
+import { sanitiseFileName } from "../src/lib/filename.ts";
 
 const subtle = globalThis.crypto.subtle;
 const wasmBytes = new Uint8Array(readFileSync(new URL("../../target/wasm32-unknown-unknown/wasm/shhnote_argon2_wasm.wasm", import.meta.url)));

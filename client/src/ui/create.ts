@@ -1,9 +1,9 @@
 import { decodeFragment } from "../crypto/fragment.ts";
 import { ShhError } from "../crypto/error.ts";
 import { encrypt, generateRandomness } from "../crypto/secret.ts";
-import { Api, ApiError, type Lifetime } from "./api.ts";
-import { loadArgon2, prefetchArgon2 } from "./argon2-loader.ts";
-import { $, $$, hide, setStatus, show, wireCopy } from "./dom.ts";
+import { Api, ApiError, type Lifetime } from "../lib/api.ts";
+import { loadArgon2, prefetchArgon2 } from "../lib/argon2-loader.ts";
+import { $, $$, argon2Url, hide, setStatus, show, wireCopy } from "./dom.ts";
 import type { Dropzone } from "./dropzone.ts";
 import { t } from "./i18n.ts";
 
@@ -15,7 +15,7 @@ export function wireCreate(form: HTMLFormElement, dropzone: Dropzone | undefined
   const result = $("[data-create-result]");
   const wrapper = $("[data-create-wrapper]");
   show(wrapper);
-  prefetchArgon2();
+  prefetchArgon2(argon2Url());
 
   // Instance policy: with files switched off the drop zone goes away and the API would refuse
   // anything file-sized anyway.
@@ -48,7 +48,7 @@ export function wireCreate(form: HTMLFormElement, dropzone: Dropzone | undefined
       const [config, randomness, argon2, fileBytes] = await Promise.all([
         api.config(),
         generateRandomness(),
-        passphrase ? loadArgon2() : Promise.resolve(undefined),
+        passphrase ? loadArgon2(argon2Url()) : Promise.resolve(undefined),
         Promise.all(files.map(async (f) => ({ name: f.name, type: f.type || "application/octet-stream", bytes: new Uint8Array(await f.arrayBuffer()) }))),
       ]);
       const encrypted = await encrypt({

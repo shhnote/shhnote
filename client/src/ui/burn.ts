@@ -1,5 +1,5 @@
 import { decodeFragment } from "../crypto/fragment.ts";
-import { Api, ApiError } from "./api.ts";
+import { Api, ApiError } from "../lib/api.ts";
 import { $, setState, setStatus, show } from "./dom.ts";
 import { t } from "./i18n.ts";
 

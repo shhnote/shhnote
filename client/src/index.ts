@@ -1,4 +1,6 @@
-export { Argon2 } from "./crypto/argon2.ts";
+// `@shhnote/client` (package root): the protocol plus the API client and the frontend-safety
+// helpers. No DOM; runs in browsers, Node and workers alike.
+export * from "./crypto/index.ts";
 export {
   type ClientOptions,
   type CreateOptions,
@@ -11,24 +13,8 @@ export {
   parseFragment,
   revealSecret,
 } from "./client.ts";
-export { Api, ApiError, type Fetch, type InstanceConfig, type Lifetime } from "./ui/api.ts";
-export { fromBase64Url, toBase64Url } from "./crypto/bytes.ts";
-export type { Payload, PayloadFile } from "./crypto/container.ts";
-export { type ErrorCode, ShhError } from "./crypto/error.ts";
-export { type Kind, VERSION, decodeFragment, encodeFragment } from "./crypto/fragment.ts";
-export { ARGON2_DEFAULT, type Argon2Params } from "./crypto/kdf.ts";
-export { type PaddingPolicy, blobLen, isValidPaddedSize, padme } from "./crypto/padding.ts";
-export {
-  type EncryptOptions,
-  type Encrypted,
-  type Randomness,
-  credentialHash,
-  decrypt,
-  decryptBody,
-  decryptStream,
-  encrypt,
-  generateRandomness,
-  lookup,
-  unwrapEk,
-} from "./crypto/secret.ts";
-export { PayloadDecoder, collect, iterateStream, openStream, readHeader } from "./crypto/stream.ts";
+export { isUserActivation } from "./lib/activation.ts";
+export { Api, ApiError, DEFAULT_MAX_BLOB_BYTES, type Fetch, type InstanceConfig, type Lifetime, type Revealed } from "./lib/api.ts";
+export { loadArgon2, prefetchArgon2 } from "./lib/argon2-loader.ts";
+export { sanitiseFileName } from "./lib/filename.ts";
+export { wipeBytes, wipePayload } from "./lib/wipe.ts";

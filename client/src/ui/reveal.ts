@@ -5,10 +5,12 @@ import { decodeFragment } from "../crypto/fragment.ts";
 import { HEADER_LEN } from "../crypto/padding.ts";
 import { decryptBody, lookup, unwrapEk } from "../crypto/secret.ts";
 import { collect, iterateBytes, readHeader } from "../crypto/stream.ts";
-import { Api, ApiError, DEFAULT_MAX_BLOB_BYTES } from "./api.ts";
-import { loadArgon2, prefetchArgon2 } from "./argon2-loader.ts";
-import { $, formatSize, hide, setState, setStatus, show, wireCopy } from "./dom.ts";
-import { sanitiseFileName } from "./filename.ts";
+import { isUserActivation } from "../lib/activation.ts";
+import { Api, ApiError, DEFAULT_MAX_BLOB_BYTES } from "../lib/api.ts";
+import { loadArgon2, prefetchArgon2 } from "../lib/argon2-loader.ts";
+import { sanitiseFileName } from "../lib/filename.ts";
+import { wipeBytes, wipePayload } from "../lib/wipe.ts";
+import { $, argon2Url, formatSize, hide, setState, setStatus, show, wireCopy } from "./dom.ts";
 import { t } from "./i18n.ts";
 
 // `/s#…`: nothing is fetched until the button is pressed, so link previews and scanners
@@ -31,7 +33,7 @@ export function wireReveal(page: HTMLElement): void {
     return;
   }
   show(armed);
-  prefetchArgon2();
+  prefetchArgon2(argon2Url());
 
   // Kept only for a passphrase-protected secret: the header to retry the passphrase against
   // and the ciphertext body, so every retry stays in the browser (SPEC §2.10).
@@ -46,12 +48,11 @@ export function wireReveal(page: HTMLElement): void {
   // Best effort (SPEC §10): overwrite what we can once the page is left. Strings cannot be
   // wiped in JavaScript; the seed, file bytes and the DOM can.
   window.addEventListener("pagehide", () => {
-    seed.fill(0);
-    bodyBytes?.fill(0);
+    wipeBytes(seed, bodyBytes);
     bodyBytes = null;
     locked = null;
     passInput.value = "";
-    for (const file of shown?.files ?? []) file.bytes.fill(0);
+    wipePayload(shown);
     shown = null;
     for (const url of objectUrls) URL.revokeObjectURL(url);
     const pre = page.querySelector("[data-text]");
@@ -59,17 +60,14 @@ export function wireReveal(page: HTMLElement): void {
     page.querySelector("[data-files]")?.replaceChildren();
   });
 
-  // Only a real press reveals (SPEC §5). A page script can fire a trusted `submit`
-  // (`requestSubmit()`) or a trusted `click` with `detail` 0 (`button.click()`), so the form
-  // itself never submits; the button acts on a pointer click with `detail > 0` or on a key
-  // press, both trusted, and only while the browser reports user activation.
+  // Only a real press reveals (SPEC §5, `isUserActivation`); the form itself never submits.
   const button = $<HTMLButtonElement>("button", armed);
   armed.addEventListener("submit", (event) => event.preventDefault());
   button.addEventListener("click", (event) => {
-    if (event.isTrusted && event.detail > 0 && userActivated()) void reveal();
+    if (isUserActivation(event)) void reveal();
   });
   button.addEventListener("keydown", (event) => {
-    if (event.isTrusted && (event.key === "Enter" || event.key === " ") && userActivated()) {
+    if (isUserActivation(event)) {
       event.preventDefault();
       void reveal();
     }
@@ -126,7 +124,7 @@ export function wireReveal(page: HTMLElement): void {
     button.disabled = true;
     try {
       setStatus(passStatus, t("reveal-decrypting"));
-      const ek = await unwrapEk(locked.header, seed, passInput.value, await loadArgon2());
+      const ek = await unwrapEk(locked.header, seed, passInput.value, await loadArgon2(argon2Url()));
       const bytes = await locked.body;
       await display(await decryptBody(ek, locked.header, iterateBytes(bytes), bytes.length + HEADER_LEN));
     } catch (e) {
@@ -148,12 +146,6 @@ export function wireReveal(page: HTMLElement): void {
       button.disabled = false;
     }
   });
-
-  // Browsers without the API cannot be asked; those with it must say a gesture is in flight.
-  function userActivated(): boolean {
-    const activation = navigator.userActivation as { isActive: boolean } | undefined;
-    return activation === undefined || activation.isActive;
-  }
 
   async function display(payload: Payload): Promise<void> {
     bodyBytes?.fill(0);

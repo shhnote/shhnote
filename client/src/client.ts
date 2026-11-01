@@ -3,7 +3,7 @@ import type { Payload } from "./crypto/container.ts";
 import { ShhError } from "./crypto/error.ts";
 import { type Kind, decodeFragment } from "./crypto/fragment.ts";
 import { decryptStream, encrypt, generateRandomness, lookup } from "./crypto/secret.ts";
-import { Api, ApiError, type Fetch, type Lifetime } from "./ui/api.ts";
+import { Api, ApiError, type Fetch, type Lifetime } from "./lib/api.ts";
 
 // The whole flow in four calls, for integrations outside the website: scripts, bots,
 // password managers. Nothing here touches the DOM; pass your own fetch where needed.

@@ -460,7 +460,7 @@ var PayloadDecoder = class {
   }
 };
 
-// src/ui/api.ts
+// src/lib/api.ts
 var DEFAULT_MAX_BLOB_BYTES = 4 * 1024 * 1024 * 1024;
 var ApiError = class extends Error {
   status;
@@ -609,6 +609,10 @@ function wireCopy(button, getText, copiedLabel) {
     } catch {
     }
   });
+}
+function argon2Url() {
+  const version = document.body.dataset["assetVersion"] ?? "";
+  return `/static/argon2.wasm?v=${version}`;
 }
 function formatSize(bytes) {
   const units = ["B", "KB", "MB", "GB"];
@@ -875,21 +879,24 @@ var Argon2 = class _Argon2 {
   }
 };
 
-// src/ui/argon2-loader.ts
-var loading = null;
-function prefetchArgon2() {
-  loadArgon2().catch(() => {
+// src/lib/argon2-loader.ts
+var loading = /* @__PURE__ */ new Map();
+function prefetchArgon2(url) {
+  loadArgon2(url).catch(() => {
   });
 }
-function loadArgon2() {
+function loadArgon2(url) {
   if (typeof WebAssembly === "undefined") return Promise.reject(new ShhError("argon2_unavailable", "WebAssembly is not available"));
-  const version = document.body.dataset["assetVersion"] ?? "";
-  loading ??= Argon2.fromResponse(fetch(`/static/argon2.wasm?v=${version}`, { cache: "force-cache" })).catch((e) => {
-    loading = null;
-    if (e instanceof WebAssembly.CompileError) throw new ShhError("argon2_unavailable", "WebAssembly is blocked");
-    throw e;
-  });
-  return loading;
+  let pending = loading.get(url);
+  if (!pending) {
+    pending = Argon2.fromResponse(fetch(url, { cache: "force-cache" })).catch((e) => {
+      loading.delete(url);
+      if (e instanceof WebAssembly.CompileError) throw new ShhError("argon2_unavailable", "WebAssembly is blocked");
+      throw e;
+    });
+    loading.set(url, pending);
+  }
+  return pending;
 }
 
 // src/ui/create.ts
@@ -900,7 +907,7 @@ function wireCreate(form, dropzone) {
   const result = $("[data-create-result]");
   const wrapper = $("[data-create-wrapper]");
   show(wrapper);
-  prefetchArgon2();
+  prefetchArgon2(argon2Url());
   let filesEnabled = true;
   void api.config().then((config) => {
     filesEnabled = config.files_enabled;
@@ -928,7 +935,7 @@ function wireCreate(form, dropzone) {
       const [config, randomness, argon2, fileBytes] = await Promise.all([
         api.config(),
         generateRandomness(),
-        passphrase ? loadArgon2() : Promise.resolve(void 0),
+        passphrase ? loadArgon2(argon2Url()) : Promise.resolve(void 0),
         Promise.all(files.map(async (f) => ({ name: f.name, type: f.type || "application/octet-stream", bytes: new Uint8Array(await f.arrayBuffer()) })))
       ]);
       const encrypted = await encrypt({
@@ -1095,7 +1102,23 @@ function wireReport(page) {
   });
 }
 
-// src/ui/filename.ts
+// src/lib/activation.ts
+function isUserActivation(event) {
+  if (!event.isTrusted || !userActivated()) return false;
+  if (event.type === "click") return event.detail > 0;
+  if (event.type === "keydown") {
+    const key = event.key;
+    return key === "Enter" || key === " ";
+  }
+  return false;
+}
+function userActivated() {
+  if (typeof navigator === "undefined") return true;
+  const activation = navigator.userActivation;
+  return activation === void 0 || activation.isActive;
+}
+
+// src/lib/filename.ts
 var RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
 var INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u00ad\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g;
 var SEPARATORS = /[/\\\u2044\u2215\u29f5\u29f8\u29f9\uff0f\uff3c:*?"<>|]/g;
@@ -1117,6 +1140,14 @@ function truncate(name) {
   return out;
 }
 
+// src/lib/wipe.ts
+function wipeBytes(...buffers) {
+  for (const buffer of buffers) buffer?.fill(0);
+}
+function wipePayload(payload) {
+  for (const file of payload?.files ?? []) file.bytes.fill(0);
+}
+
 // src/ui/reveal.ts
 function wireReveal(page) {
   const api = Api.fromPage();
@@ -1134,19 +1165,18 @@ function wireReveal(page) {
     return;
   }
   show(armed);
-  prefetchArgon2();
+  prefetchArgon2(argon2Url());
   let locked = null;
   let bodyBytes = null;
   let claimToken = null;
   let shown = null;
   const objectUrls = [];
   window.addEventListener("pagehide", () => {
-    seed.fill(0);
-    bodyBytes?.fill(0);
+    wipeBytes(seed, bodyBytes);
     bodyBytes = null;
     locked = null;
     passInput.value = "";
-    for (const file of shown?.files ?? []) file.bytes.fill(0);
+    wipePayload(shown);
     shown = null;
     for (const url of objectUrls) URL.revokeObjectURL(url);
     const pre = page.querySelector("[data-text]");
@@ -1156,10 +1186,10 @@ function wireReveal(page) {
   const button = $("button", armed);
   armed.addEventListener("submit", (event) => event.preventDefault());
   button.addEventListener("click", (event) => {
-    if (event.isTrusted && event.detail > 0 && userActivated()) void reveal();
+    if (isUserActivation(event)) void reveal();
   });
   button.addEventListener("keydown", (event) => {
-    if (event.isTrusted && (event.key === "Enter" || event.key === " ") && userActivated()) {
+    if (isUserActivation(event)) {
       event.preventDefault();
       void reveal();
     }
@@ -1210,7 +1240,7 @@ function wireReveal(page) {
     button2.disabled = true;
     try {
       setStatus(passStatus, t("reveal-decrypting"));
-      const ek = await unwrapEk(locked.header, seed, passInput.value, await loadArgon2());
+      const ek = await unwrapEk(locked.header, seed, passInput.value, await loadArgon2(argon2Url()));
       const bytes = await locked.body;
       await display(await decryptBody(ek, locked.header, iterateBytes(bytes), bytes.length + HEADER_LEN));
     } catch (e) {
@@ -1231,10 +1261,6 @@ function wireReveal(page) {
       button2.disabled = false;
     }
   });
-  function userActivated() {
-    const activation = navigator.userActivation;
-    return activation === void 0 || activation.isActive;
-  }
   async function display(payload) {
     bodyBytes?.fill(0);
     bodyBytes = null;
