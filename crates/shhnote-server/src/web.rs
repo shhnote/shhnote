@@ -13,7 +13,7 @@ use axum::{
 };
 use fluent_bundle::FluentArgs;
 use shhnote_core::{
-    config::{ApiRouting, AppEnv, Config, WebMode},
+    config::{AdminRouting, ApiRouting, AppEnv, Config, WebMode},
     settings::SettingsCell,
 };
 use shhnote_store::Store;
@@ -39,6 +39,8 @@ pub(crate) struct Shared {
     pub(crate) secret_key: Vec<u8>,
     pub(crate) secure_cookies: bool,
     pub(crate) env: AppEnv,
+    // `/admin` on the main domain, or nothing on the admin subdomain (D-25).
+    admin_prefix: &'static str,
     pub(crate) admin_token_hash: Option<[u8; 32]>,
     asset_version: String,
     // app.css with the asset hash substituted into its font URLs.
@@ -74,7 +76,17 @@ pub(crate) struct PageState {
     pub(crate) locale: &'static str,
 }
 
-pub fn router(config: &Config, api: &ApiState) -> Router {
+// The website, and the admin site when the panel has its own host.
+pub struct WebRouters {
+    pub web: Router,
+    pub admin: Option<Router>,
+}
+
+pub fn router(config: &Config, api: &ApiState) -> WebRouters {
+    let admin_prefix = match config.admin_routing {
+        AdminRouting::Path => "/admin",
+        AdminRouting::Subdomain { .. } => "",
+    };
     let shared = Arc::new(Shared {
         i18n: I18n::load(),
         offered: i18n::offered(&config.locales, config.default_locale.as_deref())
@@ -85,6 +97,7 @@ pub fn router(config: &Config, api: &ApiState) -> Router {
         secret_key: config.secret_key.expose().as_bytes().to_vec(),
         secure_cookies: config.env == AppEnv::Production,
         env: config.env,
+        admin_prefix,
         admin_token_hash: api.admin_token_hash,
         asset_version: asset_version(),
         css: APP_CSS.replace("__V__", &asset_version()),
@@ -95,32 +108,51 @@ pub fn router(config: &Config, api: &ApiState) -> Router {
         fresh_keys: Mutex::new(Vec::new()),
     });
 
-    let mut router = Router::new()
+    let own_admin_host = matches!(config.admin_routing, AdminRouting::Subdomain { .. });
+    let offered = shared.offered.clone();
+    let mut web = statics(&shared);
+    let mut admin = own_admin_host.then(|| statics(&shared));
+    for &locale in &offered.locales {
+        let state = PageState {
+            shared: shared.clone(),
+            locale,
+        };
+        let pages = match (config.web, own_admin_host) {
+            (WebMode::Full, false) => pages(state.clone(), true),
+            (WebMode::Full, true) => pages(state.clone(), false),
+            (WebMode::Api, false) => admin_only(state.clone()),
+            // Nothing public and the panel elsewhere: only `/static/*` is left on this host.
+            (WebMode::Api, true) => Router::new().fallback(no_page),
+        };
+        web = web.nest(&format!("/{locale}"), pages);
+        if let Some(site) = admin.take() {
+            // The panel at `admin.<host>/{locale}/` (D-25).
+            let panel = admin::routes().fallback(no_page).with_state(state);
+            admin = Some(site.nest(&format!("/{locale}"), panel));
+        }
+    }
+
+    let web = match config.web {
+        WebMode::Full => web.fallback_service(any(redirect_to_locale).with_state(offered.clone())),
+        // No public page and no locale redirect: a frontend elsewhere serves those (D-24).
+        WebMode::Api => web.fallback(no_page),
+    };
+    // `/` on the admin host goes to the panel in the browser's language.
+    let admin =
+        admin.map(|site| site.fallback_service(any(redirect_to_locale).with_state(offered)));
+    WebRouters { web, admin }
+}
+
+// The embedded assets, served on every host the server answers for.
+fn statics(shared: &Arc<Shared>) -> Router {
+    Router::new()
         .route("/static/app.css", get(css).with_state(shared.clone()))
         .route("/static/app.js", get(app_js))
         .route("/static/shh.js", get(shh_js))
         .route("/static/shh-ui.js", get(shh_ui_js))
         .route("/static/argon2.wasm", get(argon2_wasm))
         .route("/static/fonts/inter.woff2", get(font_regular))
-        .route("/static/fonts/inter-italic.woff2", get(font_italic));
-    let offered = shared.offered.clone();
-    for &locale in &offered.locales {
-        let state = PageState {
-            shared: shared.clone(),
-            locale,
-        };
-        let pages = match config.web {
-            WebMode::Full => pages(state),
-            WebMode::Api => admin_only(state),
-        };
-        router = router.nest(&format!("/{locale}"), pages);
-    }
-
-    match config.web {
-        WebMode::Full => router.fallback_service(any(redirect_to_locale).with_state(offered)),
-        // No public page and no locale redirect: a frontend elsewhere serves those (D-24).
-        WebMode::Api => router.fallback(no_page),
-    }
+        .route("/static/fonts/inter-italic.woff2", get(font_italic))
 }
 
 // `SHH_WEB=api`: the admin panel is the only page left under a locale.
@@ -137,7 +169,13 @@ async fn no_page() -> Response {
     (StatusCode::NOT_FOUND, "not found").into_response()
 }
 
-fn pages(state: PageState) -> Router {
+fn pages(state: PageState, with_admin: bool) -> Router {
+    let admin = if with_admin {
+        admin::routes()
+    } else {
+        // The panel lives on its own host; the path form answers like any unknown page.
+        Router::new()
+    };
     Router::new()
         .route("/", get(home))
         // The secret is identified only by the URL fragment, which never reaches the server,
@@ -153,7 +191,7 @@ fn pages(state: PageState) -> Router {
         .route("/acceptable-use", get(acceptable_use))
         .route("/docs", get(docs))
         .route("/report", get(report))
-        .nest("/admin", admin::routes())
+        .nest("/admin", admin)
         .fallback(not_found)
         .with_state(state)
 }
@@ -175,12 +213,19 @@ pub(crate) struct LanguageLink {
 }
 
 impl PageState {
-    pub(crate) fn href(&self, path: &str) -> String {
-        format!("/{}{path}", self.locale)
+    // `path` is the page's path without the locale prefix, e.g. `/terms`.
+    // A link into the admin panel, wherever it is served (D-25).
+    pub(crate) fn admin_href(&self, path: &str) -> String {
+        format!("/{}{}{path}", self.locale, self.shared.admin_prefix)
     }
 
-    // `path` is the page's path without the locale prefix, e.g. `/terms`.
     pub(crate) fn ctx(&self, path: &str) -> Ctx<'_> {
+        // Admin pages name themselves `/admin/...` whatever host serves them; the language
+        // links need the served form.
+        let link_path = match path.strip_prefix("/admin") {
+            Some(rest) => format!("{}{rest}", self.shared.admin_prefix),
+            None => path.to_string(),
+        };
         let languages = self
             .shared
             .offered
@@ -189,7 +234,7 @@ impl PageState {
             .map(|&code| LanguageLink {
                 code,
                 name: self.shared.i18n.t(code, "language-name", None),
-                href: format!("/{code}{path}"),
+                href: format!("/{code}{link_path}"),
                 current: code == self.locale,
             })
             .collect();
@@ -222,6 +267,10 @@ impl Ctx<'_> {
 
     pub(crate) fn href(&self, path: &str) -> String {
         format!("/{}{path}", self.locale)
+    }
+
+    pub(crate) fn admin_href(&self, path: &str) -> String {
+        format!("/{}{}{path}", self.locale, self.shared.admin_prefix)
     }
 
     // The configured site name; the Fluent `brand-name` term stays the project name.

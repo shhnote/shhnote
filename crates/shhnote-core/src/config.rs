@@ -27,6 +27,7 @@ const KNOWN: &[&str] = &[
     "SHH_DEBUG",
     "SHH_URL",
     "SHH_API_ROUTING",
+    "SHH_ADMIN_ROUTING",
     "SHH_WEB",
     "SHH_SECRET_KEY",
     "SHH_HOST",
@@ -77,6 +78,8 @@ pub struct Config {
     pub api_url: String,
     // What the server serves besides the API (D-24).
     pub web: WebMode,
+    // Where the admin panel is reachable (D-25).
+    pub admin_routing: AdminRouting,
     pub secret_key: Secret,
     pub bind_addr: SocketAddr,
     pub log_level: LogLevel,
@@ -114,6 +117,14 @@ impl WebMode {
             Self::Api => "api",
         }
     }
+}
+
+// The admin panel at `/{locale}/admin` on the main domain, or at `admin.<host>/{locale}/`
+// on its own subdomain, which is easy to firewall (D-25).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AdminRouting {
+    Path,
+    Subdomain { host: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -385,6 +396,25 @@ impl Config {
             }
             _ => return Err(invalid("SHH_API_ROUTING", "must be path or subdomain")),
         };
+        let admin_routing = match vars.get("SHH_ADMIN_ROUTING").unwrap_or("path") {
+            "path" | "subdomain" if env == AppEnv::Local => AdminRouting::Path,
+            "path" => AdminRouting::Path,
+            "subdomain" => {
+                let host = authority
+                    .rsplit_once(':')
+                    .map_or(authority, |(host, _port)| host);
+                if host.parse::<IpAddr>().is_ok() || host.starts_with('[') {
+                    return Err(invalid(
+                        "SHH_ADMIN_ROUTING",
+                        "subdomain needs SHH_URL to use a domain name, not an IP address",
+                    ));
+                }
+                AdminRouting::Subdomain {
+                    host: format!("admin.{}", host.to_ascii_lowercase()),
+                }
+            }
+            _ => return Err(invalid("SHH_ADMIN_ROUTING", "must be path or subdomain")),
+        };
 
         let host = vars.parse_or("SHH_HOST", IpAddr::V4(Ipv4Addr::LOCALHOST))?;
         let port = vars.parse_or("SHH_PORT", 3000)?;
@@ -436,6 +466,7 @@ impl Config {
             api_routing,
             api_url,
             web: vars.parse_or("SHH_WEB", WebMode::Full)?,
+            admin_routing,
             secret_key: vars.key("SHH_SECRET_KEY")?,
             bind_addr: SocketAddr::new(host, port),
             log_level: vars.parse_or("SHH_LOG_LEVEL", LogLevel::Error)?,
@@ -990,6 +1021,39 @@ mod tests {
         );
         let vars = with(&[("SHH_MAX_UPLOADS", "0")]);
         assert_eq!(invalid_name(Config::from_vars(&vars)), "SHH_MAX_UPLOADS");
+    }
+
+    #[test]
+    fn admin_routing_mirrors_api_routing() {
+        assert_eq!(
+            Config::from_vars(&with(&[])).unwrap().admin_routing,
+            AdminRouting::Path
+        );
+        let vars = with(&[
+            ("SHH_ENV", "production"),
+            ("SHH_URL", "https://Example.com"),
+            ("SHH_ADMIN_ROUTING", "subdomain"),
+        ]);
+        assert_eq!(
+            Config::from_vars(&vars).unwrap().admin_routing,
+            AdminRouting::Subdomain {
+                host: "admin.example.com".into()
+            }
+        );
+        // Local always uses the path form.
+        let vars = with(&[("SHH_ADMIN_ROUTING", "subdomain")]);
+        assert_eq!(
+            Config::from_vars(&vars).unwrap().admin_routing,
+            AdminRouting::Path
+        );
+        let vars = with(&[
+            ("SHH_ENV", "production"),
+            ("SHH_URL", "https://203.0.113.5"),
+            ("SHH_ADMIN_ROUTING", "subdomain"),
+        ]);
+        assert_eq!(invalid_name(Config::from_vars(&vars)), "SHH_ADMIN_ROUTING");
+        let vars = with(&[("SHH_ADMIN_ROUTING", "elsewhere")]);
+        assert_eq!(invalid_name(Config::from_vars(&vars)), "SHH_ADMIN_ROUTING");
     }
 
     #[test]

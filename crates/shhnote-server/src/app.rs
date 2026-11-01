@@ -7,7 +7,7 @@ use axum::{
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
 };
-use shhnote_core::config::{ApiRouting, Config};
+use shhnote_core::config::{AdminRouting, ApiRouting, Config};
 use tower::ServiceExt;
 
 use crate::{
@@ -37,11 +37,13 @@ fn with_headers(router: Router, config: &Config) -> Router {
 }
 
 fn core(config: &Config, state: ApiState) -> Router {
-    let web = web::router(config, &state);
+    let web::WebRouters { mut web, admin } = web::router(config, &state);
     let api = api::router(state);
 
-    let app = match &config.api_routing {
-        ApiRouting::Path => web.nest("/api", api),
+    // Each subdomain gets its own router; everything else is the website.
+    let mut hosts: Vec<(String, Router)> = Vec::new();
+    match &config.api_routing {
+        ApiRouting::Path => web = web.nest("/api", api),
         ApiRouting::Subdomain { host } => {
             // The page and the API are different origins here, so browsers need CORS.
             let api = api.layer(middleware::from_fn_with_state(
@@ -49,8 +51,16 @@ fn core(config: &Config, state: ApiState) -> Router {
                     .expect("SHH_URL is validated"),
                 cors,
             ));
-            route_by_host(host.clone(), api, web)
+            hosts.push((host.clone(), api));
         }
+    }
+    if let (AdminRouting::Subdomain { host }, Some(admin)) = (&config.admin_routing, admin) {
+        hosts.push((host.clone(), admin));
+    }
+    let app = if hosts.is_empty() {
+        web
+    } else {
+        route_by_host(hosts, web)
     };
     app.layer(middleware::from_fn(redirect_trailing_slash))
         .layer(middleware::from_fn(request_timeout))
@@ -125,11 +135,18 @@ async fn cors(State(site): State<HeaderValue>, req: Request, next: Next) -> Resp
     response
 }
 
-// Sends requests for the API subdomain to the API router, and everything else to the website.
-fn route_by_host(api_host: String, api: Router, web: Router) -> Router {
+// Sends requests for a subdomain (`api.`, `admin.`) to its router, and everything else to
+// the website.
+fn route_by_host(hosts: Vec<(String, Router)>, web: Router) -> Router {
     Router::new().fallback(move |req: Request| {
-        let is_api = request_host(&req).is_some_and(|host| host.eq_ignore_ascii_case(&api_host));
-        let router = if is_api { api.clone() } else { web.clone() };
+        let router = request_host(&req)
+            .and_then(|host| {
+                hosts
+                    .iter()
+                    .find(|(name, _)| host.eq_ignore_ascii_case(name))
+                    .map(|(_, router)| router.clone())
+            })
+            .unwrap_or_else(|| web.clone());
         async move {
             let Ok(response) = router.oneshot(req).await;
             response

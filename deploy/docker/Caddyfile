@@ -8,3 +8,11 @@
 # api.{$DOMAIN} {
 # 	reverse_proxy shhnote:3000
 # }
+
+# For SHH_ADMIN_ROUTING=subdomain, the panel on its own host. A good place to limit who may
+# reach it at all, for example to an office range:
+# admin.{$DOMAIN} {
+# 	@outside not remote_ip 203.0.113.0/24
+# 	respond @outside 404
+# 	reverse_proxy shhnote:3000
+# }

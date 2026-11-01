@@ -481,3 +481,113 @@ async fn spec_api_mode_serves_no_pages() {
         StatusCode::OK
     );
 }
+
+// SPEC §8 / D-25: with `SHH_ADMIN_ROUTING=subdomain` the panel answers on `admin.<host>` at
+// `/{locale}/`, the path form on the main host is 404, the session cookie carries no Domain
+// attribute, and the assets the panel needs are served on its host.
+#[tokio::test]
+async fn spec_admin_subdomain_routing() {
+    let app = build(
+        "spec-web-admin-subdomain",
+        &[
+            ("SHH_ENV", "production"),
+            ("SHH_URL", "https://example.com"),
+            ("SHH_ADMIN_ROUTING", "subdomain"),
+        ],
+    )
+    .await;
+    let site = "example.com";
+    let admin = "admin.example.com";
+
+    // The path form is gone from the main host; the public site still works there.
+    assert_eq!(
+        fetch(&app, site, Method::GET, "/en/admin/login", None, None, "")
+            .await
+            .status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        fetch(&app, site, Method::GET, "/en", None, None, "")
+            .await
+            .status,
+        StatusCode::OK
+    );
+
+    // The panel on its own host, with no public page next to it.
+    let login = fetch(&app, admin, Method::GET, "/en/login", None, None, "").await;
+    assert_eq!(login.status, StatusCode::OK);
+    assert!(
+        login.body.contains(r#"action="/en/login""#),
+        "{}",
+        login.body
+    );
+    assert_eq!(
+        fetch(&app, admin, Method::GET, "/en/s", None, None, "")
+            .await
+            .status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        fetch(
+            &app,
+            admin,
+            Method::GET,
+            "/static/app.css?v=x",
+            None,
+            None,
+            ""
+        )
+        .await
+        .status,
+        StatusCode::OK
+    );
+    let root = fetch(&app, admin, Method::GET, "/", None, None, "").await;
+    assert_eq!(root.status, StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(root.headers[header::LOCATION], "/en");
+
+    // Logging in on the admin host sets a host-only cookie and lands on the dashboard.
+    let signed_in = fetch(
+        &app,
+        admin,
+        Method::POST,
+        "/en/login",
+        Some("application/x-www-form-urlencoded"),
+        None,
+        &format!("credential={BOOTSTRAP}"),
+    )
+    .await;
+    assert_eq!(
+        signed_in.status,
+        StatusCode::SEE_OTHER,
+        "{}",
+        signed_in.body
+    );
+    assert_eq!(signed_in.headers[header::LOCATION], "/en");
+    let set = signed_in.headers[header::SET_COOKIE].to_str().unwrap();
+    assert!(!set.to_ascii_lowercase().contains("domain="), "{set}");
+    let cookie = set.split(';').next().unwrap().to_string();
+    let mut req = Request::builder()
+        .method(Method::GET)
+        .uri("/en")
+        .header(header::HOST, admin)
+        .header(header::COOKIE, &cookie)
+        .body(Body::empty())
+        .unwrap();
+    req.extensions_mut().insert(ConnectInfo(
+        "192.0.2.9:40000".parse::<SocketAddr>().unwrap(),
+    ));
+    let dashboard = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(dashboard.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(dashboard.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body = String::from_utf8_lossy(&body);
+    assert!(
+        body.contains(r#"href="/en/settings""#),
+        "nav links use the subdomain form"
+    );
+    assert!(
+        !body.contains("/en/admin/"),
+        "a path-form admin link leaked: {body}"
+    );
+}

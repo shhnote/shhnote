@@ -147,6 +147,8 @@ fn cookie_value(headers: &HeaderMap) -> Option<&str> {
         })
 }
 
+// No `Domain` attribute: the cookie belongs to the host that serves the panel, the main
+// domain or the admin subdomain, and to nothing else (SPEC §8).
 fn set_cookie(state: &PageState, value: &str, max_age: i64) -> HeaderValue {
     let secure = if state.shared.secure_cookies {
         "; Secure"
@@ -162,7 +164,7 @@ fn set_cookie(state: &PageState, value: &str, max_age: i64) -> HeaderValue {
 // The logged-in session, or a redirect to the login page.
 // Boxed because a Response is large and the error path is rare.
 async fn authenticate(state: &PageState, headers: &HeaderMap) -> Result<Session, Box<Response>> {
-    let login = Box::new(Redirect::to(&state.href("/admin/login")).into_response());
+    let login = Box::new(Redirect::to(&state.admin_href("/login")).into_response());
     let Some(session) =
         cookie_value(headers).and_then(|v| Session::decode(v, &state.shared.secret_key))
     else {
@@ -231,7 +233,7 @@ async fn login_page(
     Query(query): Query<HashMap<String, String>>,
 ) -> Response {
     if authenticate(&state, &headers).await.is_ok() {
-        return Redirect::to(&state.href("/admin")).into_response();
+        return Redirect::to(&state.admin_href("")).into_response();
     }
     // The cookie of the session that minted the key is still sent, and the parked key is
     // bound to that session's nonce, so the signature alone is enough to hand it over once.
@@ -299,7 +301,7 @@ async fn login(
         issued_at,
         expires: issued_at + SESSION_SECS,
     };
-    let mut response = Redirect::to(&state.href("/admin")).into_response();
+    let mut response = Redirect::to(&state.admin_href("")).into_response();
     response.headers_mut().insert(
         header::SET_COOKIE,
         set_cookie(
@@ -325,7 +327,7 @@ async fn logout(
     if let Err(r) = check_csrf(&session, &state, &form) {
         return *r;
     }
-    let mut response = Redirect::to(&state.href("/admin/login")).into_response();
+    let mut response = Redirect::to(&state.admin_href("/login")).into_response();
     response
         .headers_mut()
         .insert(header::SET_COOKIE, set_cookie(&state, "", 0));
@@ -559,7 +561,7 @@ async fn settings_save(
     )
     .await
     {
-        Ok(_) => Redirect::to(&format!("{}?saved", state.href("/admin/settings"))).into_response(),
+        Ok(_) => Redirect::to(&format!("{}?saved", state.admin_href("/settings"))).into_response(),
         Err(SaveError::Invalid(errors)) => {
             let current = state.shared.settings.load();
             let mut response = render(
@@ -706,14 +708,14 @@ async fn keys_create(
     // The first admin key ends the bootstrap session that minted it, so that one is shown
     // on the login page instead, ready to sign in with.
     let next = if session.bootstrap && scope == Scope::Admin {
-        "/admin/login"
+        "/login"
     } else {
-        "/admin/keys"
+        "/keys"
     };
     match mint_key(&state.shared.store, name, scope, now()).await {
         Ok(text) => match park_fresh_key(&state, &session, text) {
             Some(nonce) => {
-                Redirect::to(&format!("{}?new={nonce}", state.href(next))).into_response()
+                Redirect::to(&format!("{}?new={nonce}", state.admin_href(next))).into_response()
             }
             None => error_page(&state, StatusCode::INTERNAL_SERVER_ERROR),
         },
@@ -739,7 +741,7 @@ async fn keys_delete(
     if let Err(e) = state.shared.store.delete_api_key(&hash).await {
         return db_error(&state, e);
     }
-    Redirect::to(&state.href("/admin/keys")).into_response()
+    Redirect::to(&state.admin_href("/keys")).into_response()
 }
 
 // Ends the key's sessions without deleting it (SPEC §8); the key keeps working for the API.
@@ -761,7 +763,7 @@ async fn keys_end_sessions(
     if let Err(e) = state.shared.store.end_api_key_sessions(&hash, now()).await {
         return db_error(&state, e);
     }
-    Redirect::to(&state.href("/admin/keys")).into_response()
+    Redirect::to(&state.admin_href("/keys")).into_response()
 }
 
 pub(crate) enum SaveError {

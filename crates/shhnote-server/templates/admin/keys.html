@@ -23,7 +23,7 @@
     <p class="callout callout--danger" role="alert">{{ error }}</p>
     {%- endif %}
 
-    <form method="post" action="{{ ctx.href("/admin/keys") }}" class="panel form-grid">
+    <form method="post" action="{{ ctx.admin_href("/keys") }}" class="panel form-grid">
       <input type="hidden" name="csrf" value="{{ admin.csrf }}">
       <h2 class="form-grid__full">{{ ctx.t("admin-keys-new-title") }}</h2>
       <div class="form-field">
@@ -63,13 +63,13 @@
             <td>{% if let Some(t) = k.last_used %}{{ t }}{% else %}{{ ctx.t("admin-keys-never") }}{% endif %}</td>
             <td class="btn-row">
               {%- if k.scope == "admin" %}
-              <form method="post" action="{{ ctx.href("/admin/keys/sessions") }}">
+              <form method="post" action="{{ ctx.admin_href("/keys/sessions") }}">
                 <input type="hidden" name="csrf" value="{{ admin.csrf }}">
                 <input type="hidden" name="key_hash" value="{{ k.hash_hex }}">
                 <button type="submit" class="btn btn--quiet btn--sm">{{ ctx.t("admin-keys-end-sessions") }}</button>
               </form>
               {%- endif %}
-              <form method="post" action="{{ ctx.href("/admin/keys/delete") }}">
+              <form method="post" action="{{ ctx.admin_href("/keys/delete") }}">
                 <input type="hidden" name="csrf" value="{{ admin.csrf }}">
                 <input type="hidden" name="key_hash" value="{{ k.hash_hex }}">
                 <button type="submit" class="btn btn--danger btn--sm">{{ ctx.t("admin-keys-delete") }}</button>

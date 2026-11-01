@@ -24,7 +24,7 @@
     {%- endif %}
 
     {# One form for every group: a hidden tab still submits its fields, so one save covers all. #}
-    <form method="post" action="{{ ctx.href("/admin/settings") }}" class="stack gap-6">
+    <form method="post" action="{{ ctx.admin_href("/settings") }}" class="stack gap-6">
       <input type="hidden" name="csrf" value="{{ admin.csrf }}">
       <div class="tabs" data-shh-tabs>
         <div class="doc-switch" role="tablist" aria-label="{{ ctx.t("admin-settings-title") }}" hidden>

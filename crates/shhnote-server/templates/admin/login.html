@@ -13,7 +13,7 @@
         <div class="readout"><code class="readout__val" data-new-key-value>{{ key }}</code></div>
       </div>
       {%- endif %}
-      <form class="panel stack" method="post" action="{{ ctx.href("/admin/login") }}">
+      <form class="panel stack" method="post" action="{{ ctx.admin_href("/login") }}">
         <div class="stack--sm">
           <p class="eyebrow">{{ ctx.t("admin-title") }}</p>
           <h1 class="panel__heading">{{ ctx.t("admin-login-title") }}</h1>
