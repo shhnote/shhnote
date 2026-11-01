@@ -4,7 +4,7 @@
 
 ## Kurz gesagt
 
-Wir können deine Geheimnisse nicht lesen. Sie werden auf deinem Gerät verschlüsselt, und der Schlüssel erreicht uns nie. Alles andere speichern wir so wenig und so kurz wie möglich.
+Diese Instanz von shhnote wird von dem am Ende dieser Seite genannten Betreiber betrieben. Wir können deine Geheimnisse nicht lesen. Sie werden auf deinem Gerät verschlüsselt, und der Schlüssel erreicht uns nie. Alles andere speichern wir so wenig und so kurz wie möglich.
 
 ## Was wir speichern
 

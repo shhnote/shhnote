@@ -316,6 +316,7 @@ how-t-threat-3-title = The honest caveats
 how-t-threat-3-body = Anyone with the full link (and passphrase, if set) can read the secret, so treat the link as the secret. Like any web app, you trust the code served to your browser; that's why { -brand } is open source and self-hostable. The server sees requests as they happen, including the IP they came from, but keeps none of it.
 how-t-spec-eyebrow = Cryptographic specification
 how-t-spec-title = Every primitive, in one place
+how-t-spec-link = Full specification, conformance vectors and self-hosting guide: the project page
 how-t-faq-eyebrow = Technical FAQ
 how-t-faq-title = For the security-minded
 how-t-faq-1-q = How is the one-time guarantee enforced against races?

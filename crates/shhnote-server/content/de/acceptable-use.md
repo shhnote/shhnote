@@ -2,18 +2,18 @@
 
 *Zuletzt aktualisiert: [Datum]*
 
-Dieser Dienst existiert, damit Menschen ein Passwort, einen Schlüssel oder eine Datei weitergeben können, ohne dass sie in einem Chatverlauf oder Postfach weiterleben. Alles wird im Browser verschlüsselt, bevor es hochgeladen wird, und wir können es nicht lesen. Dieses Design ist der ganze Zweck, und es bedeutet auch, dass wir nur auf das reagieren können, was uns gemeldet wird, nicht auf das, was wir sehen.
+Diese Instanz von shhnote existiert, damit Menschen ein Passwort, einen Schlüssel oder eine Datei weitergeben können, ohne dass sie in einem Chatverlauf oder Postfach weiterleben. Alles wird im Browser verschlüsselt, bevor es hochgeladen wird, und wir können es nicht lesen. Dieses Design ist der ganze Zweck, und es bedeutet auch, dass wir nur auf das reagieren können, was uns gemeldet wird, nicht auf das, was wir sehen.
 
 ## Was du nicht tun darfst
 
-Nutze den Dienst nicht, um Folgendes zu teilen:
+Nutze diese Instanz nicht, um Folgendes zu teilen:
 
 - Inhalte, die dort illegal sind, wo du oder die Empfängerin lebt, einschließlich Material, das Kinder ausbeutet oder gefährdet;
 - Schadsoftware, Exploits gegen Dritte oder Zugangsdaten, die du nicht weitergeben darfst;
 - gestohlene Daten oder persönliche Informationen über Menschen, die der Weitergabe nicht zugestimmt haben;
 - alles, was belästigen, bedrohen, betrügen oder täuschen soll.
 
-Nutze den Dienst nicht als:
+Nutze diese Instanz nicht als:
 
 - allgemeinen Dateispeicher, Download-Spiegel oder Backup-Ziel; Links sind dafür gedacht, einmal oder wenige Male von einer bekannten Person geöffnet zu werden;
 - Relais für automatisierten Verkehr, der die Ratenlimits umgeht, auch über viele Adressen oder viele API-Schlüssel;

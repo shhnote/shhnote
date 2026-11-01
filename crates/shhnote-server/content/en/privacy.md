@@ -4,7 +4,7 @@
 
 ## The short version
 
-We can't read your secrets. They are encrypted on your device, and the key never reaches us. We keep as little else as we can, and delete it as soon as we can.
+This instance of shhnote is run by the operator named at the bottom of this page. We can't read your secrets. They are encrypted on your device, and the key never reaches us. We keep as little else as we can, and delete it as soon as we can.
 
 ## What we store
 

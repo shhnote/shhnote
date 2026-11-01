@@ -29,3 +29,5 @@ We will:
 - credit you when we publish the fix, if you'd like.
 
 Please don't access other people's data, disrupt the service, or run automated scans that put heavy load on it while testing.
+
+Vulnerabilities in the shhnote software itself: see [{{project_url}}/security]({{project_url}}/security).

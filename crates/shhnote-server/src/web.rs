@@ -227,6 +227,16 @@ impl Ctx<'_> {
         self.shared.settings.load().project_url.clone()
     }
 
+    // Where the software lives: the project page, or the source link while none is set.
+    pub(crate) fn project_or_source_url(&self) -> String {
+        let settings = self.shared.settings.load();
+        if settings.project_url.is_empty() {
+            settings.source_url.clone()
+        } else {
+            settings.project_url.clone()
+        }
+    }
+
     // The strings the page script needs, as a JSON object. `<` is escaped so a translation can
     // never close the `<script>` block it is embedded in.
     pub(crate) fn ui_json(&self) -> String {

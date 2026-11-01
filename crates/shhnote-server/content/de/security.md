@@ -29,3 +29,5 @@ Wir werden:
 - dich bei der Veröffentlichung der Lösung nennen, wenn du möchtest.
 
 Bitte greif beim Testen nicht auf Daten anderer zu, stör den Dienst nicht und führ keine automatischen Scans durch, die ihn stark belasten.
+
+Sicherheitslücken in der shhnote-Software selbst: siehe [{{project_url}}/security]({{project_url}}/security).

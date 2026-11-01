@@ -2,18 +2,18 @@
 
 *Last updated: [date]*
 
-This service exists so people can hand a password, a key or a file to someone else without it living on in a chat log or an inbox. Everything is encrypted in your browser before it is uploaded, and we cannot read it. That design is the whole point, and it also means we can only act on what we are told, not on what we see.
+This instance of shhnote exists so people can hand a password, a key or a file to someone else without it living on in a chat log or an inbox. Everything is encrypted in your browser before it is uploaded, and we cannot read it. That design is the whole point, and it also means we can only act on what we are told, not on what we see.
 
 ## What you may not do
 
-Do not use the service to share:
+Do not use this instance to share:
 
 - content that is illegal where you or the recipient live, including material that exploits or endangers children;
 - malware, exploits aimed at third parties, or credentials that are not yours to share;
 - stolen data, or personal information about people who have not agreed to it being passed on;
 - anything intended to harass, threaten, defraud or deceive.
 
-Do not use the service as:
+Do not use this instance as:
 
 - a general file host, a download mirror or a backup target; links are meant to be opened once or a few times by a known recipient;
 - a relay for automated traffic that circumvents the rate limits, including through many addresses or many API keys;

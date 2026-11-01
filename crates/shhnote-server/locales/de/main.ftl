@@ -316,6 +316,7 @@ how-t-threat-3-title = Die ehrlichen Einschränkungen
 how-t-threat-3-body = Wer den vollständigen Link (und ggf. die Passphrase) hat, kann das Geheimnis lesen; behandle den Link also wie das Geheimnis selbst. Wie bei jeder Web-App vertraust du dem Code, der an deinen Browser geliefert wird; deshalb ist { -brand } quelloffen und selbst hostbar. Der Server sieht Anfragen, während sie passieren, inklusive der IP-Adresse, behält davon aber nichts.
 how-t-spec-eyebrow = Kryptografische Spezifikation
 how-t-spec-title = Jedes Verfahren an einem Ort
+how-t-spec-link = Vollständige Spezifikation, Konformitätsvektoren und Anleitung zum Selbsthosten: die Projektseite
 how-t-faq-eyebrow = Technische FAQ
 how-t-faq-title = Für Sicherheitsinteressierte
 how-t-faq-1-q = Wie wird die Einmaligkeit bei gleichzeitigen Zugriffen sichergestellt?

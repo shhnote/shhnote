@@ -111,6 +111,9 @@
       <header class="section__header">
         <p class="eyebrow">{{ ctx.t("how-t-spec-eyebrow") }}</p>
         <h2>{{ ctx.t("how-t-spec-title") }}</h2>
+        {%- if !ctx.project_or_source_url().is_empty() %}
+        <p><a href="{{ ctx.project_or_source_url() }}" rel="noopener">{{ ctx.t("how-t-spec-link") }}</a></p>
+        {%- endif %}
       </header>
       {% include "partials/spec_sheet.html" %}
     </div>

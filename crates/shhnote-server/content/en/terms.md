@@ -4,7 +4,7 @@
 
 ## Who we are
 
-This service is run by [operator name], [address] ("we", "us"). By using it, you agree to these terms.
+This instance of shhnote is run by [operator name], [address] ("we", "us"). By using it, you agree to these terms.
 
 ## What the service does
 
@@ -12,7 +12,7 @@ You can create encrypted notes and file uploads ("secrets") and share them with 
 
 ## Your responsibilities
 
-You must not use the service to:
+You must not use this instance to:
 
 - share anything that is illegal where you or the recipient live;
 - share malware, or content meant to deceive, harass or harm others;
