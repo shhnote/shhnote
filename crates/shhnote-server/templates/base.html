@@ -54,6 +54,9 @@
             <li><a href="{{ ctx.href("/docs") }}">{{ ctx.t("page-docs") }}</a></li>
             <li><a href="{{ ctx.href("/about") }}">{{ ctx.t("nav-about") }}</a></li>
             <li><a href="{{ ctx.href("/contact") }}">{{ ctx.t("nav-contact") }}</a></li>
+            {%- if !ctx.project_url().is_empty() %}
+            <li><a href="{{ ctx.project_url() }}" rel="noopener">{{ ctx.t("footer-project") }}</a></li>
+            {%- endif %}
             {%- if !ctx.repo_url().is_empty() %}
             <li><a href="{{ ctx.repo_url() }}" rel="noopener">{{ ctx.t("footer-source") }}</a></li>
             {%- endif %}

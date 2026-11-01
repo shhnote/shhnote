@@ -223,6 +223,10 @@ impl Ctx<'_> {
         self.shared.settings.load().source_url.clone()
     }
 
+    pub(crate) fn project_url(&self) -> String {
+        self.shared.settings.load().project_url.clone()
+    }
+
     // The strings the page script needs, as a JSON object. `<` is escaped so a translation can
     // never close the `<script>` block it is embedded in.
     pub(crate) fn ui_json(&self) -> String {
@@ -457,6 +461,13 @@ fn doc_page(state: &PageState, doc: Doc, path: &str, title_key: &str) -> Respons
         state.shared.site_url.trim_end_matches('/'),
         state.locale
     );
+    // `{{project_url}}` is the project page, or the source link while none is set.
+    let settings = state.shared.settings.load();
+    let project = if settings.project_url.is_empty() {
+        settings.source_url.clone()
+    } else {
+        settings.project_url.clone()
+    };
     let body = state
         .shared
         .content
@@ -464,7 +475,9 @@ fn doc_page(state: &PageState, doc: Doc, path: &str, title_key: &str) -> Respons
         .replace("{{site_url}}", &site)
         .replace("%7B%7Bsite_url%7D%7D", &site)
         .replace("{{api_url}}", &state.shared.api_url)
-        .replace("%7B%7Bapi_url%7D%7D", &state.shared.api_url);
+        .replace("%7B%7Bapi_url%7D%7D", &state.shared.api_url)
+        .replace("{{project_url}}", &project)
+        .replace("%7B%7Bproject_url%7D%7D", &project);
     render(state, DocPage { ctx, title, body })
 }
 

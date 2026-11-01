@@ -57,6 +57,9 @@ pub struct Settings {
     pub security_email: String,
     // Link to the running code, shown in the footer; empty hides it.
     pub source_url: String,
+    // The project's own page (a fork's site, say), shown in the footer next to the source
+    // link; empty hides it. Content pages fall back to `source_url` for `{{project_url}}`.
+    pub project_url: String,
     pub padding: PaddingPolicy,
     pub claim_window_secs: i64,
     pub min_ttl_secs: i64,
@@ -90,6 +93,7 @@ impl Default for Settings {
             contact_email: String::new(),
             security_email: String::new(),
             source_url: "https://github.com/shhnote/shhnote".into(),
+            project_url: String::new(),
             padding: PaddingPolicy::Padme {
                 min: PaddingPolicy::DEFAULT_MIN,
             },
@@ -142,6 +146,7 @@ impl Settings {
                 }
                 "contact_email" => email(value).map(|v| s.contact_email = v),
                 "source_url" => web_url(value, allow_http).map(|v| s.source_url = v),
+                "project_url" => web_url(value, allow_http).map(|v| s.project_url = v),
                 "security_email" => email(value).map(|v| s.security_email = v),
                 "padding_mode" => match value {
                     "padme" | "buckets" => {
@@ -269,6 +274,7 @@ impl Settings {
             ("contact_email", self.contact_email.clone()),
             ("security_email", self.security_email.clone()),
             ("source_url", self.source_url.clone()),
+            ("project_url", self.project_url.clone()),
             ("padding_mode", padding_mode.to_string()),
             ("padding_min", padding_min),
             ("padding_ladder", padding_ladder),
@@ -456,6 +462,7 @@ mod tests {
         let region = r#"[{"code":"eu","name":"EU","url":"http://eu.example"}]"#;
         for (key, value) in [
             ("source_url", "http://example.com/src"),
+            ("project_url", "http://example.com/"),
             ("regions", region),
         ] {
             let (s, warnings) =
@@ -494,6 +501,7 @@ mod tests {
             ("daily_retention_days", "0"),
             ("daily_retention_days", "9223372036854775807"),
             ("source_url", "javascript:alert(1)"),
+            ("project_url", "javascript:alert(1)"),
             ("contact_email", "a@b.c\"><x"),
             (
                 "regions",

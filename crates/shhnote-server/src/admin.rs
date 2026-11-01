@@ -409,6 +409,7 @@ const GROUPS: &[(&str, &[&str])] = &[
             "contact_email",
             "security_email",
             "source_url",
+            "project_url",
             "regions",
         ],
     ),

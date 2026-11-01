@@ -747,6 +747,44 @@ async fn spec_settings_markup_is_escaped_in_pages() {
     assert!(!settings_page.contains("<script>alert(1)</script>"));
 }
 
+// `project_url`: footer link when set, never on /config, same URL rule as `source_url`.
+#[tokio::test]
+async fn spec_project_url_is_footer_only() {
+    let (app, _) = build("spec-admin-project-url").await;
+    let auth = bearer(BOOTSTRAP);
+    let home = get(&app, "/en", "").await.text();
+    assert!(
+        !home.contains(">Project<"),
+        "project link shown while unset"
+    );
+    let set = admin_api(
+        &app,
+        Method::PATCH,
+        "/settings",
+        &auth,
+        Some(json!({"project_url": "https://project.example/"})),
+    )
+    .await;
+    assert_eq!(set.status, StatusCode::OK, "{}", set.text());
+    let home = get(&app, "/en", "").await.text();
+    assert!(
+        home.contains(r#"href="https://project.example/" rel="noopener">Project<"#),
+        "{home}"
+    );
+    assert!(home.contains(">Source code<"), "source link lost");
+    let config = get(&app, "/api/v1/config", "").await.text();
+    assert!(!config.contains("project"), "{config}");
+    let bad = admin_api(
+        &app,
+        Method::PATCH,
+        "/settings",
+        &auth,
+        Some(json!({"project_url": "javascript:alert(1)"})),
+    )
+    .await;
+    assert_eq!(bad.status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
 // SPEC §7.2: region and source URLs are https:// only (http:// when SHH_ENV is local), so no
 // javascript: or data: link ever reaches a page.
 #[tokio::test]
