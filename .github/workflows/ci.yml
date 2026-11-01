@@ -71,6 +71,9 @@ jobs:
         working-directory: client
         run: npm test
 
+      - name: Client package builds
+        run: scripts/pack-client.sh
+
   audit:
     # Advisories, licenses and sources for the Rust tree (deny.toml); advisories for the
     # client's dev dependencies.

@@ -1,19 +1,56 @@
 {
   "name": "@shhnote/client",
-  "private": true,
   "version": "0.1.0",
-  "type": "module",
-  "description": "shhnote client: encrypts and decrypts secrets in the browser against the shhnote API",
+  "description": "shhnote client: the protocol, the API client and the reference page controllers for building secret-sharing frontends against a shhnote instance",
   "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shhnote/shhnote.git",
+    "directory": "client"
+  },
+  "homepage": "https://github.com/shhnote/shhnote#readme",
+  "keywords": [
+    "shhnote",
+    "secret-sharing",
+    "end-to-end-encryption",
+    "argon2",
+    "webcrypto"
+  ],
+  "type": "module",
+  "sideEffects": false,
   "engines": {
     "node": ">=24"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./crypto": {
+      "types": "./dist/crypto/index.d.ts",
+      "default": "./dist/crypto/index.js"
+    },
+    "./ui": {
+      "types": "./dist/ui/index.d.ts",
+      "default": "./dist/ui/index.js"
+    },
+    "./argon2.wasm": "./argon2.wasm"
+  },
+  "files": [
+    "dist",
+    "argon2.wasm"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "scripts": {
     "test": "node --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "build:lib": "esbuild src/index.ts --bundle --format=esm --target=es2022 --outfile=../crates/shhnote-server/static/shh.js",
     "build:app": "esbuild src/main.ts --bundle --format=esm --target=es2022 --outfile=../crates/shhnote-server/static/app.js",
-    "build:ui": "esbuild src/ui/index.ts --bundle --format=esm --target=es2022 --outfile=../crates/shhnote-server/static/shh-ui.js"
+    "build:ui": "esbuild src/ui/index.ts --bundle --format=esm --target=es2022 --outfile=../crates/shhnote-server/static/shh-ui.js",
+    "build:package": "tsc -p tsconfig.build.json"
   },
   "devDependencies": {
     "@types/node": "26.6.6",

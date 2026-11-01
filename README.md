@@ -47,6 +47,10 @@ The layout: `crates/shhnote-core` (protocol), `crates/shhnote-store` (database),
 
 Everything the website does goes through the JSON API, documented on every instance at `/en/docs`. The `shh.js` module served at `/static/shh.js` implements the protocol for scripts and other clients; it runs in browsers and in Node.
 
+## Use the client in your own frontend
+
+The browser side is published as [`@shhnote/client`](https://www.npmjs.com/package/@shhnote/client), with three entry points: `@shhnote/client/crypto` (the protocol, no network, no DOM), `@shhnote/client` (adds the API client, `createSecret`/`revealSecret`/`burnSecret` and the frontend-safety helpers, still no DOM) and `@shhnote/client/ui` (the reference page controllers, which bind to `data-shh-*` attributes and take their strings from you). `@shhnote/client/argon2.wasm` is the Argon2id module to serve from your own origin. Every instance also serves the root and `/ui` entries as `/static/shh.js` and `/static/shh-ui.js` for frontends without a build step. `scripts/pack-client.sh` builds the package; releases publish it. A frontend built on it should meet `docs/frontend-conformance.md`.
+
 ## Licence
 
 AGPL-3.0-only. See [`LICENSE`](LICENSE).
