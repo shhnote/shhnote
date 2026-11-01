@@ -252,13 +252,9 @@ impl Ctx<'_> {
         self.shared.i18n.t(self.locale, key, None)
     }
 
-    // Builds keys like `hood-3-label` for templates that loop over numbered items.
+    // Builds keys like `how-s-2-title` for templates that loop over numbered items.
     pub(crate) fn tn(&self, prefix: &str, n: &str, suffix: &str) -> String {
         self.t(&format!("{prefix}{n}{suffix}"))
-    }
-
-    pub(crate) fn tn2(&self, prefix: &str, a: &str, mid: &str, b: &str) -> String {
-        self.t(&format!("{prefix}{a}{mid}{b}"))
     }
 
     pub(crate) fn t_args(&self, key: &str, args: &FluentArgs) -> String {
@@ -547,8 +543,14 @@ fn doc_page(state: &PageState, doc: Doc, path: &str, title_key: &str) -> Respons
         state.shared.site_url.trim_end_matches('/'),
         state.locale
     );
-    // `{{project_url}}` is the project page, or the source link while none is set.
+    // `{{project_url}}` is the project page, or the source link while none is set; the
+    // security address falls back to the contact address while none is set.
     let settings = state.shared.settings.load();
+    let security_email = if settings.security_email.is_empty() {
+        &settings.contact_email
+    } else {
+        &settings.security_email
+    };
     let project = if settings.project_url.is_empty() {
         settings.source_url.clone()
     } else {
@@ -564,7 +566,10 @@ fn doc_page(state: &PageState, doc: Doc, path: &str, title_key: &str) -> Respons
         .replace("%7B%7Bapi_url%7D%7D", &state.shared.api_url)
         .replace("{{project_url}}", &project)
         .replace("%7B%7Bproject_url%7D%7D", &project)
-        .replace("{{version}}", crate::api::SERVER_VERSION);
+        .replace("{{version}}", crate::api::SERVER_VERSION)
+        .replace("{{site_name}}", &settings.site_name)
+        .replace("{{contact_email}}", &settings.contact_email)
+        .replace("{{security_email}}", security_email);
     render(state, DocPage { ctx, title, body })
 }
 

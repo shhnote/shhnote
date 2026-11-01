@@ -15,7 +15,7 @@
           <h1 class="panel__heading">{{ ctx.t("burn-title") }}</h1>
           <p>{{ ctx.t("burn-intro") }}</p>
         </div>
-        <noscript><p class="callout callout--notice">{{ ctx.t("noscript-view") }}</p></noscript>
+        <noscript><p class="callout callout--notice">{{ ctx.t("noscript-page") }}</p></noscript>
         <form class="stack" data-shh-form="burn" hidden>
           <button type="submit" class="btn btn--danger btn--lg w-full">{% call icons::icon("trash", 16) %}{% endcall %}<span>{{ ctx.t("burn-confirm") }}</span></button>
           <p class="status" role="status" aria-live="polite" data-shh-status></p>

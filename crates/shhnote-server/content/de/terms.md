@@ -4,7 +4,7 @@
 
 ## Wer wir sind
 
-Diese Instanz von shhnote wird von [Name des Betreibers], [Anschrift] („wir“, „uns“) betrieben. Mit der Nutzung stimmst du diesen Bedingungen zu.
+{{site_name}} („diese Website“) wird von [Name des Betreibers], [Anschrift] („wir“, „uns“) betrieben. Mit der Nutzung stimmst du diesen Bedingungen zu.
 
 ## Was der Dienst tut
 
@@ -12,7 +12,7 @@ Du kannst verschlüsselte Notizen und Dateien („Geheimnisse“) erstellen und 
 
 ## Deine Pflichten
 
-Du darfst diese Instanz nicht nutzen, um:
+Du darfst diese Website nicht nutzen, um:
 
 - etwas zu teilen, das dort verboten ist, wo du oder die empfangende Person lebt;
 - Schadsoftware oder Inhalte zu teilen, die andere täuschen, belästigen oder schädigen sollen;
@@ -38,4 +38,4 @@ Wir können diese Bedingungen ändern. Das Datum oben zeigt, wann sie zuletzt ge
 
 ## Kontakt
 
-Fragen zu diesen Bedingungen: [Kontakt-E-Mail].
+Fragen zu diesen Bedingungen: {{contact_email}}.

@@ -4,7 +4,7 @@
 
 ## Who we are
 
-This instance of shhnote is run by [operator name], [address] ("we", "us"). By using it, you agree to these terms.
+{{site_name}} ("this site") is run by [operator name], [address] ("we", "us"). By using it, you agree to these terms.
 
 ## What the service does
 
@@ -12,7 +12,7 @@ You can create encrypted notes and file uploads ("secrets") and share them with 
 
 ## Your responsibilities
 
-You must not use this instance to:
+You must not use this site to:
 
 - share anything that is illegal where you or the recipient live;
 - share malware, or content meant to deceive, harass or harm others;
@@ -38,4 +38,4 @@ We may update these terms. The date at the top shows when they last changed. Con
 
 ## Contact
 
-Questions about these terms: [contact email].
+Questions about these terms: {{contact_email}}.

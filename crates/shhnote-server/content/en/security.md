@@ -20,7 +20,7 @@
 
 ## Reporting a vulnerability
 
-If you think you've found a security problem, please email [security email] and tell us privately before telling anyone else. Include what you found and how to reproduce it.
+If you think you've found a security problem, please email {{security_email}} and tell us privately before telling anyone else. Include what you found and how to reproduce it.
 
 We will:
 

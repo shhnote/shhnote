@@ -20,7 +20,7 @@
 
 ## Sicherheitslücke melden
 
-Wenn du glaubst, ein Sicherheitsproblem gefunden zu haben, schreib bitte an [Sicherheits-E-Mail] und informiere uns vertraulich, bevor du es anderen erzählst. Beschreibe, was du gefunden hast und wie es sich nachvollziehen lässt.
+Wenn du glaubst, ein Sicherheitsproblem gefunden zu haben, schreib bitte an {{security_email}} und informiere uns vertraulich, bevor du es anderen erzählst. Beschreibe, was du gefunden hast und wie es sich nachvollziehen lässt.
 
 Wir werden:
 

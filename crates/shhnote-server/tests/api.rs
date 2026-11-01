@@ -1174,7 +1174,10 @@ async fn markdown_pages_render_with_instance_urls() {
     }
     let api = text(&get_page(&app, "/en/docs", "").await);
     assert!(api.contains("http://localhost:3000/api/v1"), "{api}");
-    assert!(api.contains(r#"href="http://localhost:3000/en/how-it-works#technical""#));
+    assert!(
+        api.contains(r#"href="https://github.com/shhnote/shhnote""#),
+        "the docs page links the protocol specification at the project"
+    );
 }
 
 // --- admin API

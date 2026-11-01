@@ -4,7 +4,7 @@
 
 ## Kurz gesagt
 
-Diese Instanz von shhnote wird von dem am Ende dieser Seite genannten Betreiber betrieben. Wir können deine Geheimnisse nicht lesen. Sie werden auf deinem Gerät verschlüsselt, und der Schlüssel erreicht uns nie. Alles andere speichern wir so wenig und so kurz wie möglich.
+{{site_name}} („diese Website“) wird von dem am Ende dieser Seite genannten Betreiber betrieben. Wir können deine Geheimnisse nicht lesen. Sie werden auf deinem Gerät verschlüsselt, und der Schlüssel erreicht uns nie. Alles andere speichern wir so wenig und so kurz wie möglich.
 
 ## Was wir speichern
 
@@ -38,8 +38,8 @@ Wie die meisten Websites kann unser Server technische Angaben zu jeder Anfrage k
 
 ## Deine Rechte
 
-Je nachdem, wo du lebst, hast du das Recht zu erfahren, welche Daten wir über dich haben, und sie berichtigen oder löschen zu lassen. Da wir kaum etwas speichern, das dich identifiziert, gibt es meist wenig mitzuteilen. Schreib uns an [Kontakt-E-Mail].
+Je nachdem, wo du lebst, hast du das Recht zu erfahren, welche Daten wir über dich haben, und sie berichtigen oder löschen zu lassen. Da wir kaum etwas speichern, das dich identifiziert, gibt es meist wenig mitzuteilen. Schreib uns an {{contact_email}}.
 
 ## Kontakt
 
-[Name des Betreibers], [Anschrift], [Kontakt-E-Mail].
+[Name des Betreibers], [Anschrift], {{contact_email}}.

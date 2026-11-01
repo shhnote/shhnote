@@ -1,4 +1,4 @@
-Everything the website does goes through this API, and anything else can use it the same way: scripts, bots, password managers, your own client. This instance runs shhnote {{version}}. The server only ever handles encrypted blobs, so a client has to do the cryptography itself. The protocol is small and pinned by test vectors; the [technical details]({{site_url}}/how-it-works#technical) page describes it, and the `shh.js` library and `vectors/v1.json` in the source repository implement and verify it.
+Everything the website does goes through this API, and anything else can use it the same way: scripts, bots, password managers, your own client. This instance runs shhnote {{version}}. The server only ever handles encrypted blobs, so a client has to do the cryptography itself. The protocol is small and pinned by test vectors; the [specification]({{project_url}}) describes it, and the `shh.js` library and `vectors/v1.json` in the source repository implement and verify it.
 
 Base URL: `{{api_url}}/v1`. Requests and responses are JSON unless noted. Secret identifiers travel only in request bodies and never in paths or query strings.
 
@@ -102,21 +102,6 @@ Anyone holding a link may report it. If the secret is active it is removed immed
 
 Requests may carry `Authorization: Bearer <key>`. A key with the `user` scope moves rate limiting from your network address to the key, with higher limits, and is required to create secrets on instances that are configured that way. Keys are issued by the operator in the admin panel and are never associated with any secret.
 
-## Admin API
-
-The admin panel's operations are available as JSON under `/admin`, for operators who script their instance. Every request needs `Authorization: Bearer <key>` with an **admin**-scoped key; on a fresh install the bootstrap token from `SHH_ADMIN_TOKEN` is accepted instead, until the first admin key exists. Anything else gets **401 `unauthorized`**, and repeated failures from one client are rate-limited like panel logins. Responses carry `Cache-Control: no-store`.
-
-| Request | Body | Response |
-|---|---|---|
-| `GET /admin/stats?days=30` | – | lifetime totals, the live `active` count and the last `days` days (1–400), daily report counts included |
-| `GET /admin/settings` | – | `values`, `defaults` and the list of `overridden` keys, all values as strings |
-| `PATCH /admin/settings` | `{key: value, …}` | the same shape after saving; strings, numbers, booleans and lists of scalars are accepted, `null` resets a key to its default |
-| `GET /admin/keys` | – | keys with `id` (hex of the key's hash), `name`, `scope`, `created_at`, `last_used_at` |
-| `POST /admin/keys` | `{"name": …, "scope": "admin" \| "user"}` | **201** with the key itself, shown this once |
-| `POST /admin/keys/delete` | `{"id": …}` | **204**; deleting the key you are using ends your access |
-
-A settings patch is merged over the current values and validated as a whole; on any problem nothing changes and the answer is **422 `invalid_settings`** with a `details` list. Changes apply immediately, without a restart.
-
 ## Building a client
 
 The quickest route is the `shh.js` module served by every instance at `/static/shh.js`, which also runs under Node. It wraps the whole flow in four calls and takes a fetch implementation of your choice:
@@ -139,4 +124,4 @@ await burnSecret(`#${burnFragment}`, api); // 404 now: it was single-view
 
 Passphrase-protected secrets additionally need `argon2: await Argon2.load(wasmBytes)` with the module from `/static/argon2.wasm`. A passphrase is a non-empty string: `""` is refused (`empty_passphrase`), and omitting the option is the only way to mean no passphrase. A failure after a single-view secret was claimed (a wrong passphrase, a dropped connection) carries a `claimToken`; pass it as `claimToken` on the retry and the secret is downloaded again instead of being lost, and `confirm: false` returns it on success for the same purpose.
 
-Derive the values the API expects from the 32-byte seed in the share link: `lookup = HKDF-SHA-256(seed, info "shhnote/lookup/v1")`, send it base64url-encoded. The burn token is a separate random 32 bytes the creator keeps. Blob layout, key wrapping, chunking and padding are specified on the [technical details]({{site_url}}/how-it-works#technical) page and pinned byte for byte by the [conformance vectors]({{project_url}}); a client that reproduces them is compatible with every instance. To run an instance of your own, start at [the project]({{project_url}}).
+Derive the values the API expects from the 32-byte seed in the share link: `lookup = HKDF-SHA-256(seed, info "shhnote/lookup/v1")`, send it base64url-encoded. The burn token is a separate random 32 bytes the creator keeps. Blob layout, key wrapping, chunking and padding are specified in the [protocol specification]({{project_url}}) and pinned byte for byte by its conformance vectors; a client that reproduces them is compatible with every instance. To run an instance of your own, start at [the project]({{project_url}}).

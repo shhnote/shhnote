@@ -1,4 +1,4 @@
-Alles, was die Website tut, läuft über diese API, und alles andere kann sie genauso nutzen: Skripte, Bots, Passwortmanager, ein eigener Client. Diese Instanz läuft mit shhnote {{version}}. Der Server verarbeitet ausschließlich verschlüsselte Blobs, also muss ein Client die Kryptografie selbst erledigen. Das Protokoll ist klein und durch Testvektoren festgenagelt; die Seite [Technische Details]({{site_url}}/how-it-works#technical) beschreibt es, und die Bibliothek `shh.js` sowie `vectors/v1.json` im Quell-Repository implementieren und prüfen es.
+Alles, was die Website tut, läuft über diese API, und alles andere kann sie genauso nutzen: Skripte, Bots, Passwortmanager, ein eigener Client. Diese Instanz läuft mit shhnote {{version}}. Der Server verarbeitet ausschließlich verschlüsselte Blobs, also muss ein Client die Kryptografie selbst erledigen. Das Protokoll ist klein und durch Testvektoren festgenagelt; die [Spezifikation]({{project_url}}) beschreibt es, und die Bibliothek `shh.js` sowie `vectors/v1.json` im Quell-Repository implementieren und prüfen es.
 
 Basis-URL: `{{api_url}}/v1`. Anfragen und Antworten sind JSON, sofern nicht anders angegeben. Kennungen von Geheimnissen reisen nur in Anfragekörpern, nie in Pfaden oder Query-Strings.
 
@@ -102,21 +102,6 @@ Wer einen Link hat, darf ihn melden. Ist das Geheimnis aktiv, wird es sofort ent
 
 Anfragen können `Authorization: Bearer <Schlüssel>` tragen. Ein Schlüssel mit dem Bereich `user` verlagert das Ratenlimit von der Netzwerkadresse auf den Schlüssel, mit höheren Limits, und ist auf entsprechend konfigurierten Instanzen zum Erstellen von Geheimnissen erforderlich. Schlüssel vergibt der Betreiber im Admin-Bereich; sie werden nie mit einem Geheimnis verknüpft.
 
-## Admin-API
-
-Die Operationen des Admin-Bereichs stehen als JSON unter `/admin` bereit, für Betreiber, die ihre Instanz skripten. Jede Anfrage braucht `Authorization: Bearer <Schlüssel>` mit einem Schlüssel des Bereichs **admin**; bei einer frischen Installation wird stattdessen das Bootstrap-Token aus `SHH_ADMIN_TOKEN` akzeptiert, bis der erste Admin-Schlüssel existiert. Alles andere erhält **401 `unauthorized`**, und wiederholte Fehlversuche eines Clients werden wie Anmeldungen am Admin-Bereich limitiert. Antworten tragen `Cache-Control: no-store`.
-
-| Anfrage | Körper | Antwort |
-|---|---|---|
-| `GET /admin/stats?days=30` | – | Gesamtsummen, die aktuelle Zahl `active` und die letzten `days` Tage (1–400), einschließlich der Meldungen pro Tag |
-| `GET /admin/settings` | – | `values`, `defaults` und die Liste der `overridden` Schlüssel, alle Werte als Strings |
-| `PATCH /admin/settings` | `{key: value, …}` | dieselbe Form nach dem Speichern; Strings, Zahlen, Booleans und Listen von Skalaren werden angenommen, `null` setzt einen Schlüssel auf den Standard zurück |
-| `GET /admin/keys` | – | Schlüssel mit `id` (Hex des Hashes), `name`, `scope`, `created_at`, `last_used_at` |
-| `POST /admin/keys` | `{"name": …, "scope": "admin" \| "user"}` | **201** mit dem Schlüssel selbst, dieses eine Mal |
-| `POST /admin/keys/delete` | `{"id": …}` | **204**; wer den gerade verwendeten Schlüssel löscht, verliert den Zugang |
-
-Ein Settings-Patch wird über die aktuellen Werte gelegt und als Ganzes geprüft; bei jedem Problem ändert sich nichts und die Antwort ist **422 `invalid_settings`** mit einer Liste `details`. Änderungen gelten sofort, ohne Neustart.
-
 ## Einen Client bauen
 
 Der schnellste Weg ist das Modul `shh.js`, das jede Instanz unter `/static/shh.js` ausliefert und das auch unter Node läuft. Es fasst den gesamten Ablauf in vier Aufrufen zusammen und nimmt eine fetch-Implementierung deiner Wahl:
@@ -139,4 +124,4 @@ await burnSecret(`#${burnFragment}`, api); // jetzt 404: es war einmalig
 
 Mit Passphrase geschützte Geheimnisse brauchen zusätzlich `argon2: await Argon2.load(wasmBytes)` mit dem Modul von `/static/argon2.wasm`. Eine Passphrase ist eine nicht-leere Zeichenkette: `""` wird abgewiesen (`empty_passphrase`), und nur das Weglassen der Option bedeutet „keine Passphrase“. Schlägt etwas fehl, nachdem ein Einmal-Geheimnis beansprucht wurde (falsche Passphrase, abgebrochene Verbindung), trägt der Fehler ein `claimToken`; wird es beim nächsten Versuch als `claimToken` übergeben, wird das Geheimnis erneut geladen statt verloren zu gehen. `confirm: false` liefert es bei Erfolg zum selben Zweck zurück.
 
-Leite die Werte, die die API erwartet, aus dem 32-Byte-Seed im Teilen-Link ab: `lookup = HKDF-SHA-256(seed, info "shhnote/lookup/v1")`, base64url-kodiert gesendet. Das Brenn-Token sind separate zufällige 32 Bytes, die der Ersteller behält. Blob-Aufbau, Schlüsselumhüllung, Chunking und Auffüllung sind auf der Seite [Technische Details]({{site_url}}/how-it-works#technical) spezifiziert und durch die [Konformitätsvektoren]({{project_url}}) byteweise festgelegt; ein Client, der sie reproduziert, ist mit jeder Instanz kompatibel. Wie du eine eigene Instanz betreibst, beschreibt [das Projekt]({{project_url}}).
+Leite die Werte, die die API erwartet, aus dem 32-Byte-Seed im Teilen-Link ab: `lookup = HKDF-SHA-256(seed, info "shhnote/lookup/v1")`, base64url-kodiert gesendet. Das Brenn-Token sind separate zufällige 32 Bytes, die der Ersteller behält. Blob-Aufbau, Schlüsselumhüllung, Chunking und Auffüllung sind in der [Protokollspezifikation]({{project_url}}) festgelegt und durch deren Konformitätsvektoren byteweise festgeschrieben; ein Client, der sie reproduziert, ist mit jeder Instanz kompatibel. Wie du eine eigene Instanz betreibst, beschreibt [das Projekt]({{project_url}}).
