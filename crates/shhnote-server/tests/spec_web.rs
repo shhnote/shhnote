@@ -423,3 +423,61 @@ async fn spec_assets_redirects_and_accept_language() {
         }
     }
 }
+
+// SPEC §7.1 / D-24: in `SHH_WEB=api` mode no public page exists, the locale redirect is gone,
+// and the API, the admin panel and `/static/*` still answer; the 404s carry the headers.
+#[tokio::test]
+async fn spec_api_mode_serves_no_pages() {
+    let app = build("spec-web-api-mode", &[("SHH_WEB", "api")]).await;
+    let host = "localhost";
+    for path in [
+        "/",
+        "/s",
+        "/en",
+        "/en/s",
+        "/en/burn",
+        "/en/docs",
+        "/en/privacy",
+        "/nope",
+    ] {
+        let r = fetch(&app, host, Method::GET, path, None, None, "").await;
+        assert_eq!(r.status, StatusCode::NOT_FOUND, "{path}");
+        assert!(
+            r.headers.contains_key("content-security-policy")
+                && r.headers.contains_key("x-frame-options"),
+            "{path}: headers missing on the 404"
+        );
+        assert!(!r.body.contains("<html"), "{path}: a page was rendered");
+    }
+    for path in [
+        "/static/app.css?v=x",
+        "/static/shh.js",
+        "/static/shh-ui.js",
+        "/static/argon2.wasm",
+        "/en/admin/login",
+        "/api/v1/health",
+    ] {
+        let r = fetch(&app, host, Method::GET, path, None, None, "").await;
+        assert_eq!(r.status, StatusCode::OK, "{path}");
+    }
+    let config = fetch(&app, host, Method::GET, "/api/v1/config", None, None, "").await;
+    assert!(
+        config.body.contains(r#""web_mode":"api""#),
+        "{}",
+        config.body
+    );
+
+    let full = build("spec-web-full-mode", &[]).await;
+    let config = fetch(&full, host, Method::GET, "/api/v1/config", None, None, "").await;
+    assert!(
+        config.body.contains(r#""web_mode":"full""#),
+        "{}",
+        config.body
+    );
+    assert_eq!(
+        fetch(&full, host, Method::GET, "/en", None, None, "")
+            .await
+            .status,
+        StatusCode::OK
+    );
+}

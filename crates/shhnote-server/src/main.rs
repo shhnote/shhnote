@@ -48,7 +48,7 @@ async fn main() {
                 shhnote_server::log_error!("database error: {e}");
                 std::process::exit(1);
             }
-            println!("ok");
+            println!("ok (SHH_WEB={})", config.web.as_str());
             return;
         }
         Some("reset-admin") => {

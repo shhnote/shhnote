@@ -13,6 +13,7 @@ Deployment settings come from the environment (or a `.env` file in the working d
 | `SHH_HOST`, `SHH_PORT` | | Bind address, default `127.0.0.1:3000`. Containers set `0.0.0.0`. |
 | `SHH_TRUSTED_PROXIES` | behind a proxy | Addresses or CIDR ranges whose `X-Forwarded-For` is honoured. |
 | `SHH_API_ROUTING` | | `path` (API at `/api`, default) or `subdomain` (API at `api.<host>`). |
+| `SHH_WEB` | | `full` (the built-in website, default) or `api` (API, admin panel and `/static/*` only; every other page is 404, for a frontend of your own). |
 | `SHH_LOCALES`, `SHH_DEFAULT_LOCALE` | | Languages offered (default all: `en`, `de`) and where unmatched browsers land. |
 | `SHH_LOG_LEVEL` | | `error` (default), `warn`, `info`, `debug`, `trace`. Nothing per request is logged at any level. |
 | `SHH_DB` | yes | `sqlite` or `postgres`. |

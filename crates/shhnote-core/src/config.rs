@@ -27,6 +27,7 @@ const KNOWN: &[&str] = &[
     "SHH_DEBUG",
     "SHH_URL",
     "SHH_API_ROUTING",
+    "SHH_WEB",
     "SHH_SECRET_KEY",
     "SHH_HOST",
     "SHH_PORT",
@@ -74,6 +75,8 @@ pub struct Config {
     pub url: String,
     pub api_routing: ApiRouting,
     pub api_url: String,
+    // What the server serves besides the API (D-24).
+    pub web: WebMode,
     pub secret_key: Secret,
     pub bind_addr: SocketAddr,
     pub log_level: LogLevel,
@@ -94,6 +97,23 @@ pub struct Config {
 pub enum AppEnv {
     Local,
     Production,
+}
+
+// `full`: website, API, admin and static assets. `api`: API, admin and `/static/*` only;
+// every other public route is 404, for operators who run their own frontend (D-24).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WebMode {
+    Full,
+    Api,
+}
+
+impl WebMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::Api => "api",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -415,6 +435,7 @@ impl Config {
             url,
             api_routing,
             api_url,
+            web: vars.parse_or("SHH_WEB", WebMode::Full)?,
             secret_key: vars.key("SHH_SECRET_KEY")?,
             bind_addr: SocketAddr::new(host, port),
             log_level: vars.parse_or("SHH_LOG_LEVEL", LogLevel::Error)?,
@@ -572,6 +593,18 @@ impl FromStr for AppEnv {
             "local" => Ok(Self::Local),
             "production" => Ok(Self::Production),
             _ => Err("must be local or production"),
+        }
+    }
+}
+
+impl FromStr for WebMode {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "full" => Ok(Self::Full),
+            "api" => Ok(Self::Api),
+            _ => Err("must be full or api"),
         }
     }
 }
@@ -957,6 +990,19 @@ mod tests {
         );
         let vars = with(&[("SHH_MAX_UPLOADS", "0")]);
         assert_eq!(invalid_name(Config::from_vars(&vars)), "SHH_MAX_UPLOADS");
+    }
+
+    #[test]
+    fn web_mode_defaults_to_full() {
+        assert_eq!(Config::from_vars(&with(&[])).unwrap().web, WebMode::Full);
+        assert_eq!(
+            Config::from_vars(&with(&[("SHH_WEB", "api")])).unwrap().web,
+            WebMode::Api
+        );
+        assert_eq!(
+            invalid_name(Config::from_vars(&with(&[("SHH_WEB", "none")]))),
+            "SHH_WEB"
+        );
     }
 
     #[test]

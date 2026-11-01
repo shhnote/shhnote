@@ -13,7 +13,7 @@ use axum::{
 };
 use fluent_bundle::FluentArgs;
 use shhnote_core::{
-    config::{ApiRouting, AppEnv, Config},
+    config::{ApiRouting, AppEnv, Config, WebMode},
     settings::SettingsCell,
 };
 use shhnote_store::Store;
@@ -109,10 +109,32 @@ pub fn router(config: &Config, api: &ApiState) -> Router {
             shared: shared.clone(),
             locale,
         };
-        router = router.nest(&format!("/{locale}"), pages(state));
+        let pages = match config.web {
+            WebMode::Full => pages(state),
+            WebMode::Api => admin_only(state),
+        };
+        router = router.nest(&format!("/{locale}"), pages);
     }
 
-    router.fallback_service(any(redirect_to_locale).with_state(offered))
+    match config.web {
+        WebMode::Full => router.fallback_service(any(redirect_to_locale).with_state(offered)),
+        // No public page and no locale redirect: a frontend elsewhere serves those (D-24).
+        WebMode::Api => router.fallback(no_page),
+    }
+}
+
+// `SHH_WEB=api`: the admin panel is the only page left under a locale.
+fn admin_only(state: PageState) -> Router {
+    Router::new()
+        .nest("/admin", admin::routes())
+        .fallback(no_page)
+        .with_state(state)
+}
+
+// A bare 404: not the error page, which is itself a public page. The security headers are
+// added by the outer layer like everywhere else.
+async fn no_page() -> Response {
+    (StatusCode::NOT_FOUND, "not found").into_response()
 }
 
 fn pages(state: PageState) -> Router {

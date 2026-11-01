@@ -15,8 +15,8 @@ use axum::{
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use shhnote_core::{
-    config::AppEnv,
     config::Config,
+    config::{AppEnv, WebMode},
     fragment,
     padding::PaddingPolicy,
     padding::blob_len,
@@ -47,6 +47,7 @@ pub struct ApiState {
     pub admin_token_hash: Option<[u8; 32]>,
     // Decides the URL rule for settings (SPEC §7.2).
     pub env: AppEnv,
+    pub web_mode: WebMode,
 }
 
 impl ApiState {
@@ -70,6 +71,7 @@ impl ApiState {
                 .as_ref()
                 .map(|t| credential_hash(t.expose().as_bytes())),
             env: config.env,
+            web_mode: config.web,
         }
     }
 }
@@ -164,6 +166,7 @@ struct ConfigResponse<'a> {
     text_max_bytes: u64,
     files_enabled: bool,
     regions: &'a [Region],
+    web_mode: &'static str,
 }
 
 #[derive(Serialize)]
@@ -192,6 +195,7 @@ async fn config(State(state): State<ApiState>) -> Response {
         text_max_bytes: settings.text_max_bytes,
         files_enabled: settings.files_enabled,
         regions: &settings.regions,
+        web_mode: state.web_mode.as_str(),
     })
     .into_response()
 }
