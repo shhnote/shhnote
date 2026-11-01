@@ -1,0 +1,12 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fixed test inputs, not credentials"
+paths = [
+    '''vectors/v1\.json''',
+]
+regexes = [
+    '''AKIAIOSFODNN7EXAMPLE''',            # AWS documented example access key (SigV4 test vectors)
+    '''wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY''',
+]
