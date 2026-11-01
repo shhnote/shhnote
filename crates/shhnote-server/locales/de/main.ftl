@@ -339,8 +339,10 @@ how-cta-source = Quellcode ansehen
 about-title = Über { -brand }
 about-lead = { -brand } ist ein einfacher Weg, Passwörter, Notizen und Dateien zu verschicken, die nicht dauerhaft herumliegen sollen.
 about-body-1 = Vertrauliches landet oft in Chatverläufen und Postfächern und bleibt dort jahrelang. { -brand } gibt dir einen Link, der nur eine begrenzte Zeit oder nur einmal funktioniert – danach ist das Geheimnis endgültig weg.
-about-body-2 = Wir haben { -brand } so gebaut, dass wir nicht lesen können, was du teilst. Dein Geheimnis wird auf deinem Gerät verschlüsselt, und der Schlüssel erreicht nie unsere Server.
+about-body-2 = { -brand } ist so gebaut, dass niemand, der es betreibt, lesen kann, was du teilst. Dein Geheimnis wird auf deinem Gerät verschlüsselt, und der Schlüssel erreicht nie den Server.
+about-body-3 = Diese Website ist eine Instanz von { -brand }, betrieben von dem auf der Kontaktseite genannten Betreiber. Die Software ist quelloffen, und jede Person kann eine eigene Instanz betreiben.
 about-how-link = Lies, wie es funktioniert
+about-project-link = Über das { -brand }-Projekt
 
 ## Contact
 

@@ -339,8 +339,10 @@ how-cta-source = View the source
 about-title = About { -brand }
 about-lead = { -brand } is a simple way to send passwords, notes and files that shouldn't stay around.
 about-body-1 = Sensitive things often end up in chat histories and email inboxes, where they stay for years. { -brand } gives you a link that works for a limited time, or only once, and then the secret is gone for good.
-about-body-2 = We built { -brand } so that we can't read what you share. Your secret is encrypted on your device, and the key never reaches our servers.
+about-body-2 = { -brand } is built so that whoever runs it can't read what you share. Your secret is encrypted on your device, and the key never reaches the server.
+about-body-3 = This site is one instance of { -brand }, run by the operator named on the contact page. The software is open source, and anyone can run their own.
 about-how-link = Read how it works
+about-project-link = About the { -brand } project
 
 ## Contact
 

@@ -11,7 +11,11 @@
       <p class="lead">{{ ctx.t("about-lead") }}</p>
       <p>{{ ctx.t("about-body-1") }}</p>
       <p>{{ ctx.t("about-body-2") }}</p>
+      <p>{{ ctx.t("about-body-3") }}</p>
       <p><a href="{{ ctx.href("/how-it-works") }}">{{ ctx.t("about-how-link") }}</a></p>
+      {%- if !ctx.project_or_source_url().is_empty() %}
+      <p><a href="{{ ctx.project_or_source_url() }}" rel="noopener">{{ ctx.t("about-project-link") }}</a></p>
+      {%- endif %}
     </article>
   </div>
 </section>
