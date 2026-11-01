@@ -4,7 +4,7 @@ Status: draft for application. Nothing is deployed, so protocol and schema
 changes are made in place: edit the existing migrations, keep fragment
 version 1, regenerate `vectors/v1.json`. No v2, no new migration files.
 
-Decisions taken (2026-10-30, @Rene):
+Decisions taken (2026-10-30, by the maintainer):
 - S-19: burn fragments carry a distinct type byte, now.
 - S-6: `expires_at` is rounded up on store; `claim_expires_at` to the minute.
 - S-7: `api_keys.last_used_at` becomes `last_used_on` (UTC date).
