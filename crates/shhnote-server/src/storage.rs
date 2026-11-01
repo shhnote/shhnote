@@ -304,12 +304,18 @@ impl Spool {
         let mut random = [0u8; 8];
         getrandom::fill(&mut random).map_err(|e| io::Error::other(e.to_string()))?;
         let path = dir.join(format!("{}.part", URL_SAFE_NO_PAD.encode(random)));
-        let mut options = tokio::fs::OpenOptions::new();
+        let mut options = std::fs::OpenOptions::new();
         options.write(true).create_new(true);
         // Spool files, and the blobs they become, are readable by the service user only.
         #[cfg(unix)]
-        options.mode(0o600);
-        let file = options.open(&path).await?;
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        // Opened synchronously on purpose: an async open can be cancelled after the file
+        // exists but before anything owns its path, which leaves a stray `.part` file when
+        // the request is dropped mid-await. Creating a file is quick enough to block for.
+        let file = tokio::fs::File::from_std(options.open(&path)?);
         Ok(Self {
             path,
             file: Some(file),

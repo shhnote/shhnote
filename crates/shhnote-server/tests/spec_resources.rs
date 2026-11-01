@@ -404,6 +404,8 @@ async fn spec_aborted_uploads_leave_no_spool_files() {
     let (app, _store, _blobs, root) = local("aborts", "1000000000").await;
     let tmp = root.join("tmp");
     for i in 0..100 {
+        // The previous upload's file may still be on its way out; wait for this one's own.
+        let before = dir_stats(&tmp).0;
         let (tx, body) = channel_body();
         let app2 = app.clone();
         let task = tokio::spawn(async move { send(&app2, multipart(body)).await });
@@ -415,7 +417,7 @@ async fn spec_aborted_uploads_leave_no_spool_files() {
             tx.send(Bytes::from(vec![0u8; 65536])).await.unwrap();
         }
         assert!(
-            wait_until(|| dir_stats(&tmp).0 >= 1).await,
+            wait_until(|| dir_stats(&tmp).0 > before).await,
             "upload {i} never spooled"
         );
         if i % 2 == 0 {
