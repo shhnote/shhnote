@@ -7,7 +7,8 @@
 #   fly secrets set SHH_SECRET_KEY=... SHH_ADMIN_TOKEN=...
 #   fly deploy
 
-app = "shhnote"
+# Placeholders: your app name and its public address.
+app = "shhnote-example"
 primary_region = "ams"
 kill_signal = "SIGTERM"
 kill_timeout = 35
@@ -17,7 +18,7 @@ kill_timeout = 35
 
 [env]
   SHH_ENV = "production"
-  SHH_URL = "https://shhnote.fly.dev"
+  SHH_URL = "https://shhnote-example.fly.dev"
   SHH_HOST = "0.0.0.0"
   SHH_PORT = "3000"
   SHH_DB = "sqlite"
