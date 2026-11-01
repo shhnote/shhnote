@@ -48,6 +48,7 @@ Project skills in `.claude/skills/` hold the conventions for each area: `api-end
 - Test: `cargo test` (SQLite always; set `SHH_TEST_PG_URL=postgres://…` to also run the store tests on Postgres, which clears that database's tables)
 - Lint: `cargo clippy --all-targets -- -D warnings`
 - Format: `cargo fmt --all`
+- New shell scripts: this checkout has `core.filemode = false`, so git never reads the executable bit from disk; after creating a script run `git update-index --chmod=+x scripts/<name>.sh` or CI fails with "Permission denied" (its first step checks every script's mode).
 - Client: `scripts/build-wasm.sh` (Argon2 module, needed by the tests), then in `client/`: `npm test` (runs the `.ts` tests directly on Node 24, no build step), `npm run typecheck`. `scripts/build-client.sh` does all of it plus the bundles.
 
 ## Rules

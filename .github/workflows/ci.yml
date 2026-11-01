@@ -53,6 +53,16 @@ jobs:
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
+      - name: Scripts are executable
+        # The mode lives in the index (checkouts on filesystems without modes don't set it),
+        # so a new script committed as 100644 fails here with a message, not with
+        # "Permission denied" deep inside a later step.
+        run: |
+          bad=$(git ls-files -s scripts/ | awk '$1 != "100755" {print $4}')
+          if [ -n "$bad" ]; then
+            echo "not executable in git (run: git update-index --chmod=+x <file>):"; echo "$bad"; exit 1
+          fi
+
       - name: Format
         run: cargo fmt --all --check
 
