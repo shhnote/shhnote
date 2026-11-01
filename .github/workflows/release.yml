@@ -128,6 +128,10 @@ jobs:
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          # BuildKit's own provenance and SBOM add an unknown/unknown entry to the package
+          # page; the attestation step is what vouches for the image.
+          provenance: false
+          sbom: false
           cache-from: type=gha,scope=${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
       - name: Export digest
