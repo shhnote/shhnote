@@ -1,4 +1,4 @@
-Everything the website does goes through this API, and anything else can use it the same way: scripts, bots, password managers, your own client. The server only ever handles encrypted blobs, so a client has to do the cryptography itself. The protocol is small and pinned by test vectors; the [technical details]({{site_url}}/how-it-works#technical) page describes it, and the `shh.js` library and `vectors/v1.json` in the source repository implement and verify it.
+Everything the website does goes through this API, and anything else can use it the same way: scripts, bots, password managers, your own client. This instance runs shhnote {{version}}. The server only ever handles encrypted blobs, so a client has to do the cryptography itself. The protocol is small and pinned by test vectors; the [technical details]({{site_url}}/how-it-works#technical) page describes it, and the `shh.js` library and `vectors/v1.json` in the source repository implement and verify it.
 
 Base URL: `{{api_url}}/v1`. Requests and responses are JSON unless noted. Secret identifiers travel only in request bodies and never in paths or query strings.
 

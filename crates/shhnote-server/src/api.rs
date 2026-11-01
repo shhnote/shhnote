@@ -32,6 +32,8 @@ use crate::{
 };
 
 pub const CLAIM_TOKEN_HEADER: HeaderName = HeaderName::from_static("x-shh-claim-token");
+// Public on `/config`, `/health` and every page footer (D-27): tagged open-source releases.
+pub const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -166,6 +168,7 @@ struct ConfigResponse<'a> {
     text_max_bytes: u64,
     files_enabled: bool,
     regions: &'a [Region],
+    server_version: &'static str,
     web_mode: &'static str,
 }
 
@@ -195,6 +198,7 @@ async fn config(State(state): State<ApiState>) -> Response {
         text_max_bytes: settings.text_max_bytes,
         files_enabled: settings.files_enabled,
         regions: &settings.regions,
+        server_version: SERVER_VERSION,
         web_mode: state.web_mode.as_str(),
     })
     .into_response()
@@ -209,7 +213,11 @@ async fn health(State(state): State<ApiState>) -> Response {
             (StatusCode::SERVICE_UNAVAILABLE, "degraded")
         }
     };
-    let mut response = (status, Json(serde_json::json!({ "status": text }))).into_response();
+    let mut response = (
+        status,
+        Json(serde_json::json!({ "status": text, "version": SERVER_VERSION })),
+    )
+        .into_response();
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));

@@ -1460,6 +1460,9 @@ async fn health_reports_the_database() {
     )
     .await;
     assert_eq!(reply.status, StatusCode::OK);
-    assert_eq!(reply.json(), json!({"status": "ok"}));
+    assert_eq!(
+        reply.json(),
+        json!({"status": "ok", "version": env!("CARGO_PKG_VERSION")})
+    );
     assert_eq!(reply.headers[header::CACHE_CONTROL], "no-store");
 }

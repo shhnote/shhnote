@@ -591,3 +591,36 @@ async fn spec_admin_subdomain_routing() {
         "a path-form admin link leaked: {body}"
     );
 }
+
+// D-27: the server version is public on /config, /health, the page footer and in content.
+#[tokio::test]
+async fn spec_server_version_is_public() {
+    let app = build("spec-web-version", &[]).await;
+    let host = "localhost";
+    let version = env!("CARGO_PKG_VERSION");
+    let config = fetch(&app, host, Method::GET, "/api/v1/config", None, None, "").await;
+    assert!(
+        config
+            .body
+            .contains(&format!(r#""server_version":"{version}""#)),
+        "{}",
+        config.body
+    );
+    let health = fetch(&app, host, Method::GET, "/api/v1/health", None, None, "").await;
+    assert!(
+        health.body.contains(&format!(r#""version":"{version}""#)),
+        "{}",
+        health.body
+    );
+    let home = fetch(&app, host, Method::GET, "/en", None, None, "").await;
+    assert!(
+        home.body.contains(&format!("shhnote {version} · AGPL-3.0")),
+        "footer lacks the version"
+    );
+    let docs = fetch(&app, host, Method::GET, "/en/docs", None, None, "").await;
+    assert!(
+        docs.body.contains(&format!("runs shhnote {version}")),
+        "placeholder not replaced"
+    );
+    assert!(!docs.body.contains("{{version}}"));
+}

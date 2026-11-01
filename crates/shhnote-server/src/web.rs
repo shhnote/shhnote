@@ -299,6 +299,10 @@ impl Ctx<'_> {
         self.shared.settings.load().project_url.clone()
     }
 
+    pub(crate) fn server_version(&self) -> &'static str {
+        crate::api::SERVER_VERSION
+    }
+
     // Where the software lives: the project page, or the source link while none is set.
     pub(crate) fn project_or_source_url(&self) -> String {
         let settings = self.shared.settings.load();
@@ -559,7 +563,8 @@ fn doc_page(state: &PageState, doc: Doc, path: &str, title_key: &str) -> Respons
         .replace("{{api_url}}", &state.shared.api_url)
         .replace("%7B%7Bapi_url%7D%7D", &state.shared.api_url)
         .replace("{{project_url}}", &project)
-        .replace("%7B%7Bproject_url%7D%7D", &project);
+        .replace("%7B%7Bproject_url%7D%7D", &project)
+        .replace("{{version}}", crate::api::SERVER_VERSION);
     render(state, DocPage { ctx, title, body })
 }
 
