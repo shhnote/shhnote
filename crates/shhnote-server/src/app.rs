@@ -38,21 +38,18 @@ fn with_headers(router: Router, config: &Config) -> Router {
 
 fn core(config: &Config, state: ApiState) -> Router {
     let web::WebRouters { mut web, admin } = web::router(config, &state);
-    let api = api::router(state);
+    let cors_state = CorsState {
+        site: config.url.trim_end_matches('/').to_ascii_lowercase(),
+        settings: state.settings.clone(),
+    };
+    // CORS on both routing modes (SPEC §4): the site origin plus `allowed_origins`.
+    let api = api::router(state).layer(middleware::from_fn_with_state(cors_state, cors));
 
     // Each subdomain gets its own router; everything else is the website.
     let mut hosts: Vec<(String, Router)> = Vec::new();
     match &config.api_routing {
         ApiRouting::Path => web = web.nest("/api", api),
-        ApiRouting::Subdomain { host } => {
-            // The page and the API are different origins here, so browsers need CORS.
-            let api = api.layer(middleware::from_fn_with_state(
-                HeaderValue::from_str(config.url.trim_end_matches('/'))
-                    .expect("SHH_URL is validated"),
-                cors,
-            ));
-            hosts.push((host.clone(), api));
-        }
+        ApiRouting::Subdomain { host } => hosts.push((host.clone(), api)),
     }
     if let (AdminRouting::Subdomain { host }, Some(admin)) = (&config.admin_routing, admin) {
         hosts.push((host.clone(), admin));
@@ -103,9 +100,28 @@ async fn redirect_trailing_slash(req: Request, next: Next) -> Response {
     Redirect::permanent(&location).into_response()
 }
 
-// CORS for the subdomain variant: the site origin only, nothing else. Preflights are answered
-// here; real responses get the allow-origin header and expose the headers the client reads.
-async fn cors(State(site): State<HeaderValue>, req: Request, next: Next) -> Response {
+#[derive(Clone)]
+struct CorsState {
+    site: String,
+    settings: Arc<shhnote_core::settings::SettingsCell>,
+}
+
+impl CorsState {
+    // The request's origin, echoed back only when it is the site or on the allow-list
+    // (D-26). Never `*`, never credentials.
+    fn allowed(&self, req: &Request) -> Option<HeaderValue> {
+        let origin = req.headers().get(header::ORIGIN)?;
+        let text = origin.to_str().ok()?.to_ascii_lowercase();
+        let ok = text == self.site || self.settings.load().allowed_origins.contains(&text);
+        ok.then(|| origin.clone())
+    }
+}
+
+// Preflights are answered here; real responses get the allow-origin header for an allowed
+// origin and expose the headers the client reads. `Authorization` is allowed so `user` keys
+// work from another origin.
+async fn cors(State(state): State<CorsState>, req: Request, next: Next) -> Response {
+    let allowed = state.allowed(&req);
     let mut response = if req.method() == Method::OPTIONS {
         let mut response = StatusCode::NO_CONTENT.into_response();
         let headers = response.headers_mut();
@@ -126,11 +142,13 @@ async fn cors(State(site): State<HeaderValue>, req: Request, next: Next) -> Resp
         next.run(req).await
     };
     let headers = response.headers_mut();
-    headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, site);
-    headers.insert(
-        header::ACCESS_CONTROL_EXPOSE_HEADERS,
-        HeaderValue::from_static("x-shh-claim-token, retry-after"),
-    );
+    if let Some(origin) = allowed {
+        headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
+        headers.insert(
+            header::ACCESS_CONTROL_EXPOSE_HEADERS,
+            HeaderValue::from_static("x-shh-claim-token, retry-after"),
+        );
+    }
     headers.append(header::VARY, HeaderValue::from_static("Origin"));
     response
 }

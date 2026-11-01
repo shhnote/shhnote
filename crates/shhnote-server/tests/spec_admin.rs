@@ -854,3 +854,136 @@ async fn spec_key_create_resubmit_mints_nothing() {
     assert!(after.text().contains(r#"role="status""#));
     assert_eq!(keys.len(), 1, "a replayed POST minted a second key");
 }
+
+// SPEC §4 / D-26: CORS answers the site origin and every entry in `allowed_origins`, on the
+// path routing mode too; other origins get no allow-origin header; credentials are never
+// allowed; preflights allow POST with Authorization and Content-Type.
+#[tokio::test]
+async fn spec_cors_allowed_origins() {
+    let (app, _) = build("spec-admin-cors").await;
+    let auth = bearer(BOOTSTRAP);
+    let with_origin = |method: Method, path: &str, origin: &str| {
+        let req = Request::builder()
+            .method(method)
+            .uri(path)
+            .header(header::HOST, "localhost")
+            .header(header::ORIGIN, origin)
+            .header(header::ACCESS_CONTROL_REQUEST_METHOD, "POST")
+            .body(Body::empty())
+            .unwrap();
+        app.clone().oneshot(req)
+    };
+    let allow_origin = |res: &axum::http::Response<Body>| {
+        res.headers()
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .map(|v| v.to_str().unwrap().to_string())
+    };
+
+    // Before: the site origin only.
+    let site = with_origin(Method::GET, "/api/v1/config", "http://localhost:3000")
+        .await
+        .unwrap();
+    assert_eq!(
+        allow_origin(&site).as_deref(),
+        Some("http://localhost:3000")
+    );
+    let other = with_origin(
+        Method::OPTIONS,
+        "/api/v1/secrets/reveal",
+        "https://app.example",
+    )
+    .await
+    .unwrap();
+    assert_eq!(other.status(), StatusCode::NO_CONTENT);
+    assert_eq!(allow_origin(&other), None);
+
+    // Invalid lists are refused as a whole.
+    for bad in [
+        "https://app.example/path",
+        "*",
+        "ftp://app.example",
+        "https://*.example",
+    ] {
+        let r = admin_api(
+            &app,
+            Method::PATCH,
+            "/settings",
+            &auth,
+            Some(json!({"allowed_origins": bad})),
+        )
+        .await;
+        assert_eq!(
+            r.status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{bad} was accepted"
+        );
+    }
+    let set = admin_api(
+        &app,
+        Method::PATCH,
+        "/settings",
+        &auth,
+        Some(json!({"allowed_origins": "https://App.Example, https://app.example:8443"})),
+    )
+    .await;
+    assert_eq!(set.status, StatusCode::OK, "{}", set.text());
+
+    // After: the listed origins are echoed, case-insensitively, with the preflight details.
+    let preflight = with_origin(
+        Method::OPTIONS,
+        "/api/v1/secrets/reveal",
+        "https://app.example",
+    )
+    .await
+    .unwrap();
+    assert_eq!(preflight.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        allow_origin(&preflight).as_deref(),
+        Some("https://app.example")
+    );
+    let allowed_headers = preflight.headers()[header::ACCESS_CONTROL_ALLOW_HEADERS]
+        .to_str()
+        .unwrap()
+        .to_ascii_lowercase();
+    assert!(
+        allowed_headers.contains("authorization") && allowed_headers.contains("content-type"),
+        "{allowed_headers}"
+    );
+    assert!(
+        preflight.headers()[header::ACCESS_CONTROL_ALLOW_METHODS]
+            .to_str()
+            .unwrap()
+            .contains("POST")
+    );
+    assert!(
+        preflight
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_CREDENTIALS)
+            .is_none()
+    );
+    let with_port = with_origin(Method::GET, "/api/v1/config", "https://app.example:8443")
+        .await
+        .unwrap();
+    assert_eq!(
+        allow_origin(&with_port).as_deref(),
+        Some("https://app.example:8443")
+    );
+    assert!(
+        with_port.headers()[header::ACCESS_CONTROL_EXPOSE_HEADERS]
+            .to_str()
+            .unwrap()
+            .contains("x-shh-claim-token")
+    );
+    let stranger = with_origin(Method::GET, "/api/v1/config", "https://evil.example")
+        .await
+        .unwrap();
+    assert_eq!(stranger.status(), StatusCode::OK);
+    assert_eq!(allow_origin(&stranger), None);
+    assert!(
+        stranger
+            .headers()
+            .get_all(header::VARY)
+            .iter()
+            .any(|v| v == "Origin")
+    );
+}

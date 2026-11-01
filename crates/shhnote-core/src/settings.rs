@@ -71,6 +71,9 @@ pub struct Settings {
     // When false, every blob goes to the external tier; needs `SHH_STORAGE` to enable one.
     pub inline_enabled: bool,
     pub regions: Vec<Region>,
+    // Origins other than this site whose frontends may call the API from a browser (D-26):
+    // scheme and host, optional port, nothing else. Empty means the site origin only.
+    pub allowed_origins: Vec<String>,
     // Days kept at daily resolution before folding into the year; -1 never folds.
     pub daily_retention_days: i64,
     pub rate_limits: RateLimits,
@@ -116,6 +119,7 @@ impl Default for Settings {
             files_enabled: true,
             inline_enabled: true,
             regions: Vec::new(),
+            allowed_origins: Vec::new(),
             daily_retention_days: 365,
             rate_limits: RateLimits::default(),
             salt_rotation_secs: 3600,
@@ -216,6 +220,7 @@ impl Settings {
                     .map_err(|e| e.to_string())
                     .and_then(|v| regions(v, allow_http))
                     .map(|v| s.regions = v),
+                "allowed_origins" => origins(value, allow_http).map(|v| s.allowed_origins = v),
                 _ => Err("unknown setting".into()),
             };
             if let Err(reason) = result {
@@ -283,6 +288,7 @@ impl Settings {
             ("max_ttl_secs", self.max_ttl_secs.to_string()),
             ("default_ttl_secs", self.default_ttl_secs.to_string()),
             ("ttl_presets", list(&self.ttl_presets)),
+            ("allowed_origins", self.allowed_origins.join(",")),
             ("text_max_bytes", self.text_max_bytes.to_string()),
             ("files_enabled", self.files_enabled.to_string()),
             ("inline_enabled", self.inline_enabled.to_string()),
@@ -405,6 +411,55 @@ fn email(value: &str) -> Result<String, String> {
     }
 }
 
+// A comma-separated list of origins, each `scheme://host[:port]` and nothing more: no path,
+// query, fragment, userinfo or wildcard. Hosts are lowercased so a browser's `Origin` header
+// matches by plain comparison.
+fn origins(value: &str, allow_http: bool) -> Result<Vec<String>, String> {
+    if value.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    value
+        .split(',')
+        .map(|item| {
+            let item = item.trim();
+            let (scheme, rest) = item
+                .split_once("://")
+                .ok_or_else(|| format!("{item:?} is not an origin"))?;
+            let https = scheme.eq_ignore_ascii_case("https");
+            let http = scheme.eq_ignore_ascii_case("http") && allow_http;
+            if !(https || http) {
+                return Err(format!("{item:?}: origins must be https://"));
+            }
+            let (host, port) = match rest.rsplit_once(':') {
+                Some((host, port)) if !host.contains(']') || host.ends_with(']') => {
+                    (host, Some(port))
+                }
+                _ => (rest, None),
+            };
+            let host_ok = !host.is_empty()
+                && !host.contains(['/', '?', '#', '@', '*', ' ', '\t', '"', '<', '>'])
+                && !host.ends_with('.');
+            let port_ok =
+                port.is_none_or(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
+            if !host_ok || !port_ok {
+                return Err(format!(
+                    "{item:?} is not an origin (scheme and host, optional port, nothing else)"
+                ));
+            }
+            let mut origin = format!(
+                "{}://{}",
+                scheme.to_ascii_lowercase(),
+                host.to_ascii_lowercase()
+            );
+            if let Some(port) = port {
+                origin.push(':');
+                origin.push_str(port);
+            }
+            Ok(origin)
+        })
+        .collect()
+}
+
 fn regions(regions: Vec<Region>, allow_http: bool) -> Result<Vec<Region>, String> {
     for region in &regions {
         if region.code.trim().is_empty() || region.name.trim().is_empty() {
@@ -477,6 +532,51 @@ mod tests {
                 Settings::with_overrides(&overrides(&[(key, &https)]), AppEnv::Production);
             assert!(warnings.is_empty(), "{key}: {warnings:?}");
         }
+    }
+
+    #[test]
+    fn allowed_origins_are_origins_only() {
+        let (s, warnings) = Settings::with_overrides(
+            &overrides(&[(
+                "allowed_origins",
+                " https://App.Example , https://app.example:8443",
+            )]),
+            AppEnv::Production,
+        );
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(
+            s.allowed_origins,
+            vec!["https://app.example", "https://app.example:8443"]
+        );
+        assert_eq!(
+            s.as_strings()["allowed_origins"],
+            "https://app.example,https://app.example:8443"
+        );
+        for bad in [
+            "https://app.example/",
+            "https://app.example/path",
+            "https://app.example?x",
+            "https://*.example",
+            "*",
+            "app.example",
+            "javascript:alert(1)",
+            "https://user@app.example",
+            "https://app.example:port",
+            "http://app.example",
+        ] {
+            let (s, warnings) = Settings::with_overrides(
+                &overrides(&[("allowed_origins", bad)]),
+                AppEnv::Production,
+            );
+            assert_eq!(warnings.len(), 1, "{bad}: {warnings:?}");
+            assert!(s.allowed_origins.is_empty(), "{bad}");
+        }
+        let (s, warnings) = Settings::with_overrides(
+            &overrides(&[("allowed_origins", "http://localhost:5173")]),
+            AppEnv::Local,
+        );
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(s.allowed_origins, vec!["http://localhost:5173"]);
     }
 
     #[test]

@@ -413,6 +413,7 @@ const GROUPS: &[(&str, &[&str])] = &[
             "source_url",
             "project_url",
             "regions",
+            "allowed_origins",
         ],
     ),
     (
