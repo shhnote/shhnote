@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{%- import "partials/icons.html" as icons -%}
 
 {% block title %}{{ ctx.t("report-title") }}{% endblock %}
 
@@ -7,31 +6,33 @@
 <section class="section">
   <div class="container">
     <article class="vault" data-shh-page="report">
-      <div class="panel panel--center stack" data-shh-state="armed">
-        <span class="badge badge--muted">{{ ctx.t("report-badge") }}</span>
-        <div class="stack--sm">
-          <h1 class="panel__heading">{{ ctx.t("report-title") }}</h1>
+      <div class="stack" data-shh-state="armed">
+        <div class="page-head">
+          <p class="badge">{{ ctx.t("report-badge") }}</p>
+          <h1>{{ ctx.t("report-title") }}</h1>
           <p>{{ ctx.t("report-intro") }}</p>
         </div>
         <noscript><p class="callout callout--notice">{{ ctx.t("noscript-page") }}</p></noscript>
-        <form class="stack" data-shh-form="report" hidden>
-          <div class="form-field text-left">
+        <form class="panel stack" data-shh-form="report" hidden>
+          <div class="form-field">
             <label class="form-label" for="report-link">{{ ctx.t("report-link-label") }}</label>
-            <input class="form-input" id="report-link" name="link" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="{{ ctx.t("report-link-placeholder") }}" required>
+            <input class="form-input form-input--mono" id="report-link" name="link" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="{{ ctx.t("report-link-placeholder") }}" required>
             <p class="input-help">{{ ctx.t("report-link-help") }}</p>
           </div>
-          <button type="submit" class="btn btn--primary btn--lg w-full">{{ ctx.t("report-submit") }}</button>
-          <p class="status" role="status" aria-live="polite" data-shh-status></p>
+          <div class="panel__foot">
+            <button type="submit" class="btn btn--primary w-full">{{ ctx.t("report-submit") }}</button>
+            <p class="status" role="status" aria-live="polite" data-shh-status></p>
+          </div>
         </form>
       </div>
 
-      <div class="panel panel--center stack" data-shh-state="done" hidden>
-        <span class="badge badge--muted">{{ ctx.t("report-done-badge") }}</span>
-        <div class="stack--sm">
-          <h1 class="panel__heading">{{ ctx.t("report-done-title") }}</h1>
+      <div class="stack" data-shh-state="done" hidden>
+        <div class="page-head">
+          <p class="badge">{{ ctx.t("report-done-badge") }}</p>
+          <h1>{{ ctx.t("report-done-title") }}</h1>
           <p>{{ ctx.t("report-done-body") }}</p>
         </div>
-        <p class="btn-row btn-row--center"><a class="btn btn--primary" href="{{ ctx.href("") }}">{{ ctx.t("error-home-link") }}</a></p>
+        <p class="btn-row"><a class="btn" href="{{ ctx.href("") }}">{{ ctx.t("error-home-link") }}</a></p>
       </div>
     </article>
   </div>

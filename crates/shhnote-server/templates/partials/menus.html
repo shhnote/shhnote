@@ -2,7 +2,6 @@
 {% macro language_menu(ctx, up) %}
 <details class="menu{% if up %} menu--up{% endif %}" data-shh-menu>
   <summary aria-label="{{ ctx.t("nav-language") }}">
-    {% call icons::icon("globe", 18) %}{% endcall %}
     <span>{{ ctx.locale|upper }}</span>
   </summary>
   <ul class="menu__list">
@@ -14,10 +13,9 @@
 {% endmacro %}
 
 {% macro theme_menu(ctx, up) %}
-<details class="menu{% if up %} menu--up{% endif %}" data-shh-menu data-shh-theme-menu>
-  <summary>
-    {% call icons::icon("contrast", 18) %}{% endcall %}
-    <span>{{ ctx.t("nav-theme") }}</span>
+<details class="menu menu--icon{% if up %} menu--up{% endif %}" data-shh-menu data-shh-theme-menu>
+  <summary aria-label="{{ ctx.t("nav-theme") }}">
+    {% call icons::icon("contrast", 16) %}{% endcall %}
   </summary>
   <ul class="menu__list" role="group" aria-label="{{ ctx.t("nav-theme") }}">
     <li><button type="button" role="menuitemradio" aria-checked="true" data-shh-theme-choice="auto">{{ ctx.t("theme-auto") }}</button></li>

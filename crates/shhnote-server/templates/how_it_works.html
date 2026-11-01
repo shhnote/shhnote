@@ -19,7 +19,7 @@
     <ol class="flow">
       {%- for i in ["1", "2", "3"] %}
       <li class="flow__step">
-        <div class="flow__num" aria-hidden="true">{{ i }}</div>
+        <div class="flow__num" aria-hidden="true">0{{ i }}</div>
         <div class="flow__body">
           <h3>{{ ctx.tn("how-s-", i, "-title") }}</h3>
           <p>{{ ctx.tn("how-s-", i, "-body") }}</p>

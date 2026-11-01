@@ -162,8 +162,9 @@ async fn walk(app: &Router, host: &str, api: &str) -> Vec<Seen> {
         "/static/shh.js",
         "/static/shh-ui.js",
         "/static/argon2.wasm",
-        "/static/fonts/inter.woff2",
-        "/static/fonts/inter-italic.woff2",
+        "/static/fonts/geist.woff2",
+        "/static/fonts/geist-italic.woff2",
+        "/static/fonts/geist-mono.woff2",
         "/static/nope.js",
         "/static/../Cargo.toml",
     ] {

@@ -8,42 +8,45 @@
 <section class="section">
   <div class="container">
     <article class="vault" data-shh-page="burn">
-      <div class="panel panel--center stack" data-shh-state="armed">
-        <span class="badge badge--danger">{{ ctx.t("burn-badge") }}</span>
-        <div class="stack--sm">
-          <h1 class="panel__heading">{{ ctx.t("burn-title") }}</h1>
+      <div class="stack" data-shh-state="armed">
+        <div class="page-head">
+          <p class="badge badge--danger">{{ ctx.t("burn-badge") }}</p>
+          <h1>{{ ctx.t("burn-title") }}</h1>
           <p>{{ ctx.t("burn-intro") }}</p>
         </div>
         <noscript><p class="callout callout--notice">{{ ctx.t("noscript-page") }}</p></noscript>
-        <form class="stack" data-shh-form="burn" hidden>
-          <button type="submit" class="btn btn--danger btn--lg w-full">{% call icons::icon("trash", 16) %}{% endcall %}<span>{{ ctx.t("burn-confirm") }}</span></button>
+        <form class="panel stack" data-shh-form="burn" hidden>
+          <div class="btn-row">
+            <button type="submit" class="btn btn--danger-solid">{% call icons::icon("flame", 15) %}{% endcall %}<span>{{ ctx.t("burn-confirm") }}</span></button>
+            <a class="btn" href="{{ ctx.href("") }}">{{ ctx.t("error-home-link") }}</a>
+          </div>
           <p class="status" role="status" aria-live="polite" data-shh-status></p>
         </form>
       </div>
 
-      <div class="panel panel--center stack" data-shh-state="done" hidden>
-        <span class="badge badge--danger">{{ ctx.t("burn-done-badge") }}</span>
-        <div class="stack--sm">
-          <h1 class="panel__heading">{{ ctx.t("burn-done-title") }}</h1>
+      <div class="stack" data-shh-state="done" hidden>
+        <div class="page-head">
+          <p class="badge badge--danger">{{ ctx.t("burn-done-badge") }}</p>
+          <h1>{{ ctx.t("burn-done-title") }}</h1>
           <p>{{ ctx.t("burn-done-body") }}</p>
         </div>
         <div class="callout">
-          {% call icons::icon("shield", 18) %}{% endcall %}
+          {% call icons::icon("shield", 16) %}{% endcall %}
           <span>{{ ctx.t("burn-done-callout") }}</span>
         </div>
-        <div class="btn-row btn-row--center">
-          <a class="btn btn--primary btn--lg" href="{{ ctx.href("") }}">{{ ctx.t("reveal-create-own") }}</a>
-          <a class="btn btn--quiet" href="{{ ctx.href("/how-it-works") }}">{{ ctx.t("nav-how-it-works") }}</a>
+        <div class="btn-row">
+          <a class="btn btn--primary" href="{{ ctx.href("") }}">{{ ctx.t("reveal-create-own") }}</a>
+          <a class="btn" href="{{ ctx.href("/how-it-works") }}">{{ ctx.t("nav-how-it-works") }}</a>
         </div>
       </div>
 
-      <div class="panel panel--center stack" data-shh-state="notfound" hidden>
-        <span class="badge badge--muted">{{ ctx.t("burn-not-found-badge") }}</span>
-        <div class="stack--sm">
-          <h1 class="panel__heading">{{ ctx.t("burn-not-found-title") }}</h1>
+      <div class="stack" data-shh-state="notfound" hidden>
+        <div class="page-head">
+          <p class="badge">{{ ctx.t("burn-not-found-badge") }}</p>
+          <h1>{{ ctx.t("burn-not-found-title") }}</h1>
           <p>{{ ctx.t("burn-not-found-body") }}</p>
         </div>
-        <p class="btn-row btn-row--center"><a class="btn btn--primary" href="{{ ctx.href("") }}">{{ ctx.t("error-home-link") }}</a></p>
+        <p class="btn-row"><a class="btn btn--primary" href="{{ ctx.href("") }}">{{ ctx.t("error-home-link") }}</a></p>
       </div>
     </article>
   </div>

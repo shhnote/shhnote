@@ -21,9 +21,8 @@
 
   <header class="header">
     <div class="container header__inner">
-      <a class="logo" href="{{ ctx.href("") }}">{{ ctx.site_name() }}</a>
+      <a class="logo" href="{{ ctx.href("") }}"{% if ctx.path == "" %} aria-current="page"{% endif %}><span class="logo__mark" aria-hidden="true"></span>{{ ctx.site_name() }}</a>
       <nav class="header__nav" aria-label="{{ ctx.t("nav-label") }}">
-        <a href="{{ ctx.href("") }}"{% if ctx.path == "" %} aria-current="page"{% endif %}>{{ ctx.t("nav-home") }}</a>
         <a href="{{ ctx.href("/how-it-works") }}"{% if ctx.path == "/how-it-works" %} aria-current="page"{% endif %}>{{ ctx.t("nav-how-it-works") }}</a>
         <a href="{{ ctx.href("/about") }}"{% if ctx.path == "/about" %} aria-current="page"{% endif %}>{{ ctx.t("nav-about") }}</a>
         <a href="{{ ctx.href("/contact") }}"{% if ctx.path == "/contact" %} aria-current="page"{% endif %}>{{ ctx.t("nav-contact") }}</a>
@@ -40,48 +39,35 @@
   </main>
 
   <footer class="footer">
-    <div class="container">
-      <div class="footer-grid">
-        <div class="footer-brand">
-          <a class="logo" href="{{ ctx.href("") }}">{{ ctx.site_name() }}</a>
-          <p>{{ ctx.t("footer-tagline") }}</p>
-        </div>
-        <nav class="footer-col" aria-label="{{ ctx.t("footer-product") }}">
-          <h2>{{ ctx.t("footer-product") }}</h2>
-          <ul>
-            <li><a href="{{ ctx.href("/how-it-works") }}">{{ ctx.t("nav-how-it-works") }}</a></li>
-            <li><a href="{{ ctx.href("/docs") }}">{{ ctx.t("page-docs") }}</a></li>
-            <li><a href="{{ ctx.href("/about") }}">{{ ctx.t("nav-about") }}</a></li>
-            <li><a href="{{ ctx.href("/contact") }}">{{ ctx.t("nav-contact") }}</a></li>
-            {%- if !ctx.project_url().is_empty() %}
-            <li><a href="{{ ctx.project_url() }}" rel="noopener">{{ ctx.t("footer-project") }}</a></li>
-            {%- endif %}
-            {%- if !ctx.repo_url().is_empty() %}
-            <li><a href="{{ ctx.repo_url() }}" rel="noopener">{{ ctx.t("footer-source") }}</a></li>
-            {%- endif %}
-          </ul>
+    <div class="container footer__inner">
+      <div class="footer__row">
+        <span class="footer__meta">{{ ctx.t("brand-name") }} {{ ctx.server_version() }} · AGPL-3.0</span>
+        <nav class="footer__row" aria-label="{{ ctx.t("footer-product") }}">
+          <a href="{{ ctx.href("/how-it-works") }}">{{ ctx.t("nav-how-it-works") }}</a>
+          <a href="{{ ctx.href("/docs") }}">{{ ctx.t("page-docs") }}</a>
+          <a href="{{ ctx.href("/about") }}">{{ ctx.t("nav-about") }}</a>
+          <a href="{{ ctx.href("/contact") }}">{{ ctx.t("nav-contact") }}</a>
+          {%- if !ctx.project_url().is_empty() %}
+          <a href="{{ ctx.project_url() }}" rel="noopener">{{ ctx.t("footer-project") }}</a>
+          {%- endif %}
+          {%- if !ctx.repo_url().is_empty() %}
+          <a href="{{ ctx.repo_url() }}" rel="noopener">{{ ctx.t("footer-source") }}</a>
+          {%- endif %}
         </nav>
-        <nav class="footer-col" aria-label="{{ ctx.t("footer-legal") }}">
-          <h2>{{ ctx.t("footer-legal") }}</h2>
-          <ul>
-            <li><a href="{{ ctx.href("/privacy") }}">{{ ctx.t("page-privacy") }}</a></li>
-            <li><a href="{{ ctx.href("/terms") }}">{{ ctx.t("page-terms") }}</a></li>
-            <li><a href="{{ ctx.href("/acceptable-use") }}">{{ ctx.t("page-acceptable-use") }}</a></li>
-            <li><a href="{{ ctx.href("/security") }}">{{ ctx.t("page-security") }}</a></li>
-            <li><a href="{{ ctx.href("/report") }}">{{ ctx.t("nav-report") }}</a></li>
-          </ul>
-        </nav>
-        <div class="footer-col">
-          <h2>{{ ctx.t("footer-settings") }}</h2>
-          <ul>
-            <li>{% call menus::language_menu(ctx, true) %}{% endcall %}</li>
-            <li>{% call menus::theme_menu(ctx, true) %}{% endcall %}</li>
-          </ul>
-        </div>
       </div>
-      <div class="footer-bottom">
-        <div>{{ ctx.t("brand-name") }} {{ ctx.server_version() }} · AGPL-3.0</div>
-        <div>{{ ctx.t("footer-notice") }}</div>
+      <div class="footer__row">
+        <span class="footer__notice">{{ ctx.t("footer-notice") }}</span>
+        <nav class="footer__row" aria-label="{{ ctx.t("footer-legal") }}">
+          <a href="{{ ctx.href("/privacy") }}">{{ ctx.t("page-privacy") }}</a>
+          <a href="{{ ctx.href("/terms") }}">{{ ctx.t("page-terms") }}</a>
+          <a href="{{ ctx.href("/acceptable-use") }}">{{ ctx.t("page-acceptable-use") }}</a>
+          <a href="{{ ctx.href("/security") }}">{{ ctx.t("page-security") }}</a>
+          <a href="{{ ctx.href("/report") }}">{{ ctx.t("nav-report") }}</a>
+        </nav>
+        <div class="footer__row" role="group" aria-label="{{ ctx.t("footer-settings") }}">
+          {% call menus::language_menu(ctx, true) %}{% endcall %}
+          {% call menus::theme_menu(ctx, true) %}{% endcall %}
+        </div>
       </div>
     </div>
   </footer>

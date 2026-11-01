@@ -44,8 +44,10 @@ an instance says who runs it before it serves anything.
   sections, the technical breakdown and the FAQs are gone; every page speaks of "this site"
   and takes the site name and contact addresses from settings. The admin API documentation
   moved to `docs/admin-api.md`.
-- A neutral default theme: same four themes and token names, plain colours, self-hosted
-  Inter, no decorative markup. A frontend with its own look builds on the client package.
+- A neutral default theme ("Slate"): same four themes and token names (plus `--ring`,
+  `--notice-text` and `--shadow`), zinc neutrals, self-hosted Geist and Geist Mono, a single
+  720px column with titles above cards. A frontend with its own look builds on the client
+  package.
 - `site_name` has no default; `security_email` falls back to `contact_email`.
 - An empty passphrase is refused by both libraries (`empty_passphrase`); omitting it is the
   only way to mean no passphrase.
