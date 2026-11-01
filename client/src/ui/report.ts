@@ -1,16 +1,16 @@
 import { decodeFragment } from "../crypto/fragment.ts";
 import { lookup } from "../crypto/secret.ts";
 import { Api } from "../lib/api.ts";
-import { $, setState, setStatus, show } from "./dom.ts";
-import { t } from "./i18n.ts";
+import { $, apiFrom, setState, setStatus, show } from "./dom.ts";
+import type { Strings } from "./i18n.ts";
 
 // `/report`: paste a secret link; the server removes the secret if it is active and keeps a
 // ledger row either way. The answer is the same whatever happened, so nothing is learned here.
-export function wireReport(page: HTMLElement): void {
-  const api = Api.fromPage();
-  const form = $<HTMLFormElement>("[data-report-form]", page);
+export function wireReport(page: HTMLElement, { t }: Strings): void {
+  const api = apiFrom(page);
+  const form = $<HTMLFormElement>("[data-shh-form=report]", page);
   const input = $<HTMLInputElement>("input[name=link]", form);
-  const status = $("[data-form-status]", form);
+  const status = $("[data-shh-status]", form);
 
   // Arriving at `/report#…` (for example from a share link whose path was edited) prefills the field.
   if (location.hash.length > 1) {

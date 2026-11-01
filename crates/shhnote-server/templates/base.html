@@ -14,9 +14,9 @@
   <link rel="alternate" hreflang="{{ language.code }}" href="{{ language.href }}">
   {%- endfor %}
 </head>
-<body data-api="{{ ctx.api_url() }}/v1" data-max-blob-bytes="{{ ctx.max_blob_bytes() }}" data-asset-version="{{ ctx.asset_version() }}">
+<body data-shh-api="{{ ctx.api_url() }}/v1" data-shh-max-blob-bytes="{{ ctx.max_blob_bytes() }}" data-shh-asset-version="{{ ctx.asset_version() }}">
   {# Text the page script shows at runtime, translated server-side. A JSON block is data, not a script, so the CSP allows it. #}
-  <script type="application/json" data-i18n>{{ ctx.ui_json()|safe }}</script>
+  <script type="application/json" data-shh-i18n>{{ ctx.ui_json()|safe }}</script>
   <a class="skip-link" href="#main">{{ ctx.t("skip-to-content") }}</a>
 
   <header class="header">

@@ -26,7 +26,7 @@
     {# One form for every group: a hidden tab still submits its fields, so one save covers all. #}
     <form method="post" action="{{ ctx.href("/admin/settings") }}" class="stack gap-6">
       <input type="hidden" name="csrf" value="{{ admin.csrf }}">
-      <div class="tabs" data-tabs>
+      <div class="tabs" data-shh-tabs>
         <div class="doc-switch" role="tablist" aria-label="{{ ctx.t("admin-settings-title") }}" hidden>
           {%- for g in groups %}
           <button type="button" role="tab" id="tab-{{ g.key }}" aria-controls="group-{{ g.key }}" aria-selected="{{ loop.first }}"{% if !loop.first %} tabindex="-1"{% endif %}>{{ ctx.tn("admin-settings-group-", g.key, "") }}</button>

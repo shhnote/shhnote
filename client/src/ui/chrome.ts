@@ -2,8 +2,8 @@ import { $$ } from "./dom.ts";
 
 // Disclosure menus: native <details>, so they open without the script. The script only
 // closes them when the pointer or focus leaves, and on Escape.
-export function wireMenus(): void {
-  const menus = $$<HTMLDetailsElement>("details[data-menu]");
+export function wireMenus(root: ParentNode = document): void {
+  const menus = $$<HTMLDetailsElement>("details[data-shh-menu]", root);
   document.addEventListener("click", (event) => {
     for (const menu of menus) {
       if (menu.open && !menu.contains(event.target as Node)) menu.open = false;
@@ -31,12 +31,13 @@ const THEME_KEY = "shhnote-theme";
 // Four themes plus "match system" (no attribute: the stylesheet follows the OS). The choice
 // is kept in localStorage when the browser allows it; privacy browsers that don't simply
 // reset to "match system" on the next visit.
-export function wireTheme(): void {
+export function wireTheme(root: ParentNode = document): void {
+  const buttons = $$<HTMLButtonElement>("[data-shh-theme-choice]", root);
   const apply = (choice: string) => {
     if (THEMES.has(choice)) document.documentElement.dataset["theme"] = choice;
     else delete document.documentElement.dataset["theme"];
-    for (const button of $$<HTMLButtonElement>("[data-theme-choice]")) {
-      button.setAttribute("aria-checked", String((button.dataset["themeChoice"] ?? "auto") === choice));
+    for (const button of buttons) {
+      button.setAttribute("aria-checked", String((button.dataset["shhThemeChoice"] ?? "auto") === choice));
     }
   };
 
@@ -48,9 +49,9 @@ export function wireTheme(): void {
   }
   apply(stored);
 
-  for (const button of $$<HTMLButtonElement>("[data-theme-choice]")) {
+  for (const button of buttons) {
     button.addEventListener("click", () => {
-      const choice = button.dataset["themeChoice"] ?? "auto";
+      const choice = button.dataset["shhThemeChoice"] ?? "auto";
       apply(choice);
       try {
         if (choice === "auto") localStorage.removeItem(THEME_KEY);
@@ -64,10 +65,10 @@ export function wireTheme(): void {
 }
 
 // Show/hide toggle for passphrase fields.
-export function wirePasswordToggles(): void {
-  for (const wrapper of $$("[data-pwd-input]")) {
+export function wirePasswordToggles(root: ParentNode = document): void {
+  for (const wrapper of $$("[data-shh-pwd-input]", root)) {
     const input = wrapper.querySelector<HTMLInputElement>("input");
-    const button = wrapper.querySelector<HTMLButtonElement>("[data-pwd-toggle]");
+    const button = wrapper.querySelector<HTMLButtonElement>("[data-shh-pwd-toggle]");
     if (!input || !button) continue;
     button.addEventListener("click", () => {
       const shown = input.type === "password";

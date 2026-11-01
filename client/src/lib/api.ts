@@ -100,12 +100,6 @@ export class Api {
     this.fetchImpl = fetchImpl ?? ((input, init) => fetch(input, init));
   }
 
-  static fromPage(): Api {
-    const base = document.body.dataset["api"];
-    if (!base) throw new Error("page has no data-api attribute");
-    return new Api(base);
-  }
-
   async config(): Promise<InstanceConfig> {
     const response = await send(this.fetchImpl, `${this.base}/config`, { method: "GET" });
     return (await response.json()) as InstanceConfig;

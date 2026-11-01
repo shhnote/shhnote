@@ -1,30 +1,30 @@
 {%- import "partials/icons.html" as icons -%}
 {% macro language_menu(ctx, up) %}
-<details class="menu{% if up %} menu--up{% endif %}" data-menu>
+<details class="menu{% if up %} menu--up{% endif %}" data-shh-menu>
   <summary aria-label="{{ ctx.t("nav-language") }}">
     {% call icons::icon("globe", 18) %}{% endcall %}
     <span>{{ ctx.locale|upper }}</span>
   </summary>
   <ul class="menu__list">
     {%- for language in ctx.languages %}
-    <li><a href="{{ language.href }}" lang="{{ language.code }}" hreflang="{{ language.code }}" data-keep-hash{% if language.current %} aria-current="true"{% endif %}>{{ language.name }}</a></li>
+    <li><a href="{{ language.href }}" lang="{{ language.code }}" hreflang="{{ language.code }}" data-shh-keep-hash{% if language.current %} aria-current="true"{% endif %}>{{ language.name }}</a></li>
     {%- endfor %}
   </ul>
 </details>
 {% endmacro %}
 
 {% macro theme_menu(ctx, up) %}
-<details class="menu{% if up %} menu--up{% endif %}" data-menu data-theme-menu>
+<details class="menu{% if up %} menu--up{% endif %}" data-shh-menu data-shh-theme-menu>
   <summary>
     {% call icons::icon("contrast", 18) %}{% endcall %}
     <span>{{ ctx.t("nav-theme") }}</span>
   </summary>
   <ul class="menu__list" role="group" aria-label="{{ ctx.t("nav-theme") }}">
-    <li><button type="button" role="menuitemradio" aria-checked="true" data-theme-choice="auto">{{ ctx.t("theme-auto") }}</button></li>
-    <li><button type="button" role="menuitemradio" aria-checked="false" data-theme-choice="light">{{ ctx.t("theme-light") }}</button></li>
-    <li><button type="button" role="menuitemradio" aria-checked="false" data-theme-choice="dark">{{ ctx.t("theme-dark") }}</button></li>
-    <li><button type="button" role="menuitemradio" aria-checked="false" data-theme-choice="light-hc">{{ ctx.t("theme-light-hc") }}</button></li>
-    <li><button type="button" role="menuitemradio" aria-checked="false" data-theme-choice="dark-hc">{{ ctx.t("theme-dark-hc") }}</button></li>
+    <li><button type="button" role="menuitemradio" aria-checked="true" data-shh-theme-choice="auto">{{ ctx.t("theme-auto") }}</button></li>
+    <li><button type="button" role="menuitemradio" aria-checked="false" data-shh-theme-choice="light">{{ ctx.t("theme-light") }}</button></li>
+    <li><button type="button" role="menuitemradio" aria-checked="false" data-shh-theme-choice="dark">{{ ctx.t("theme-dark") }}</button></li>
+    <li><button type="button" role="menuitemradio" aria-checked="false" data-shh-theme-choice="light-hc">{{ ctx.t("theme-light-hc") }}</button></li>
+    <li><button type="button" role="menuitemradio" aria-checked="false" data-shh-theme-choice="dark-hc">{{ ctx.t("theme-dark-hc") }}</button></li>
   </ul>
 </details>
 {% endmacro %}

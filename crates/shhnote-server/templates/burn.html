@@ -7,8 +7,8 @@
 {# Opening this page destroys nothing; only the button does. #}
 <section class="section">
   <div class="container">
-    <article class="vault" data-burn-page>
-      <div class="panel panel--center stack" data-state="armed">
+    <article class="vault" data-shh-page="burn">
+      <div class="panel panel--center stack" data-shh-state="armed">
         <span class="badge badge--danger"><span class="dot"></span>{{ ctx.t("burn-badge") }}</span>
         <div class="lock-badge lock-badge--danger">{% call icons::icon("flame", 28) %}{% endcall %}</div>
         <div class="stack--sm">
@@ -16,13 +16,13 @@
           <p>{{ ctx.t("burn-intro") }}</p>
         </div>
         <noscript><p class="callout callout--notice">{{ ctx.t("noscript-view") }}</p></noscript>
-        <form class="stack" data-burn-form hidden>
+        <form class="stack" data-shh-form="burn" hidden>
           <button type="submit" class="btn btn--danger btn--lg w-full">{% call icons::icon("trash", 16) %}{% endcall %}<span>{{ ctx.t("burn-confirm") }}</span></button>
-          <p class="status" role="status" aria-live="polite" data-form-status></p>
+          <p class="status" role="status" aria-live="polite" data-shh-status></p>
         </form>
       </div>
 
-      <div class="panel panel--center stack" data-state="done" hidden>
+      <div class="panel panel--center stack" data-shh-state="done" hidden>
         <span class="badge badge--danger"><span class="dot"></span>{{ ctx.t("burn-done-badge") }}</span>
         <div class="lock-badge lock-badge--danger">{% call icons::icon("flame", 28) %}{% endcall %}</div>
         <div class="stack--sm">
@@ -39,7 +39,7 @@
         </div>
       </div>
 
-      <div class="panel panel--center stack" data-state="notfound" hidden>
+      <div class="panel panel--center stack" data-shh-state="notfound" hidden>
         <span class="badge badge--muted"><span class="dot"></span>{{ ctx.t("burn-not-found-badge") }}</span>
         <div class="lock-badge lock-badge--muted">{% call icons::icon("lock-open", 28) %}{% endcall %}</div>
         <div class="stack--sm">

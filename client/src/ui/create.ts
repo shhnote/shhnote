@@ -3,29 +3,30 @@ import { ShhError } from "../crypto/error.ts";
 import { encrypt, generateRandomness } from "../crypto/secret.ts";
 import { Api, ApiError, type Lifetime } from "../lib/api.ts";
 import { loadArgon2, prefetchArgon2 } from "../lib/argon2-loader.ts";
-import { $, $$, argon2Url, hide, setStatus, show, wireCopy } from "./dom.ts";
-import type { Dropzone } from "./dropzone.ts";
-import { t } from "./i18n.ts";
+import { $, apiFrom, argon2Url, hide, setStatus, show, wireCopy } from "./dom.ts";
+import { type Dropzone, wireDropzone } from "./dropzone.ts";
+import type { Strings, Translate } from "./i18n.ts";
 
-// Home page: encrypt in the browser, upload, then swap the form for the two links.
-export function wireCreate(form: HTMLFormElement, dropzone: Dropzone | undefined): void {
-  const api = Api.fromPage();
-  const status = $("[data-form-status]", form);
+// The create page: encrypt in the browser, upload, then swap the form for the two links.
+// `root` holds the form (`[data-shh-form=create]`), its wrapper and the result panel.
+export function wireCreate(root: HTMLElement, { t }: Strings): void {
+  const api = apiFrom(root);
+  const form = $<HTMLFormElement>("[data-shh-form=create]", root);
+  const status = $("[data-shh-status]", form);
   const submit = $<HTMLButtonElement>("button[type=submit]", form);
-  const result = $("[data-create-result]");
-  const wrapper = $("[data-create-wrapper]");
+  const result = $("[data-shh-create-result]", root);
+  const wrapper = $("[data-shh-create-wrapper]", root);
+  const zone = form.querySelector<HTMLElement>("[data-shh-dropzone]");
+  const dropzone: Dropzone | undefined = zone ? wireDropzone(zone, { t }) : undefined;
   show(wrapper);
-  prefetchArgon2(argon2Url());
+  prefetchArgon2(argon2Url(root));
 
   // Instance policy: with files switched off the drop zone goes away and the API would refuse
   // anything file-sized anyway.
   let filesEnabled = true;
   void api.config().then((config) => {
     filesEnabled = config.files_enabled;
-    if (!filesEnabled) {
-      dropzone?.reset();
-      for (const zone of $$("[data-dropzone]", form)) hide(zone);
-    }
+    if (!filesEnabled) dropzone?.hide();
   }, () => {});
 
   form.addEventListener("submit", async (event) => {
@@ -48,7 +49,7 @@ export function wireCreate(form: HTMLFormElement, dropzone: Dropzone | undefined
       const [config, randomness, argon2, fileBytes] = await Promise.all([
         api.config(),
         generateRandomness(),
-        passphrase ? loadArgon2(argon2Url()) : Promise.resolve(undefined),
+        passphrase ? loadArgon2(argon2Url(root)) : Promise.resolve(undefined),
         Promise.all(files.map(async (f) => ({ name: f.name, type: f.type || "application/octet-stream", bytes: new Uint8Array(await f.arrayBuffer()) }))),
       ]);
       const encrypted = await encrypt({
@@ -70,7 +71,7 @@ export function wireCreate(form: HTMLFormElement, dropzone: Dropzone | undefined
       );
 
       const expiryLabel = $<HTMLSelectElement>("select[name=expiry]", form).selectedOptions[0]?.textContent ?? "";
-      showResult(api, result, encrypted.fragment, encrypted.burnFragment, {
+      showResult(api, t, result, encrypted.fragment, encrypted.burnFragment, {
         hasPassphrase: passphrase.length > 0,
         singleView: lifetime === "single_view",
         expiryLabel,
@@ -80,7 +81,7 @@ export function wireCreate(form: HTMLFormElement, dropzone: Dropzone | undefined
       hide(wrapper);
       setStatus(status, "");
     } catch (e) {
-      setStatus(status, messageFor(e));
+      setStatus(status, messageFor(t, e));
     } finally {
       submit.disabled = false;
     }
@@ -93,29 +94,29 @@ interface ResultInfo {
   expiryLabel: string;
 }
 
-function showResult(api: Api, result: HTMLElement, fragment: string, burnFragment: string, info: ResultInfo): void {
+function showResult(api: Api, t: Translate, result: HTMLElement, fragment: string, burnFragment: string, info: ResultInfo): void {
   // No locale in the links: the server redirects `/s` and `/burn` to the visitor's own language,
   // and browsers keep the fragment across that redirect.
   const shareLink = `${location.origin}/s#${fragment}`;
   const burnLink = `${location.origin}/burn#${burnFragment}`;
-  $("[data-share-link]", result).textContent = shareLink;
-  $("[data-burn-link]", result).textContent = burnLink;
-  $<HTMLAnchorElement>("[data-open-link]", result).href = shareLink;
-  $("[data-chip-lifetime]", result).textContent = t(info.singleView ? "result-chip-single" : "result-chip-multi");
-  $("[data-chip-expiry]", result).textContent = t("result-chip-expires", { period: info.expiryLabel });
-  if (info.hasPassphrase) show($("[data-passphrase-reminder]", result));
-  wireCopy($<HTMLButtonElement>("[data-copy=share]", result), () => shareLink, t("result-copied"));
-  wireCopy($<HTMLButtonElement>("[data-copy=burn]", result), () => burnLink, t("result-copied"));
+  $("[data-shh-share-link]", result).textContent = shareLink;
+  $("[data-shh-burn-link]", result).textContent = burnLink;
+  $<HTMLAnchorElement>("[data-shh-open-link]", result).href = shareLink;
+  $("[data-shh-chip=lifetime]", result).textContent = t(info.singleView ? "result-chip-single" : "result-chip-multi");
+  $("[data-shh-chip=expiry]", result).textContent = t("result-chip-expires", { period: info.expiryLabel });
+  if (info.hasPassphrase) show($("[data-shh-passphrase-reminder]", result));
+  wireCopy($<HTMLButtonElement>("[data-shh-copy=share]", result), () => shareLink, t("result-copied"));
+  wireCopy($<HTMLButtonElement>("[data-shh-copy=burn]", result), () => burnLink, t("result-copied"));
 
-  const destroy = $<HTMLButtonElement>("[data-destroy]", result);
-  const status = $("[data-result-status]", result);
+  const destroy = $<HTMLButtonElement>("[data-shh-destroy]", result);
+  const status = $("[data-shh-status]", result);
   destroy.addEventListener("click", async () => {
     destroy.disabled = true;
     try {
       await api.burn(decodeFragment(burnFragment, "burn"));
       setStatus(status, t("result-destroyed"));
     } catch (e) {
-      setStatus(status, messageFor(e));
+      setStatus(status, messageFor(t, e));
       destroy.disabled = false;
     }
   });
@@ -123,7 +124,7 @@ function showResult(api: Api, result: HTMLElement, fragment: string, burnFragmen
   result.scrollIntoView({ block: "start" });
 }
 
-function messageFor(e: unknown): string {
+function messageFor(t: Translate, e: unknown): string {
   if (e instanceof ApiError) {
     if (e.status === 0) return t("create-error-network");
     if (e.status === 413) return t("create-error-too-large");

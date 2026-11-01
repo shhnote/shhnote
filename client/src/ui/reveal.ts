@@ -6,24 +6,23 @@ import { HEADER_LEN } from "../crypto/padding.ts";
 import { decryptBody, lookup, unwrapEk } from "../crypto/secret.ts";
 import { collect, iterateBytes, readHeader } from "../crypto/stream.ts";
 import { isUserActivation } from "../lib/activation.ts";
-import { Api, ApiError, DEFAULT_MAX_BLOB_BYTES } from "../lib/api.ts";
+import { ApiError } from "../lib/api.ts";
 import { loadArgon2, prefetchArgon2 } from "../lib/argon2-loader.ts";
 import { sanitiseFileName } from "../lib/filename.ts";
 import { wipeBytes, wipePayload } from "../lib/wipe.ts";
-import { $, argon2Url, formatSize, hide, setState, setStatus, show, wireCopy } from "./dom.ts";
-import { t } from "./i18n.ts";
+import { $, apiFrom, argon2Url, formatSize, hide, maxBlobBytesFrom, setState, setStatus, show, wireCopy } from "./dom.ts";
+import type { Strings } from "./i18n.ts";
 
 // `/s#…`: nothing is fetched until the button is pressed, so link previews and scanners
 // can't consume a single-view secret (SPEC §5).
-export function wireReveal(page: HTMLElement): void {
-  const api = Api.fromPage();
-  // The instance's limit: a body past it is refused before it can fill memory.
-  const maxBlobBytes = Number(document.body.dataset["maxBlobBytes"]) || DEFAULT_MAX_BLOB_BYTES;
-  const armed = $<HTMLFormElement>("[data-reveal-form]", page);
-  const armedStatus = $("[data-form-status]", armed);
-  const passForm = $<HTMLFormElement>("[data-passphrase-form]", page);
+export function wireReveal(page: HTMLElement, { t }: Strings): void {
+  const api = apiFrom(page);
+  const maxBlobBytes = maxBlobBytesFrom(page);
+  const armed = $<HTMLFormElement>("[data-shh-form=reveal]", page);
+  const armedStatus = $("[data-shh-status]", armed);
+  const passForm = $<HTMLFormElement>("[data-shh-form=passphrase]", page);
   const passInput = $<HTMLInputElement>("input[name=passphrase]", passForm);
-  const passStatus = $("[data-form-status]", passForm);
+  const passStatus = $("[data-shh-status]", passForm);
 
   let seed: Uint8Array;
   try {
@@ -33,7 +32,7 @@ export function wireReveal(page: HTMLElement): void {
     return;
   }
   show(armed);
-  prefetchArgon2(argon2Url());
+  prefetchArgon2(argon2Url(page));
 
   // Kept only for a passphrase-protected secret: the header to retry the passphrase against
   // and the ciphertext body, so every retry stays in the browser (SPEC §2.10).
@@ -55,9 +54,9 @@ export function wireReveal(page: HTMLElement): void {
     wipePayload(shown);
     shown = null;
     for (const url of objectUrls) URL.revokeObjectURL(url);
-    const pre = page.querySelector("[data-text]");
+    const pre = page.querySelector("[data-shh-text]");
     if (pre) pre.textContent = "";
-    page.querySelector("[data-files]")?.replaceChildren();
+    page.querySelector("[data-shh-files]")?.replaceChildren();
   });
 
   // Only a real press reveals (SPEC §5, `isUserActivation`); the form itself never submits.
@@ -75,7 +74,7 @@ export function wireReveal(page: HTMLElement): void {
 
   async function reveal(): Promise<void> {
     if (button.disabled) return;
-    const working = $("[data-working-status]", page);
+    const working = $("[data-shh-status=working]", page);
     button.disabled = true;
     try {
       setState(page, "working");
@@ -124,7 +123,7 @@ export function wireReveal(page: HTMLElement): void {
     button.disabled = true;
     try {
       setStatus(passStatus, t("reveal-decrypting"));
-      const ek = await unwrapEk(locked.header, seed, passInput.value, await loadArgon2(argon2Url()));
+      const ek = await unwrapEk(locked.header, seed, passInput.value, await loadArgon2(argon2Url(page)));
       const bytes = await locked.body;
       await display(await decryptBody(ek, locked.header, iterateBytes(bytes), bytes.length + HEADER_LEN));
     } catch (e) {
@@ -158,23 +157,23 @@ export function wireReveal(page: HTMLElement): void {
 
     // Only a single-view secret announces its fate. A TTL secret says nothing about whether
     // or how long it stays readable, so every recipient learns to keep what they were sent.
-    const revealed = $("[data-state=revealed]", page);
-    const lifetime = $("[data-lifetime]", revealed);
+    const revealed = $("[data-shh-state=revealed]", page);
+    const lifetime = $("[data-shh-lifetime]", revealed);
     if (claimToken !== null) {
-      $("[data-lifetime-text]", lifetime).textContent = t("reveal-single-view");
+      $("[data-shh-lifetime-text]", lifetime).textContent = t("reveal-single-view");
     } else {
       hide(lifetime);
     }
 
     if (payload.text !== null) {
-      const block = $("[data-text-block]", revealed);
-      const pre = $("[data-text]", block);
+      const block = $("[data-shh-text-block]", revealed);
+      const pre = $("[data-shh-text]", block);
       pre.textContent = payload.text;
-      wireCopy($<HTMLButtonElement>("[data-copy=text]", block), () => payload.text ?? "", t("result-copied"));
+      wireCopy($<HTMLButtonElement>("[data-shh-copy=text]", block), () => payload.text ?? "", t("result-copied"));
       show(block);
     }
 
-    const list = $<HTMLUListElement>("[data-files]", revealed);
+    const list = $<HTMLUListElement>("[data-shh-files]", revealed);
     for (const file of payload.files) {
       const item = document.createElement("li");
       item.className = "file-card";

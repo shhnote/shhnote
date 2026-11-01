@@ -6,8 +6,8 @@
 {% block content %}
 <section class="section">
   <div class="container">
-    <article class="vault" data-report-page>
-      <div class="panel panel--center stack" data-state="armed">
+    <article class="vault" data-shh-page="report">
+      <div class="panel panel--center stack" data-shh-state="armed">
         <span class="badge badge--muted"><span class="dot"></span>{{ ctx.t("report-badge") }}</span>
         <div class="lock-badge lock-badge--muted">{% call icons::icon("shield", 28) %}{% endcall %}</div>
         <div class="stack--sm">
@@ -15,18 +15,18 @@
           <p>{{ ctx.t("report-intro") }}</p>
         </div>
         <noscript><p class="callout callout--notice">{{ ctx.t("noscript-view") }}</p></noscript>
-        <form class="stack" data-report-form hidden>
+        <form class="stack" data-shh-form="report" hidden>
           <div class="form-field text-left">
             <label class="form-label" for="report-link">{{ ctx.t("report-link-label") }}</label>
             <input class="form-input" id="report-link" name="link" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="{{ ctx.t("report-link-placeholder") }}" required>
             <p class="input-help">{{ ctx.t("report-link-help") }}</p>
           </div>
           <button type="submit" class="btn btn--primary btn--lg w-full">{{ ctx.t("report-submit") }}</button>
-          <p class="status" role="status" aria-live="polite" data-form-status></p>
+          <p class="status" role="status" aria-live="polite" data-shh-status></p>
         </form>
       </div>
 
-      <div class="panel panel--center stack" data-state="done" hidden>
+      <div class="panel panel--center stack" data-shh-state="done" hidden>
         <span class="badge badge--muted"><span class="dot"></span>{{ ctx.t("report-done-badge") }}</span>
         <div class="lock-badge lock-badge--muted">{% call icons::icon("shield", 28) %}{% endcall %}</div>
         <div class="stack--sm">

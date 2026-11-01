@@ -1,13 +1,13 @@
 import { decodeFragment } from "../crypto/fragment.ts";
 import { Api, ApiError } from "../lib/api.ts";
-import { $, setState, setStatus, show } from "./dom.ts";
-import { t } from "./i18n.ts";
+import { $, apiFrom, setState, setStatus, show } from "./dom.ts";
+import type { Strings } from "./i18n.ts";
 
 // `/burn#…`: static until confirmed, so a prefetched burn link destroys nothing.
-export function wireBurn(page: HTMLElement): void {
-  const api = Api.fromPage();
-  const form = $<HTMLFormElement>("[data-burn-form]", page);
-  const status = $("[data-form-status]", form);
+export function wireBurn(page: HTMLElement, { t }: Strings): void {
+  const api = apiFrom(page);
+  const form = $<HTMLFormElement>("[data-shh-form=burn]", page);
+  const status = $("[data-shh-status]", form);
 
   let token: Uint8Array;
   try {

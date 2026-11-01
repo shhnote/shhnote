@@ -1123,7 +1123,9 @@ async fn report_page_region_selector_and_settings_tabs_render() {
     let page = get_page(&app, "/en/report", "").await;
     assert_eq!(page.status, StatusCode::OK);
     let html = text(&page);
-    assert!(html.contains("data-report-page") && html.contains("data-report-form"));
+    assert!(
+        html.contains(r#"data-shh-page="report""#) && html.contains(r#"data-shh-form="report""#)
+    );
 
     // This instance is "Europe"; the other region is a plain link to its own origin.
     let home = text(&get_page(&app, "/en", "").await);

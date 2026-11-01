@@ -4,7 +4,7 @@
 {% block title %}{{ ctx.t("how-title") }}{% endblock %}
 
 {% block content %}
-<div class="tabs" data-tabs>
+<div class="tabs" data-shh-tabs>
 <section class="section section--hero">
   <div class="container">
     <header class="section__header">
@@ -61,7 +61,7 @@
       </details>
       {%- endfor %}
     </div>
-    <p class="color-muted">{{ ctx.t("how-s-more") }} <a class="color-accent" href="#technical" data-tab-link="tab-technical">{{ ctx.t("how-s-more-link") }}</a></p>
+    <p class="color-muted">{{ ctx.t("how-s-more") }} <a class="color-accent" href="#technical" data-shh-tab-link="tab-technical">{{ ctx.t("how-s-more-link") }}</a></p>
   </div>
 </section>
 

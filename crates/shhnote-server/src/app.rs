@@ -213,8 +213,8 @@ mod tests {
 
         let (status, body) = get(&app, "localhost:3000", "/en").await;
         assert_eq!(status, StatusCode::OK);
-        assert!(body.contains(r#"data-api="http://localhost:3000/api/v1""#));
-        assert!(body.contains(r#"data-max-blob-bytes=""#));
+        assert!(body.contains(r#"data-shh-api="http://localhost:3000/api/v1""#));
+        assert!(body.contains(r#"data-shh-max-blob-bytes=""#));
 
         let (status, body) = get(&app, "localhost:3000", "/api/nope").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
@@ -344,7 +344,7 @@ mod tests {
 
         let (status, body) = get(&app, "example.com", "/en").await;
         assert_eq!(status, StatusCode::OK);
-        assert!(body.contains(r#"data-api="https://api.example.com/v1""#));
+        assert!(body.contains(r#"data-shh-api="https://api.example.com/v1""#));
 
         // Each host only serves its own routes.
         let (status, _) = get(&app, "example.com", "/en/api/v1").await;

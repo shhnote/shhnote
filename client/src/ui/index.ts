@@ -2,7 +2,9 @@
 export { wireBurn } from "./burn.ts";
 export { wireMenus, wirePasswordToggles, wireTheme } from "./chrome.ts";
 export { wireCreate } from "./create.ts";
-export { Dropzone } from "./dropzone.ts";
+export { $, $$, apiFrom, argon2Url, hide, instanceValue, maxBlobBytesFrom, setState, setStatus, show, wireCopy } from "./dom.ts";
+export { Dropzone, wireDropzone } from "./dropzone.ts";
+export { type Strings, type Translate, type UiKey } from "./i18n.ts";
 export { wireReport } from "./report.ts";
 export { wireReveal } from "./reveal.ts";
 export { wireTabs } from "./tabs.ts";

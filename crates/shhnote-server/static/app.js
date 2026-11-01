@@ -506,17 +506,12 @@ async function* cappedBody(response, maxBytes) {
     throw new ApiError(0, "network");
   }
 }
-var Api = class _Api {
+var Api = class {
   base;
   fetchImpl;
   constructor(base, fetchImpl) {
     this.base = base.replace(/\/+$/, "");
     this.fetchImpl = fetchImpl ?? ((input, init) => fetch(input, init));
-  }
-  static fromPage() {
-    const base = document.body.dataset["api"];
-    if (!base) throw new Error("page has no data-api attribute");
-    return new _Api(base);
   }
   async config() {
     const response = await send(this.fetchImpl, `${this.base}/config`, { method: "GET" });
@@ -592,9 +587,21 @@ function hide(el) {
   el.hidden = true;
 }
 function setState(root, state) {
-  for (const section of $$("[data-state]", root)) {
-    section.hidden = section.dataset["state"] !== state;
+  for (const section of $$("[data-shh-state]", root)) {
+    section.hidden = section.dataset["shhState"] !== state;
   }
+}
+function instanceValue(root, name) {
+  const attr = `data-shh-${name}`;
+  return root.closest(`[${attr}]`)?.getAttribute(attr) ?? document.body.getAttribute(attr) ?? void 0;
+}
+function apiFrom(root) {
+  const base = instanceValue(root, "api");
+  if (!base) throw new Error("no data-shh-api attribute on the page");
+  return new Api(base);
+}
+function maxBlobBytesFrom(root) {
+  return Number(instanceValue(root, "max-blob-bytes")) || DEFAULT_MAX_BLOB_BYTES;
 }
 function setStatus(el, text) {
   el.textContent = text;
@@ -610,8 +617,8 @@ function wireCopy(button, getText, copiedLabel) {
     }
   });
 }
-function argon2Url() {
-  const version = document.body.dataset["assetVersion"] ?? "";
+function argon2Url(root) {
+  const version = instanceValue(root, "asset-version") ?? "";
   return `/static/argon2.wasm?v=${version}`;
 }
 function formatSize(bytes) {
@@ -628,29 +635,11 @@ function formatSize(bytes) {
   return `${number} ${units[unit]}`;
 }
 
-// src/ui/i18n.ts
-var strings = null;
-function t(key, vars = {}) {
-  if (strings === null) {
-    const block = document.querySelector("script[data-i18n]");
-    try {
-      strings = block ? JSON.parse(block.textContent ?? "{}") : {};
-    } catch {
-      strings = {};
-    }
-  }
-  let text = strings[key] ?? key;
-  for (const [name, value] of Object.entries(vars)) {
-    text = text.replaceAll(`{${name}}`, String(value));
-  }
-  return text;
-}
-
 // src/ui/burn.ts
-function wireBurn(page) {
-  const api = Api.fromPage();
-  const form = $("[data-burn-form]", page);
-  const status = $("[data-form-status]", form);
+function wireBurn(page, { t: t2 }) {
+  const api = apiFrom(page);
+  const form = $("[data-shh-form=burn]", page);
+  const status = $("[data-shh-status]", form);
   let token;
   try {
     token = decodeFragment(location.hash, "burn");
@@ -664,7 +653,7 @@ function wireBurn(page) {
     if (!event.isTrusted) return;
     const button = $("button", form);
     button.disabled = true;
-    setStatus(status, t("burn-working"));
+    setStatus(status, t2("burn-working"));
     try {
       await api.burn(token);
       history.replaceState(null, "", location.pathname);
@@ -674,7 +663,7 @@ function wireBurn(page) {
         history.replaceState(null, "", location.pathname);
         setState(page, "notfound");
       } else {
-        setStatus(status, t("reveal-error-network"));
+        setStatus(status, t2("reveal-error-network"));
         button.disabled = false;
       }
     }
@@ -682,8 +671,8 @@ function wireBurn(page) {
 }
 
 // src/ui/chrome.ts
-function wireMenus() {
-  const menus = $$("details[data-menu]");
+function wireMenus(root = document) {
+  const menus = $$("details[data-shh-menu]", root);
   document.addEventListener("click", (event) => {
     for (const menu of menus) {
       if (menu.open && !menu.contains(event.target)) menu.open = false;
@@ -706,12 +695,13 @@ function wireMenus() {
 }
 var THEMES = /* @__PURE__ */ new Set(["light", "dark", "light-hc", "dark-hc"]);
 var THEME_KEY = "shhnote-theme";
-function wireTheme() {
+function wireTheme(root = document) {
+  const buttons = $$("[data-shh-theme-choice]", root);
   const apply = (choice) => {
     if (THEMES.has(choice)) document.documentElement.dataset["theme"] = choice;
     else delete document.documentElement.dataset["theme"];
-    for (const button of $$("[data-theme-choice]")) {
-      button.setAttribute("aria-checked", String((button.dataset["themeChoice"] ?? "auto") === choice));
+    for (const button of buttons) {
+      button.setAttribute("aria-checked", String((button.dataset["shhThemeChoice"] ?? "auto") === choice));
     }
   };
   let stored = "auto";
@@ -720,9 +710,9 @@ function wireTheme() {
   } catch {
   }
   apply(stored);
-  for (const button of $$("[data-theme-choice]")) {
+  for (const button of buttons) {
     button.addEventListener("click", () => {
-      const choice = button.dataset["themeChoice"] ?? "auto";
+      const choice = button.dataset["shhThemeChoice"] ?? "auto";
       apply(choice);
       try {
         if (choice === "auto") localStorage.removeItem(THEME_KEY);
@@ -733,10 +723,10 @@ function wireTheme() {
     });
   }
 }
-function wirePasswordToggles() {
-  for (const wrapper of $$("[data-pwd-input]")) {
+function wirePasswordToggles(root = document) {
+  for (const wrapper of $$("[data-shh-pwd-input]", root)) {
     const input = wrapper.querySelector("input");
-    const button = wrapper.querySelector("[data-pwd-toggle]");
+    const button = wrapper.querySelector("[data-shh-pwd-toggle]");
     if (!input || !button) continue;
     button.addEventListener("click", () => {
       const shown = input.type === "password";
@@ -899,127 +889,17 @@ function loadArgon2(url) {
   return pending;
 }
 
-// src/ui/create.ts
-function wireCreate(form, dropzone) {
-  const api = Api.fromPage();
-  const status = $("[data-form-status]", form);
-  const submit = $("button[type=submit]", form);
-  const result = $("[data-create-result]");
-  const wrapper = $("[data-create-wrapper]");
-  show(wrapper);
-  prefetchArgon2(argon2Url());
-  let filesEnabled = true;
-  void api.config().then((config) => {
-    filesEnabled = config.files_enabled;
-    if (!filesEnabled) {
-      dropzone?.reset();
-      for (const zone of $$("[data-dropzone]", form)) hide(zone);
-    }
-  }, () => {
-  });
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const data = new FormData(form);
-    const text = String(data.get("note") ?? "").replace(/\r\n/g, "\n");
-    const passphrase = String(data.get("passphrase") ?? "");
-    const lifetime = data.get("burn") ? "single_view" : "ttl";
-    const ttlSeconds = Number(data.get("expiry"));
-    const files = filesEnabled ? dropzone?.files ?? [] : [];
-    if (text.length === 0 && files.length === 0) {
-      setStatus(status, t("create-error-empty"));
-      return;
-    }
-    submit.disabled = true;
-    try {
-      setStatus(status, t("create-encrypting"));
-      const [config, randomness, argon2, fileBytes] = await Promise.all([
-        api.config(),
-        generateRandomness(),
-        passphrase ? loadArgon2(argon2Url()) : Promise.resolve(void 0),
-        Promise.all(files.map(async (f) => ({ name: f.name, type: f.type || "application/octet-stream", bytes: new Uint8Array(await f.arrayBuffer()) })))
-      ]);
-      const encrypted = await encrypt({
-        randomness,
-        payload: { text: text.length > 0 ? text : null, files: fileBytes },
-        policy: config.padding,
-        passphrase: passphrase || null,
-        ...argon2 ? { argon2 } : {}
-      });
-      if (encrypted.blob.length > config.max_blob_bytes) {
-        setStatus(status, t("create-error-too-large"));
-        return;
-      }
-      setStatus(status, t("create-uploading"));
-      await api.create(
-        { lookupKey: encrypted.lookupKey, burnKey: encrypted.burnKey, lifetime, ttlSeconds },
-        encrypted.blob
-      );
-      const expiryLabel = $("select[name=expiry]", form).selectedOptions[0]?.textContent ?? "";
-      showResult(api, result, encrypted.fragment, encrypted.burnFragment, {
-        hasPassphrase: passphrase.length > 0,
-        singleView: lifetime === "single_view",
-        expiryLabel
-      });
-      form.reset();
-      dropzone?.reset();
-      hide(wrapper);
-      setStatus(status, "");
-    } catch (e) {
-      setStatus(status, messageFor(e));
-    } finally {
-      submit.disabled = false;
-    }
-  });
-}
-function showResult(api, result, fragment, burnFragment, info) {
-  const shareLink = `${location.origin}/s#${fragment}`;
-  const burnLink = `${location.origin}/burn#${burnFragment}`;
-  $("[data-share-link]", result).textContent = shareLink;
-  $("[data-burn-link]", result).textContent = burnLink;
-  $("[data-open-link]", result).href = shareLink;
-  $("[data-chip-lifetime]", result).textContent = t(info.singleView ? "result-chip-single" : "result-chip-multi");
-  $("[data-chip-expiry]", result).textContent = t("result-chip-expires", { period: info.expiryLabel });
-  if (info.hasPassphrase) show($("[data-passphrase-reminder]", result));
-  wireCopy($("[data-copy=share]", result), () => shareLink, t("result-copied"));
-  wireCopy($("[data-copy=burn]", result), () => burnLink, t("result-copied"));
-  const destroy = $("[data-destroy]", result);
-  const status = $("[data-result-status]", result);
-  destroy.addEventListener("click", async () => {
-    destroy.disabled = true;
-    try {
-      await api.burn(decodeFragment(burnFragment, "burn"));
-      setStatus(status, t("result-destroyed"));
-    } catch (e) {
-      setStatus(status, messageFor(e));
-      destroy.disabled = false;
-    }
-  });
-  show(result);
-  result.scrollIntoView({ block: "start" });
-}
-function messageFor(e) {
-  if (e instanceof ApiError) {
-    if (e.status === 0) return t("create-error-network");
-    if (e.status === 413) return t("create-error-too-large");
-    return t("create-error-failed");
-  }
-  if (e instanceof ShhError && (e.code === "payload_too_large" || e.code === "empty_payload")) {
-    return t(e.code === "empty_payload" ? "create-error-empty" : "create-error-too-large");
-  }
-  if (e instanceof ShhError && e.code === "argon2_unavailable") return t("create-error-wasm");
-  console.error(e);
-  return t("create-error-failed");
-}
-
 // src/ui/dropzone.ts
-var Dropzone = class _Dropzone {
+var Dropzone = class {
   files = [];
   zone;
   list;
-  constructor(zone) {
+  t;
+  constructor(zone, t2) {
     this.zone = zone;
+    this.t = t2;
     const input = $("input[type=file]", zone);
-    this.list = $("[data-file-list]", zone.parentElement ?? document);
+    this.list = $("[data-shh-file-list]", zone.parentElement ?? document);
     input.addEventListener("change", () => {
       this.add(input.files);
       input.value = "";
@@ -1035,8 +915,9 @@ var Dropzone = class _Dropzone {
       this.add(event.dataTransfer?.files ?? null);
     });
   }
-  static wireAll() {
-    return $$("[data-dropzone]").map((zone) => new _Dropzone(zone));
+  hide() {
+    this.reset();
+    this.zone.hidden = true;
   }
   add(files) {
     if (files) this.files.push(...files);
@@ -1050,7 +931,7 @@ var Dropzone = class _Dropzone {
       name.textContent = `${file.name} (${formatSize(file.size)})`;
       const remove = document.createElement("button");
       remove.type = "button";
-      remove.textContent = t("form-files-remove");
+      remove.textContent = this.t("form-files-remove");
       remove.addEventListener("click", () => {
         this.files.splice(index, 1);
         this.render();
@@ -1065,13 +946,146 @@ var Dropzone = class _Dropzone {
     this.zone.classList.remove("is-dragging");
   }
 };
+function wireDropzone(zone, { t: t2 }) {
+  return new Dropzone(zone, t2);
+}
+
+// src/ui/create.ts
+function wireCreate(root, { t: t2 }) {
+  const api = apiFrom(root);
+  const form = $("[data-shh-form=create]", root);
+  const status = $("[data-shh-status]", form);
+  const submit = $("button[type=submit]", form);
+  const result = $("[data-shh-create-result]", root);
+  const wrapper = $("[data-shh-create-wrapper]", root);
+  const zone = form.querySelector("[data-shh-dropzone]");
+  const dropzone = zone ? wireDropzone(zone, { t: t2 }) : void 0;
+  show(wrapper);
+  prefetchArgon2(argon2Url(root));
+  let filesEnabled = true;
+  void api.config().then((config) => {
+    filesEnabled = config.files_enabled;
+    if (!filesEnabled) dropzone?.hide();
+  }, () => {
+  });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = new FormData(form);
+    const text = String(data.get("note") ?? "").replace(/\r\n/g, "\n");
+    const passphrase = String(data.get("passphrase") ?? "");
+    const lifetime = data.get("burn") ? "single_view" : "ttl";
+    const ttlSeconds = Number(data.get("expiry"));
+    const files = filesEnabled ? dropzone?.files ?? [] : [];
+    if (text.length === 0 && files.length === 0) {
+      setStatus(status, t2("create-error-empty"));
+      return;
+    }
+    submit.disabled = true;
+    try {
+      setStatus(status, t2("create-encrypting"));
+      const [config, randomness, argon2, fileBytes] = await Promise.all([
+        api.config(),
+        generateRandomness(),
+        passphrase ? loadArgon2(argon2Url(root)) : Promise.resolve(void 0),
+        Promise.all(files.map(async (f) => ({ name: f.name, type: f.type || "application/octet-stream", bytes: new Uint8Array(await f.arrayBuffer()) })))
+      ]);
+      const encrypted = await encrypt({
+        randomness,
+        payload: { text: text.length > 0 ? text : null, files: fileBytes },
+        policy: config.padding,
+        passphrase: passphrase || null,
+        ...argon2 ? { argon2 } : {}
+      });
+      if (encrypted.blob.length > config.max_blob_bytes) {
+        setStatus(status, t2("create-error-too-large"));
+        return;
+      }
+      setStatus(status, t2("create-uploading"));
+      await api.create(
+        { lookupKey: encrypted.lookupKey, burnKey: encrypted.burnKey, lifetime, ttlSeconds },
+        encrypted.blob
+      );
+      const expiryLabel = $("select[name=expiry]", form).selectedOptions[0]?.textContent ?? "";
+      showResult(api, t2, result, encrypted.fragment, encrypted.burnFragment, {
+        hasPassphrase: passphrase.length > 0,
+        singleView: lifetime === "single_view",
+        expiryLabel
+      });
+      form.reset();
+      dropzone?.reset();
+      hide(wrapper);
+      setStatus(status, "");
+    } catch (e) {
+      setStatus(status, messageFor(t2, e));
+    } finally {
+      submit.disabled = false;
+    }
+  });
+}
+function showResult(api, t2, result, fragment, burnFragment, info) {
+  const shareLink = `${location.origin}/s#${fragment}`;
+  const burnLink = `${location.origin}/burn#${burnFragment}`;
+  $("[data-shh-share-link]", result).textContent = shareLink;
+  $("[data-shh-burn-link]", result).textContent = burnLink;
+  $("[data-shh-open-link]", result).href = shareLink;
+  $("[data-shh-chip=lifetime]", result).textContent = t2(info.singleView ? "result-chip-single" : "result-chip-multi");
+  $("[data-shh-chip=expiry]", result).textContent = t2("result-chip-expires", { period: info.expiryLabel });
+  if (info.hasPassphrase) show($("[data-shh-passphrase-reminder]", result));
+  wireCopy($("[data-shh-copy=share]", result), () => shareLink, t2("result-copied"));
+  wireCopy($("[data-shh-copy=burn]", result), () => burnLink, t2("result-copied"));
+  const destroy = $("[data-shh-destroy]", result);
+  const status = $("[data-shh-status]", result);
+  destroy.addEventListener("click", async () => {
+    destroy.disabled = true;
+    try {
+      await api.burn(decodeFragment(burnFragment, "burn"));
+      setStatus(status, t2("result-destroyed"));
+    } catch (e) {
+      setStatus(status, messageFor(t2, e));
+      destroy.disabled = false;
+    }
+  });
+  show(result);
+  result.scrollIntoView({ block: "start" });
+}
+function messageFor(t2, e) {
+  if (e instanceof ApiError) {
+    if (e.status === 0) return t2("create-error-network");
+    if (e.status === 413) return t2("create-error-too-large");
+    return t2("create-error-failed");
+  }
+  if (e instanceof ShhError && (e.code === "payload_too_large" || e.code === "empty_payload")) {
+    return t2(e.code === "empty_payload" ? "create-error-empty" : "create-error-too-large");
+  }
+  if (e instanceof ShhError && e.code === "argon2_unavailable") return t2("create-error-wasm");
+  console.error(e);
+  return t2("create-error-failed");
+}
+
+// src/ui/i18n.ts
+var strings = null;
+var t = (key, vars = {}) => {
+  if (strings === null) {
+    const block = document.querySelector("script[data-shh-i18n]");
+    try {
+      strings = block ? JSON.parse(block.textContent ?? "{}") : {};
+    } catch {
+      strings = {};
+    }
+  }
+  let text = strings[key] ?? key;
+  for (const [name, value] of Object.entries(vars)) {
+    text = text.replaceAll(`{${name}}`, String(value));
+  }
+  return text;
+};
 
 // src/ui/report.ts
-function wireReport(page) {
-  const api = Api.fromPage();
-  const form = $("[data-report-form]", page);
+function wireReport(page, { t: t2 }) {
+  const api = apiFrom(page);
+  const form = $("[data-shh-form=report]", page);
   const input = $("input[name=link]", form);
-  const status = $("[data-form-status]", form);
+  const status = $("[data-shh-status]", form);
   if (location.hash.length > 1) {
     input.value = `${location.origin}/s${location.hash}`;
     history.replaceState(null, "", location.pathname);
@@ -1085,18 +1099,18 @@ function wireReport(page) {
       const hash = input.value.trim().split("#")[1] ?? "";
       seed = decodeFragment(`#${hash}`, "share");
     } catch {
-      setStatus(status, t("report-error-invalid"));
+      setStatus(status, t2("report-error-invalid"));
       return;
     }
     const button = $("button", form);
     button.disabled = true;
-    setStatus(status, t("report-working"));
+    setStatus(status, t2("report-working"));
     try {
       await api.report(await lookup(seed));
       input.value = "";
       setState(page, "done");
     } catch {
-      setStatus(status, t("reveal-error-network"));
+      setStatus(status, t2("reveal-error-network"));
       button.disabled = false;
     }
   });
@@ -1149,14 +1163,14 @@ function wipePayload(payload) {
 }
 
 // src/ui/reveal.ts
-function wireReveal(page) {
-  const api = Api.fromPage();
-  const maxBlobBytes = Number(document.body.dataset["maxBlobBytes"]) || DEFAULT_MAX_BLOB_BYTES;
-  const armed = $("[data-reveal-form]", page);
-  const armedStatus = $("[data-form-status]", armed);
-  const passForm = $("[data-passphrase-form]", page);
+function wireReveal(page, { t: t2 }) {
+  const api = apiFrom(page);
+  const maxBlobBytes = maxBlobBytesFrom(page);
+  const armed = $("[data-shh-form=reveal]", page);
+  const armedStatus = $("[data-shh-status]", armed);
+  const passForm = $("[data-shh-form=passphrase]", page);
   const passInput = $("input[name=passphrase]", passForm);
-  const passStatus = $("[data-form-status]", passForm);
+  const passStatus = $("[data-shh-status]", passForm);
   let seed;
   try {
     seed = decodeFragment(location.hash, "share");
@@ -1165,7 +1179,7 @@ function wireReveal(page) {
     return;
   }
   show(armed);
-  prefetchArgon2(argon2Url());
+  prefetchArgon2(argon2Url(page));
   let locked = null;
   let bodyBytes = null;
   let claimToken = null;
@@ -1179,9 +1193,9 @@ function wireReveal(page) {
     wipePayload(shown);
     shown = null;
     for (const url of objectUrls) URL.revokeObjectURL(url);
-    const pre = page.querySelector("[data-text]");
+    const pre = page.querySelector("[data-shh-text]");
     if (pre) pre.textContent = "";
-    page.querySelector("[data-files]")?.replaceChildren();
+    page.querySelector("[data-shh-files]")?.replaceChildren();
   });
   const button = $("button", armed);
   armed.addEventListener("submit", (event) => event.preventDefault());
@@ -1196,15 +1210,15 @@ function wireReveal(page) {
   });
   async function reveal() {
     if (button.disabled) return;
-    const working = $("[data-working-status]", page);
+    const working = $("[data-shh-status=working]", page);
     button.disabled = true;
     try {
       setState(page, "working");
-      setStatus(working, t("reveal-fetching"));
+      setStatus(working, t2("reveal-fetching"));
       const revealed = await api.reveal(await lookup(seed), claimToken, maxBlobBytes);
       claimToken = revealed.claimToken ?? claimToken;
       const { header, rest } = await readHeader(revealed.body);
-      setStatus(working, t("reveal-decrypting"));
+      setStatus(working, t2("reveal-decrypting"));
       let ek;
       try {
         ek = await unwrapEk(header, seed);
@@ -1224,7 +1238,7 @@ function wireReveal(page) {
         setState(page, "notfound");
       } else {
         setState(page, "armed");
-        setStatus(armedStatus, e instanceof ApiError && e.code === "network" ? t("reveal-error-network") : t("reveal-error-corrupt"));
+        setStatus(armedStatus, e instanceof ApiError && e.code === "network" ? t2("reveal-error-network") : t2("reveal-error-corrupt"));
         button.disabled = false;
       }
     }
@@ -1239,23 +1253,23 @@ function wireReveal(page) {
     const button2 = $("button", passForm);
     button2.disabled = true;
     try {
-      setStatus(passStatus, t("reveal-decrypting"));
-      const ek = await unwrapEk(locked.header, seed, passInput.value, await loadArgon2(argon2Url()));
+      setStatus(passStatus, t2("reveal-decrypting"));
+      const ek = await unwrapEk(locked.header, seed, passInput.value, await loadArgon2(argon2Url(page)));
       const bytes = await locked.body;
       await display(await decryptBody(ek, locked.header, iterateBytes(bytes), bytes.length + HEADER_LEN));
     } catch (e) {
       if (e instanceof ShhError && e.code === "wrong_passphrase") {
-        setStatus(passStatus, t("reveal-wrong-passphrase"));
+        setStatus(passStatus, t2("reveal-wrong-passphrase"));
         passInput.select();
       } else if (e instanceof ShhError && e.code === "argon2_unavailable") {
-        setStatus(passStatus, t("reveal-error-wasm"));
+        setStatus(passStatus, t2("reveal-error-wasm"));
       } else if (e instanceof ApiError && e.code === "network") {
         locked = null;
         setState(page, "armed");
-        setStatus(armedStatus, t("reveal-error-network"));
+        setStatus(armedStatus, t2("reveal-error-network"));
         button2.disabled = false;
       } else {
-        setStatus(passStatus, t("reveal-error-corrupt"));
+        setStatus(passStatus, t2("reveal-error-corrupt"));
       }
     } finally {
       button2.disabled = false;
@@ -1268,21 +1282,21 @@ function wireReveal(page) {
     passInput.value = "";
     shown = payload;
     history.replaceState(null, "", location.pathname);
-    const revealed = $("[data-state=revealed]", page);
-    const lifetime = $("[data-lifetime]", revealed);
+    const revealed = $("[data-shh-state=revealed]", page);
+    const lifetime = $("[data-shh-lifetime]", revealed);
     if (claimToken !== null) {
-      $("[data-lifetime-text]", lifetime).textContent = t("reveal-single-view");
+      $("[data-shh-lifetime-text]", lifetime).textContent = t2("reveal-single-view");
     } else {
       hide(lifetime);
     }
     if (payload.text !== null) {
-      const block = $("[data-text-block]", revealed);
-      const pre = $("[data-text]", block);
+      const block = $("[data-shh-text-block]", revealed);
+      const pre = $("[data-shh-text]", block);
       pre.textContent = payload.text;
-      wireCopy($("[data-copy=text]", block), () => payload.text ?? "", t("result-copied"));
+      wireCopy($("[data-shh-copy=text]", block), () => payload.text ?? "", t2("result-copied"));
       show(block);
     }
-    const list = $("[data-files]", revealed);
+    const list = $("[data-shh-files]", revealed);
     for (const file of payload.files) {
       const item = document.createElement("li");
       item.className = "file-card";
@@ -1307,7 +1321,7 @@ function wireReveal(page) {
       link.href = URL.createObjectURL(new Blob([file.bytes], { type: "application/octet-stream" }));
       objectUrls.push(link.href);
       link.download = safeName;
-      link.textContent = t("reveal-download");
+      link.textContent = t2("reveal-download");
       item.append(icon, meta, link);
       list.append(item);
     }
@@ -1327,8 +1341,8 @@ function wireReveal(page) {
 }
 
 // src/ui/tabs.ts
-function wireTabs() {
-  for (const container of $$("[data-tabs]")) {
+function wireTabs(root = document) {
+  for (const container of $$("[data-shh-tabs]", root)) {
     const tabList = container.querySelector("[role=tablist]");
     if (!tabList) continue;
     const tabs = $$("[role=tab]", tabList);
@@ -1353,9 +1367,9 @@ function wireTabs() {
         if (step) select((index + step + tabs.length) % tabs.length, true);
       });
     });
-    for (const link of $$("[data-tab-link]", container)) {
+    for (const link of $$("[data-shh-tab-link]", container)) {
       link.addEventListener("click", (event) => {
-        const index = tabs.findIndex((tab) => tab.id === link.dataset["tabLink"]);
+        const index = tabs.findIndex((tab) => tab.id === link.dataset["shhTabLink"]);
         if (index < 0) return;
         event.preventDefault();
         select(index, true);
@@ -1378,18 +1392,15 @@ function wireTabs() {
 wireTheme();
 wireMenus();
 wirePasswordToggles();
-for (const link of $$("a[data-keep-hash]")) {
+wireTabs();
+for (const link of $$("a[data-shh-keep-hash]")) {
   link.addEventListener("click", () => {
     if (location.hash) link.hash = location.hash;
   });
 }
-var dropzones = Dropzone.wireAll();
-wireTabs();
-var createForm = document.querySelector("[data-create-form]");
-if (createForm) wireCreate(createForm, dropzones[0]);
-var revealPage = document.querySelector("[data-reveal-page]");
-if (revealPage) wireReveal(revealPage);
-var burnPage = document.querySelector("[data-burn-page]");
-if (burnPage) wireBurn(burnPage);
-var reportPage = document.querySelector("[data-report-page]");
-if (reportPage) wireReport(reportPage);
+var strings2 = { t };
+var pages = { create: wireCreate, reveal: wireReveal, burn: wireBurn, report: wireReport };
+for (const [name, wire] of Object.entries(pages)) {
+  const root = document.querySelector(`[data-shh-page=${name}]`);
+  if (root) wire(root, strings2);
+}

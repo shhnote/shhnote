@@ -1,8 +1,8 @@
 import { $$ } from "./dom.ts";
 
 // Progressive enhancement for the how-it-works page: without the script both sections show.
-export function wireTabs(): void {
-  for (const container of $$("[data-tabs]")) {
+export function wireTabs(root: ParentNode = document): void {
+  for (const container of $$("[data-shh-tabs]", root)) {
     const tabList = container.querySelector<HTMLElement>("[role=tablist]");
     if (!tabList) continue;
     const tabs = $$<HTMLButtonElement>("[role=tab]", tabList);
@@ -32,9 +32,9 @@ export function wireTabs(): void {
     });
 
     // In-page links (and footer links) may name a tab by its id.
-    for (const link of $$<HTMLAnchorElement>("[data-tab-link]", container)) {
+    for (const link of $$<HTMLAnchorElement>("[data-shh-tab-link]", container)) {
       link.addEventListener("click", (event) => {
-        const index = tabs.findIndex((tab) => tab.id === link.dataset["tabLink"]);
+        const index = tabs.findIndex((tab) => tab.id === link.dataset["shhTabLink"]);
         if (index < 0) return;
         event.preventDefault();
         select(index, true);
