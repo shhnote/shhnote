@@ -5,7 +5,7 @@ One Fly app is one shhnote instance: a machine, a volume for SQLite, Fly's edge 
 ## Setup
 
 ```sh
-git clone https://github.com/zbcdo/shhnote && cd shhnote
+git clone https://github.com/shhnote/shhnote && cd shhnote
 cp deploy/fly/fly.toml.example fly.toml
 # edit fly.toml: app name, primary_region, SHH_URL
 fly launch --no-deploy --copy-config

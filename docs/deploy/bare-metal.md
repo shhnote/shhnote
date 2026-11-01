@@ -4,7 +4,7 @@ For a Linux host where a reverse proxy already runs and, if you want one, a Post
 
 ## 1. Install the binary
 
-Download the archive for your architecture from the [releases page](https://github.com/zbcdo/shhnote/releases) (`x86_64` or `aarch64`, Linux, musl, no library dependencies) and verify it against `SHA256SUMS`:
+Download the archive for your architecture from the [releases page](https://github.com/shhnote/shhnote/releases) (`x86_64` or `aarch64`, Linux, musl, no library dependencies) and verify it against `SHA256SUMS`:
 
 ```sh
 tar -xzf shhnote-v*-x86_64-linux-musl.tar.gz
@@ -17,7 +17,7 @@ To build from source instead you need Rust stable with the `wasm32-unknown-unkno
 
 ```sh
 sudo mkdir -p /etc/shhnote
-sudo curl -fsSL https://raw.githubusercontent.com/zbcdo/shhnote/main/deploy/systemd/env.example -o /etc/shhnote/env
+sudo curl -fsSL https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/systemd/env.example -o /etc/shhnote/env
 sudo chmod 0640 /etc/shhnote/env
 sudo editor /etc/shhnote/env
 ```
@@ -44,7 +44,7 @@ Migrations run when the service starts; the role needs to own the database (or h
 ## 3. Run as a service
 
 ```sh
-sudo curl -fsSL https://raw.githubusercontent.com/zbcdo/shhnote/main/deploy/systemd/shhnote.service -o /etc/systemd/system/shhnote.service
+sudo curl -fsSL https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/systemd/shhnote.service -o /etc/systemd/system/shhnote.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now shhnote
 systemctl status shhnote

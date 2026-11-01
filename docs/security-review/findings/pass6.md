@@ -82,7 +82,7 @@ Fix: make `release` call the CI workflow (`workflow_call`) or add a test job wit
 
 ### F-6-3: Dockerfile and compose use floating base images, no digests
 Severity: Medium
-Location: Dockerfile:1 (`# syntax=docker/dockerfile:1.7`), :6-9 (`rust:${RUST_VERSION}-alpine`, `node:24-alpine` twice), :13 (`rustup target add wasm32-unknown-unknown` at build time); deploy/docker/docker-compose.yml:12 (`ghcr.io/zbcdo/shhnote:latest`), :32 (`caddy:2`), :50 (`postgres:17-alpine`); .github/workflows/ci.yml:21
+Location: Dockerfile:1 (`# syntax=docker/dockerfile:1.7`), :6-9 (`rust:${RUST_VERSION}-alpine`, `node:24-alpine` twice), :13 (`rustup target add wasm32-unknown-unknown` at build time); deploy/docker/docker-compose.yml:12 (`ghcr.io/shhnote/shhnote:latest`), :32 (`caddy:2`), :50 (`postgres:17-alpine`); .github/workflows/ci.yml:21
 Violates: Principle 11 (auditable), Principle 12; Dockerfile comment at :8-9 claims the Node version is "pinned"
 What: Builder images are selected by tag (`1.99`, `24`), so the compiler, Node, Alpine gcc and musl change underneath an unchanged commit and the produced binary, including the WASM Argon2 module and JS bundles served to users, is not a function of the repo alone. The comment on the Node COPY says the version is pinned, but only the major is. The default compose file runs `:latest` of the app and an unpinned `caddy:2`, which is the process terminating TLS in front of the secrets.
 Reproduction: `grep -nE '^(FROM|COPY --from)|image:' Dockerfile deploy/docker/docker-compose.yml` shows no `@sha256:`.

@@ -6,8 +6,8 @@
 
 services:
   shhnote:
-    # Pin the version you deploy (ghcr.io/zbcdo/shhnote:0.1, say); `latest` moves.
-    image: ghcr.io/zbcdo/shhnote:latest
+    # Pin the version you deploy (ghcr.io/shhnote/shhnote:0.1, say); `latest` moves.
+    image: ghcr.io/shhnote/shhnote:latest
     build:
       context: ../..
     env_file: .env

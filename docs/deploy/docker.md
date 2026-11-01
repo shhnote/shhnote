@@ -1,6 +1,6 @@
 # Deploying with Docker
 
-The image `ghcr.io/zbcdo/shhnote` is built from `scratch`: one static binary, no shell, running as an unprivileged user, with all state under `/data`. The compose file in `deploy/docker/` runs it together with Caddy for TLS; Postgres is an optional profile.
+The image `ghcr.io/shhnote/shhnote` is built from `scratch`: one static binary, no shell, running as an unprivileged user, with all state under `/data`. The compose file in `deploy/docker/` runs it together with Caddy for TLS; Postgres is an optional profile.
 
 ## One command, with Caddy
 
@@ -8,9 +8,9 @@ Prerequisites: Docker with Compose v2, a domain whose DNS points at the host, po
 
 ```sh
 mkdir shhnote && cd shhnote
-curl -fsSLO https://raw.githubusercontent.com/zbcdo/shhnote/main/deploy/docker/docker-compose.yml
-curl -fsSLO https://raw.githubusercontent.com/zbcdo/shhnote/main/deploy/docker/Caddyfile
-curl -fsSL https://raw.githubusercontent.com/zbcdo/shhnote/main/deploy/docker/.env.example -o .env
+curl -fsSLO https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/docker/docker-compose.yml
+curl -fsSLO https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/docker/Caddyfile
+curl -fsSL https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/docker/.env.example -o .env
 ```
 
 Edit `.env`:

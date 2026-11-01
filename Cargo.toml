@@ -6,7 +6,7 @@ members = ["crates/*"]
 version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-only"
-repository = "https://github.com/zbcdo/shhnote"
+repository = "https://github.com/shhnote/shhnote"
 # Deployed as a binary and an image, never published to crates.io.
 publish = false
 

@@ -89,7 +89,7 @@ impl Default for Settings {
             site_name: "shhnote".into(),
             contact_email: String::new(),
             security_email: String::new(),
-            source_url: "https://github.com/zbcdo/shhnote".into(),
+            source_url: "https://github.com/shhnote/shhnote".into(),
             padding: PaddingPolicy::Padme {
                 min: PaddingPolicy::DEFAULT_MIN,
             },

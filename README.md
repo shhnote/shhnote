@@ -16,9 +16,9 @@ You need a host with Docker, and a domain name pointing at it.
 
 ```sh
 mkdir shhnote && cd shhnote
-curl -fsSLO https://raw.githubusercontent.com/zbcdo/shhnote/main/deploy/docker/docker-compose.yml
-curl -fsSLO https://raw.githubusercontent.com/zbcdo/shhnote/main/deploy/docker/Caddyfile
-curl -fsSL https://raw.githubusercontent.com/zbcdo/shhnote/main/deploy/docker/.env.example -o .env
+curl -fsSLO https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/docker/docker-compose.yml
+curl -fsSLO https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/docker/Caddyfile
+curl -fsSL https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/docker/.env.example -o .env
 # edit .env: DOMAIN, SHH_URL, SHH_SECRET_KEY, SHH_ADMIN_TOKEN
 docker compose up -d
 ```

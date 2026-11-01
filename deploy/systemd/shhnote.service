@@ -4,7 +4,7 @@
 # State lives in /var/lib/shhnote; relative paths in the environment file resolve there.
 [Unit]
 Description=shhnote zero-knowledge secret sharing
-Documentation=https://github.com/zbcdo/shhnote
+Documentation=https://github.com/shhnote/shhnote
 After=network-online.target postgresql.service
 Wants=network-online.target
 

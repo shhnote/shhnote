@@ -32,7 +32,7 @@ COPY --from=builder /shhnote /shhnote
 FROM scratch
 LABEL org.opencontainers.image.title="shhnote" \
       org.opencontainers.image.description="Zero-knowledge secret sharing" \
-      org.opencontainers.image.source="https://github.com/zbcdo/shhnote" \
+      org.opencontainers.image.source="https://github.com/shhnote/shhnote" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 COPY --from=builder /shhnote /shhnote
 COPY --from=builder --chown=65532:65532 /data /data
