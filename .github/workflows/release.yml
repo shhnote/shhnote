@@ -97,8 +97,10 @@ jobs:
   publish:
     # `@shhnote/client` on npm, through trusted publishing (OIDC, no token): the package on
     # npmjs.com is configured to trust this repository and workflow. The client is versioned
-    # on its own, so a tag whose package version is already published publishes nothing.
+    # on its own, so a tag whose package version is already published publishes nothing, and
+    # a pre-release tag (a dash in it) publishes nothing either: npm versions are immutable.
     needs: ci
+    if: ${{ !contains(github.ref_name, '-') }}
     permissions:
       contents: read
       id-token: write
