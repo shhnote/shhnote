@@ -43,7 +43,7 @@ Project skills in `.claude/skills/` hold the conventions for each area: `api-end
 
 ## Commands
 
-- Build: `scripts/build-client.sh` first (WASM module + JS bundles into `crates/shhnote-server/static/`, gitignored and embedded by `include_bytes!`; `build.rs` refuses to compile without them), then `cargo build`.
+- Build: `scripts/build-client.sh` first (WASM module + the `app.js`, `shh.js` and `shh-ui.js` bundles into `crates/shhnote-server/static/`, gitignored and embedded by `include_bytes!`; `build.rs` refuses to compile without them), then `cargo build`.
 - Run server: `cargo run -p shhnote-server`. Subcommands: `check` (config + database ping), `health` (probes a running server), `reset-admin`. SIGTERM drains in-flight requests.
 - Test: `cargo test` (SQLite always; set `SHH_TEST_PG_URL=postgres://…` to also run the store tests on Postgres, which clears that database's tables)
 - Lint: `cargo clippy --all-targets -- -D warnings`

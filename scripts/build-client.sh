@@ -14,6 +14,7 @@ cp target/wasm32-unknown-unknown/wasm/shhnote_argon2_wasm.wasm "$out/argon2.wasm
   npm run --silent typecheck
   npm run --silent build:lib
   npm run --silent build:app
+  npm run --silent build:ui
 )
 # What the bundles were built from, so `build.rs` can refuse stale ones. Keep the input
 # list in step with `crates/shhnote-server/build.rs`.
@@ -23,4 +24,4 @@ cp target/wasm32-unknown-unknown/wasm/shhnote_argon2_wasm.wasm "$out/argon2.wasm
     crates/shhnote-argon2-wasm/Cargo.toml scripts/build-client.sh scripts/build-wasm.sh
 } | LC_ALL=C sort -u | while IFS= read -r f; do printf '%s\n' "$f"; cat "$f"; done \
   | sha256sum | cut -d' ' -f1 > "$out/.stamp"
-echo "built $out/shh.js, $out/app.js, $out/argon2.wasm"
+echo "built $out/shh.js, $out/shh-ui.js, $out/app.js, $out/argon2.wasm"

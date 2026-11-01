@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 // The client bundles and the Argon2 module are embedded into the binary, so they must exist,
 // be what they claim to be, and come from the sources in this checkout. They are generated
 // by `scripts/build-client.sh`, never committed.
-const ASSETS: [&str; 3] = ["app.js", "shh.js", "argon2.wasm"];
+const ASSETS: [&str; 4] = ["app.js", "shh.js", "shh-ui.js", "argon2.wasm"];
 // Everything the bundles are built from. Keep in step with the stamp in the build script.
 const INPUT_DIRS: [&str; 2] = ["client/src", "crates/shhnote-argon2-wasm/src"];
 const INPUT_FILES: [&str; 5] = [

@@ -99,6 +99,7 @@ pub fn router(config: &Config, api: &ApiState) -> Router {
         .route("/static/app.css", get(css).with_state(shared.clone()))
         .route("/static/app.js", get(app_js))
         .route("/static/shh.js", get(shh_js))
+        .route("/static/shh-ui.js", get(shh_ui_js))
         .route("/static/argon2.wasm", get(argon2_wasm))
         .route("/static/fonts/inter.woff2", get(font_regular))
         .route("/static/fonts/inter-italic.woff2", get(font_italic));
@@ -624,6 +625,8 @@ pub(crate) async fn security_headers(
 const APP_CSS: &str = include_str!("../static/app.css");
 const APP_JS: &[u8] = include_bytes!("../static/app.js");
 const SHH_JS: &[u8] = include_bytes!("../static/shh.js");
+// The `/ui` entry of the client package, for frontends without a build step.
+const SHH_UI_JS: &[u8] = include_bytes!("../static/shh-ui.js");
 const ARGON2_WASM: &[u8] = include_bytes!("../static/argon2.wasm");
 const FONT_REGULAR: &[u8] = include_bytes!("../static/fonts/inter.woff2");
 const FONT_ITALIC: &[u8] = include_bytes!("../static/fonts/inter-italic.woff2");
@@ -635,6 +638,7 @@ fn asset_version() -> String {
         APP_CSS.as_bytes(),
         APP_JS,
         SHH_JS,
+        SHH_UI_JS,
         ARGON2_WASM,
         FONT_REGULAR,
         FONT_ITALIC,
@@ -670,6 +674,10 @@ async fn app_js() -> impl IntoResponse {
 
 async fn shh_js() -> impl IntoResponse {
     static_asset("text/javascript; charset=utf-8", SHH_JS)
+}
+
+async fn shh_ui_js() -> impl IntoResponse {
+    static_asset("text/javascript; charset=utf-8", SHH_UI_JS)
 }
 
 async fn argon2_wasm() -> impl IntoResponse {
