@@ -28,6 +28,9 @@ git fetch --quiet origin main
 behind=$(git rev-list --count HEAD..origin/main)
 [ "$behind" = 0 ] || { echo "main is $behind commit(s) behind origin/main; pull first" >&2; exit 1; }
 
+bad=$(git ls-files -s scripts/ | awk '$1 != "100755" {print $4}')
+[ -z "$bad" ] || { echo "not executable in git (git update-index --chmod=+x <file>):" >&2; echo "$bad" >&2; exit 1; }
+
 cargo_v=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
 npm_v=$(node -p "require('./client/package.json').version")
 lock_v=$(node -p "require('./client/package-lock.json').version")
