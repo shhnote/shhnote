@@ -118,8 +118,7 @@ jobs:
     needs: [version, ci]
     # Disabled until the first version is published by hand and the trusted publisher is
     # configured on npmjs.com; then restore the condition below.
-    if: false
-    # if: ${{ !contains(github.ref_name, '-') }}
+    if: ${{ !contains(github.ref_name, '-') }}
     permissions:
       contents: read
       id-token: write
