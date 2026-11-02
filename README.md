@@ -43,6 +43,7 @@ cargo run -p shhnote-server -- init --env .env   # fills in SHH_SECRET_KEY and S
 scripts/build-client.sh         # Argon2 WASM module and the JavaScript bundles
 cargo run -p shhnote-server     # http://localhost:3000
 cargo test --workspace          # add SHH_TEST_PG_URL=postgres://… to cover Postgres too
+git config core.hooksPath .githooks   # once per clone: keeps scripts executable in the index
 ```
 
 The layout: `crates/shhnote-core` (protocol), `crates/shhnote-store` (database), `crates/shhnote-server` (API and website), `crates/shhnote-argon2-wasm` (Argon2id for browsers), `client/` (TypeScript: the `@shhnote/client` package in three layers, `crypto/`, `lib/`, `ui/`, and the built-in page bundle). `vectors/v1.json` holds the conformance vectors both implementations must pass.

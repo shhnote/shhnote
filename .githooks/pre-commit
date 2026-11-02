@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+# Scripts must be executable in the index; Windows checkouts lose the bit (core.filemode=false).
+git ls-files -s scripts/ .githooks/ | awk '$1 != "100755" {print $4}' | while read -r f; do
+  git update-index --chmod=+x "$f"
+done
