@@ -4,7 +4,7 @@ User-visible changes, newest first. The protocol is specified in `SPEC.md`; the 
 review that preceded 0.2.0, with every finding and fix, has its own record in
 `docs/security-review/CHANGELOG.md`.
 
-## 0.2.0 — unreleased
+## 0.3.0 — 2026-11-02
 
 The built-in website becomes a minimal reference frontend, the client becomes a package, and
 an instance says who runs it before it serves anything.

@@ -1404,7 +1404,7 @@ dependencies = [
 
 [[package]]
 name = "shhnote-argon2-wasm"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "argon2",
  "zeroize",
@@ -1412,7 +1412,7 @@ dependencies = [
 
 [[package]]
 name = "shhnote-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -1428,7 +1428,7 @@ dependencies = [
 
 [[package]]
 name = "shhnote-server"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "askama",
  "axum",
@@ -1455,7 +1455,7 @@ dependencies = [
 
 [[package]]
 name = "shhnote-store"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "getrandom 0.4.3",
  "shhnote-core",
