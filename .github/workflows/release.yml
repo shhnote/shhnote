@@ -11,6 +11,22 @@ env:
   IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
+  version:
+    # The tag must match the version written in the files (scripts/bump-version.sh keeps
+    # them together), or the release stops here before anything is built or published.
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check tag against Cargo.toml and client/package.json
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          cargo=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
+          npm=$(node -p "require('./client/package.json').version")
+          echo "tag=$tag cargo=$cargo npm=$npm"
+          [ "$tag" = "$cargo" ] && [ "$tag" = "$npm" ] || { echo "version mismatch" >&2; exit 1; }
+
   ci:
     # The whole test suite, on both architectures, before anything is built for release.
     uses: ./.github/workflows/ci.yml
@@ -21,7 +37,7 @@ jobs:
   # runner is 15-30x slower (an hour-plus for this release profile), so each platform
   # runs on its own runner and keeps its own cache scope.
   binaries:
-    needs: ci
+    needs: [version, ci]
     permissions:
       contents: read
     strategy:
@@ -99,7 +115,7 @@ jobs:
     # npmjs.com is configured to trust this repository and workflow. The client is versioned
     # on its own, so a tag whose package version is already published publishes nothing, and
     # a pre-release tag (a dash in it) publishes nothing either: npm versions are immutable.
-    needs: ci
+    needs: [version, ci]
     # Disabled until the first version is published by hand and the trusted publisher is
     # configured on npmjs.com; then restore the condition below.
     if: false
@@ -130,7 +146,7 @@ jobs:
           fi
 
   image:
-    needs: ci
+    needs: [version, ci]
     permissions:
       contents: read
       packages: write
