@@ -100,7 +100,10 @@ jobs:
     # on its own, so a tag whose package version is already published publishes nothing, and
     # a pre-release tag (a dash in it) publishes nothing either: npm versions are immutable.
     needs: ci
-    if: ${{ !contains(github.ref_name, '-') }}
+    # Disabled until the first version is published by hand and the trusted publisher is
+    # configured on npmjs.com; then restore the condition below.
+    if: false
+    # if: ${{ !contains(github.ref_name, '-') }}
     permissions:
       contents: read
       id-token: write
