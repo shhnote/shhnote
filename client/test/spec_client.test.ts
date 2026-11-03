@@ -15,10 +15,11 @@ import { ShhError } from "../src/crypto/error.ts";
 import { decodeFragment, encodeFragment } from "../src/crypto/fragment.ts";
 import { ARGON2_MIN, INFO, checkArgon2Bounds, hkdfAesKey } from "../src/crypto/kdf.ts";
 import { CHUNK_SIZE, pad } from "../src/crypto/padding.ts";
-import { decrypt, decryptStream } from "../src/crypto/secret.ts";
+import { decrypt, decryptStream, lookup } from "../src/crypto/secret.ts";
 import { burnSecret, createSecret, parseFragment, revealSecret } from "../src/client.ts";
-import { ApiError, type InstanceConfig, getConfig } from "../src/lib/api.ts";
+import { Api, ApiError, type InstanceConfig, getConfig } from "../src/lib/api.ts";
 import { sanitiseFileName } from "../src/lib/filename.ts";
+import { ClaimStore } from "../src/ui/claims.ts";
 import { fillTtl, ttlChoices } from "../src/ui/create.ts";
 import { COPIED_MS, formatDuration, pageSettings, wireCopy } from "../src/ui/dom.ts";
 import { createT } from "../src/ui/i18n.ts";
@@ -557,6 +558,119 @@ describe("spec: copy buttons (revision 3, B3)", () => {
     wireCopy(button as unknown as HTMLButtonElement, () => "x");
     await withClipboard(() => Promise.reject(new Error("denied")), click);
     assert.equal(button.dataset["shhCopied"], undefined);
+  });
+});
+
+describe("spec: claim token across a reload (revision 3, B4)", () => {
+  // `sessionStorage` as Node lacks it: one instance plays the tab's storage across "reloads".
+  class FakeStorage {
+    readonly items = new Map<string, string>();
+    get length() {
+      return this.items.size;
+    }
+    key(i: number) {
+      return [...this.items.keys()][i] ?? null;
+    }
+    getItem(k: string) {
+      return this.items.get(k) ?? null;
+    }
+    setItem(k: string, v: string) {
+      this.items.set(k, v);
+    }
+    removeItem(k: string) {
+      this.items.delete(k);
+    }
+  }
+  const asStorage = (s: FakeStorage) => s as unknown as Storage;
+
+  it("a reload between attempts sends the claim token from the first one", async () => {
+    const storage = new FakeStorage();
+    let now = 1_000_000;
+    const clock = () => now;
+    const { calls, fetchImpl } = recorder((_url, body) =>
+      (body as { claim_token?: string }).claim_token
+        ? new Response(new Uint8Array(4), { status: 200 })
+        : new Response(new Uint8Array(4), { status: 200, headers: { "x-shh-claim-token": "CLAIM" } }),
+    );
+    const api = new Api("https://h.example/api/v1", fetchImpl);
+    const lookupValue = await lookup(seed);
+    const key = await ClaimStore.keyFor(lookupValue);
+
+    // First page: the press claims the secret, the token is stored, then the attempt fails.
+    const first = new ClaimStore(asStorage(storage), clock);
+    const claimed = await api.reveal(lookupValue, first.get(key));
+    assert.equal(claimed.claimToken, "CLAIM");
+    first.set(key, claimed.claimToken!, now + 900_000);
+
+    // Reload: a fresh page in the same tab finds the token and downloads again with it.
+    now += 60_000;
+    const second = new ClaimStore(asStorage(storage), clock);
+    second.prune();
+    await api.reveal(lookupValue, second.get(key));
+    assert.deepEqual(
+      calls.map((c) => (c.body as Record<string, string>)["claim_token"] ?? null),
+      [null, "CLAIM"],
+    );
+  });
+
+  it("keeps only the token and its expiry, under SHA-256(lookup), and nothing past the window", async () => {
+    const storage = new FakeStorage();
+    let now = 0;
+    const store = new ClaimStore(asStorage(storage), () => now);
+    const lookupValue = await lookup(seed);
+    const key = await ClaimStore.keyFor(lookupValue);
+    assert.equal(key, `shh-claim:${toBase64Url(await subtle.digest("SHA-256", lookupValue).then((b) => new Uint8Array(b)))}`);
+    store.set(key, "CLAIM", 900_000);
+    assert.deepEqual(JSON.parse(storage.getItem(key)!), { claimToken: "CLAIM", expiresAt: 900_000 });
+    assert.ok(![...storage.items.values()].join().includes(toBase64Url(lookupValue)), "the lookup itself is never stored");
+
+    now = 900_000;
+    assert.equal(store.get(key), null, "the window has closed");
+    assert.equal(storage.items.size, 0, "and the entry is gone");
+  });
+
+  it("prune clears expired and unreadable claims and leaves other keys alone", () => {
+    const storage = new FakeStorage();
+    storage.setItem("shh-claim:old", JSON.stringify({ claimToken: "A", expiresAt: 10 }));
+    storage.setItem("shh-claim:live", JSON.stringify({ claimToken: "B", expiresAt: 1_000 }));
+    storage.setItem("shh-claim:junk", "{not json");
+    storage.setItem("shhnote-theme", "dark");
+    new ClaimStore(asStorage(storage), () => 100).prune();
+    assert.deepEqual([...storage.items.keys()].sort(), ["shh-claim:live", "shhnote-theme"]);
+  });
+
+  it("delete forgets a claim, and a storage that throws only loses the reload case", () => {
+    const storage = new FakeStorage();
+    const store = new ClaimStore(asStorage(storage), () => 0);
+    store.set("shh-claim:x", "T", 1_000);
+    store.delete("shh-claim:x");
+    assert.equal(store.get("shh-claim:x"), null);
+
+    const hostile = {
+      get length(): number {
+        throw new Error("SecurityError");
+      },
+      key: () => {
+        throw new Error("SecurityError");
+      },
+      getItem: () => {
+        throw new Error("SecurityError");
+      },
+      setItem: () => {
+        throw new Error("QuotaExceededError");
+      },
+      removeItem: () => {
+        throw new Error("SecurityError");
+      },
+    } as unknown as Storage;
+    const blocked = new ClaimStore(hostile, () => 0);
+    assert.doesNotThrow(() => {
+      blocked.prune();
+      blocked.set("shh-claim:x", "T", 1_000);
+      blocked.delete("shh-claim:x");
+    });
+    assert.equal(blocked.get("shh-claim:x"), null);
+    assert.equal(new ClaimStore(null).get("shh-claim:x"), null, "no storage at all");
   });
 });
 

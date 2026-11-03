@@ -1251,6 +1251,80 @@ function wipePayload(payload) {
   for (const file of payload?.files ?? []) file.bytes.fill(0);
 }
 
+// src/ui/claims.ts
+var PREFIX = "shh-claim:";
+var MAX_CLAIM_WINDOW_SECS = 86400;
+function parse(text) {
+  if (text === null) return null;
+  try {
+    const value = JSON.parse(text);
+    if (typeof value.claimToken === "string" && typeof value.expiresAt === "number") {
+      return { claimToken: value.claimToken, expiresAt: value.expiresAt };
+    }
+  } catch {
+  }
+  return null;
+}
+function sessionStorageOrNull() {
+  try {
+    return globalThis.sessionStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+var ClaimStore = class {
+  storage;
+  now;
+  constructor(storage = sessionStorageOrNull(), now = Date.now) {
+    this.storage = storage;
+    this.now = now;
+  }
+  // The storage key for a secret, from its lookup value.
+  static async keyFor(lookup2) {
+    return PREFIX + toBase64Url(await credentialHash(lookup2));
+  }
+  // The token, while its window is open; an expired or unreadable entry is removed.
+  get(key) {
+    try {
+      const entry = parse(this.storage?.getItem(key) ?? null);
+      if (entry && entry.expiresAt > this.now()) return entry.claimToken;
+      this.storage?.removeItem(key);
+    } catch {
+    }
+    return null;
+  }
+  set(key, claimToken, expiresAt) {
+    try {
+      this.storage?.setItem(key, JSON.stringify({ claimToken, expiresAt }));
+    } catch {
+    }
+  }
+  delete(key) {
+    try {
+      this.storage?.removeItem(key);
+    } catch {
+    }
+  }
+  // Removes every claim whose window has closed, so nothing outlives it even if its page
+  // never came back to confirm.
+  prune() {
+    try {
+      const storage = this.storage;
+      if (!storage) return;
+      const keys = [];
+      for (let i = 0; i < storage.length; i++) {
+        const key = storage.key(i);
+        if (key?.startsWith(PREFIX)) keys.push(key);
+      }
+      for (const key of keys) {
+        const entry = parse(storage.getItem(key));
+        if (!entry || entry.expiresAt <= this.now()) storage.removeItem(key);
+      }
+    } catch {
+    }
+  }
+};
+
 // src/ui/reveal.ts
 function wireReveal(page, options) {
   const { t: t2 } = options;
@@ -1274,6 +1348,9 @@ function wireReveal(page, options) {
   let locked = null;
   let bodyBytes = null;
   let claimToken = null;
+  let claimKey = null;
+  const claims = new ClaimStore();
+  claims.prune();
   let shown = null;
   const objectUrls = [];
   window.addEventListener("pagehide", () => {
@@ -1299,6 +1376,17 @@ function wireReveal(page, options) {
       void reveal();
     }
   });
+  function remember(key, token) {
+    const claimedAt = Date.now();
+    claims.set(key, token, claimedAt + MAX_CLAIM_WINDOW_SECS * 1e3);
+    void getConfig(settings.apiBase).then(
+      (config) => {
+        if (claims.get(key) === token) claims.set(key, token, claimedAt + config.claim_window_secs * 1e3);
+      },
+      () => {
+      }
+    );
+  }
   async function reveal() {
     if (button.disabled) return;
     const working = $("[data-shh-status=working]", page);
@@ -1306,8 +1394,14 @@ function wireReveal(page, options) {
     try {
       setState(page, "working");
       setStatus(working, t2("reveal-fetching"));
-      const revealed = await api.reveal(await lookup(seed), claimToken, maxBlobBytes);
-      claimToken = revealed.claimToken ?? claimToken;
+      const lookupValue = await lookup(seed);
+      claimKey ??= await ClaimStore.keyFor(lookupValue);
+      claimToken ??= claims.get(claimKey);
+      const revealed = await api.reveal(lookupValue, claimToken, maxBlobBytes);
+      if (revealed.claimToken) {
+        claimToken = revealed.claimToken;
+        remember(claimKey, claimToken);
+      }
       const { header, rest } = await readHeader(revealed.body);
       setStatus(working, t2("reveal-decrypting"));
       let ek;
@@ -1326,6 +1420,7 @@ function wireReveal(page, options) {
       await display(await decryptBody(ek, header, rest, maxBlobBytes));
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) {
+        if (claimKey) claims.delete(claimKey);
         setState(page, "notfound");
       } else {
         setState(page, "armed");
@@ -1399,6 +1494,7 @@ function wireReveal(page, options) {
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           await api.confirm(await lookup(seed), token);
+          if (claimKey) claims.delete(claimKey);
           break;
         } catch {
           await new Promise((r) => setTimeout(r, 1e3 * (attempt + 1)));

@@ -6,11 +6,12 @@ import { HEADER_LEN } from "../crypto/padding.ts";
 import { decryptBody, lookup, unwrapEk } from "../crypto/secret.ts";
 import { collect, iterateBytes, readHeader } from "../crypto/stream.ts";
 import { isUserActivation } from "../lib/activation.ts";
-import { Api, ApiError, DEFAULT_MAX_BLOB_BYTES } from "../lib/api.ts";
+import { Api, ApiError, DEFAULT_MAX_BLOB_BYTES, getConfig } from "../lib/api.ts";
 import { loadArgon2, prefetchArgon2 } from "../lib/argon2-loader.ts";
 import { sanitiseFileName } from "../lib/filename.ts";
 import { wipeBytes, wipePayload } from "../lib/wipe.ts";
 import { $, type PageOptions, formatSize, fromTemplate, hide, hook, pageSettings, setState, setStatus, show, wireCopy } from "./dom.ts";
+import { ClaimStore, MAX_CLAIM_WINDOW_SECS } from "./claims.ts";
 import type { Translate } from "./i18n.ts";
 
 // `/s#…`: nothing is fetched until the button is pressed, so link previews and scanners
@@ -42,8 +43,12 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
   let locked: { header: Header; body: Promise<Uint8Array> } | null = null;
   let bodyBytes: Uint8Array | null = null;
   // Set once a single-view secret is claimed, and kept through failures: the next press
-  // downloads again with it rather than finding the secret gone (SPEC §5.1).
+  // downloads again with it rather than finding the secret gone (SPEC §5.1). Also kept in
+  // this tab's sessionStorage for the claim window, so a reload does not lose it.
   let claimToken: string | null = null;
+  let claimKey: string | null = null;
+  const claims = new ClaimStore();
+  claims.prune();
   let shown: Payload | null = null;
   const objectUrls: string[] = [];
 
@@ -75,6 +80,20 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
     }
   });
 
+  // Stored at once with the longest possible window, so a reload right away still finds it,
+  // then shortened to this instance's window. `/config` is fetched only now, after the
+  // press, so the page still sends nothing before a real activation.
+  function remember(key: string, token: string): void {
+    const claimedAt = Date.now();
+    claims.set(key, token, claimedAt + MAX_CLAIM_WINDOW_SECS * 1000);
+    void getConfig(settings.apiBase).then(
+      (config) => {
+        if (claims.get(key) === token) claims.set(key, token, claimedAt + config.claim_window_secs * 1000);
+      },
+      () => {},
+    );
+  }
+
   async function reveal(): Promise<void> {
     if (button.disabled) return;
     const working = $("[data-shh-status=working]", page);
@@ -82,8 +101,14 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
     try {
       setState(page, "working");
       setStatus(working, t("reveal-fetching"));
-      const revealed = await api.reveal(await lookup(seed), claimToken, maxBlobBytes);
-      claimToken = revealed.claimToken ?? claimToken;
+      const lookupValue = await lookup(seed);
+      claimKey ??= await ClaimStore.keyFor(lookupValue);
+      claimToken ??= claims.get(claimKey);
+      const revealed = await api.reveal(lookupValue, claimToken, maxBlobBytes);
+      if (revealed.claimToken) {
+        claimToken = revealed.claimToken;
+        remember(claimKey, claimToken);
+      }
       // The header is enough to know whether a passphrase is needed; the rest of the body
       // is decrypted as it arrives, so the ciphertext is never held whole.
       const { header, rest } = await readHeader(revealed.body);
@@ -104,6 +129,8 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
       await display(await decryptBody(ek, header, rest, maxBlobBytes));
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) {
+        // Gone, or the window closed: a stored token has nothing left to fetch.
+        if (claimKey) claims.delete(claimKey);
         setState(page, "notfound");
       } else {
         setState(page, "armed");
@@ -193,6 +220,8 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           await api.confirm(await lookup(seed), token);
+          // Destroyed: nothing left to download again.
+          if (claimKey) claims.delete(claimKey);
           break;
         } catch {
           await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
