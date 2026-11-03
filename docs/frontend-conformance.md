@@ -37,13 +37,20 @@ Each line says what, why, and how to check it.
    name and the download is not an executable name with a reversed extension.
 5. **A wrong passphrase costs no round trip, and nothing is lost on failure.** Retries run
    against the header already in memory; the claim token of a single-view secret survives a
-   wrong passphrase or a dropped connection and is sent again on the next attempt.
-   **by construction**. *Check:* reveal a passphrase secret, type a wrong passphrase twice,
-   then the right one, with the network tab open: one `POST …/secrets/reveal`, then the
-   secret. Reload between attempts: the next attempt sends `claim_token`.
-6. **Bodies are capped.** The reveal reads `max_blob_bytes` (from `/config`, or the
-   `data-shh-max-blob-bytes` attribute) and refuses anything longer before buffering it.
-   **by construction**. *Why:* D-4 promises bounded client memory whatever the server sends.
+   wrong passphrase, a dropped connection and a reload of the page, and is sent again on the
+   next attempt while the claim window is open (it is kept in `sessionStorage` for that
+   window, item 7). **by construction**. *Check:* reveal a single-view passphrase secret,
+   type a wrong passphrase twice, then the right one, with the network tab open: one
+   `POST …/secrets/reveal` for all three attempts (besides it only `GET …/config` and,
+   after decryption, `POST …/secrets/confirm`), then the secret. Reload between attempts:
+   the next attempt sends `claim_token`.
+6. **Bodies are capped.** The reveal refuses a body longer than the instance's
+   `max_blob_bytes`, whether the server announces the length or not, before buffering it.
+   The limit comes from the controller's `maxBlobBytes` option, else the
+   `data-shh-max-blob-bytes` attribute, else `/config` read after the press; only when none
+   of them can be had is the cap 4 GiB, the largest blob any instance can serve.
+   `revealSecret` uses `/config`'s value unless given a smaller one. **by construction**.
+   *Why:* D-4 promises bounded client memory whatever the server sends.
 7. **Secret material is wiped when it is done and on leave.** On the reveal page, on
    `pagehide`, the seed, the buffered ciphertext and the decrypted file bytes are
    overwritten, the passphrase field, rendered text and file list are cleared, and blob URLs
@@ -83,16 +90,21 @@ Each line says what, why, and how to check it.
     *Check:* the network tab on every page shows the page origin and, at most, the API origin.
 14. **`argon2.wasm` is served from your origin** with `Content-Type: application/wasm`
     (`WebAssembly.compileStreaming` requires it). The package ships it as
-    `@shhnote/client/argon2.wasm`; pass its URL to `loadArgon2`/`prefetchArgon2`.
+    `@shhnote/client/argon2.wasm`. Pass its URL to `loadArgon2`/`prefetchArgon2`, or to
+    `wireCreate`/`wireReveal` as the `argon2Url` option; without it they use `/argon2.wasm`
+    at the page's origin (or `/static/argon2.wasm?v=…` on a page that sets
+    `data-shh-asset-version`, as the instance's own pages do).
 15. **The API origin is in `allowed_origins`** when the frontend is not on the instance's
     site origin (D-26), and the frontend never sends credentials with API requests.
 16. **Security headers on every response** of the frontend host: HSTS, `X-Frame-Options:
     DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, a restrictive
-    `Permissions-Policy`. The instance sets them on everything it serves; a static host must
-    be configured to.
-17. **No caching of anything per-secret.** The interstitial may be cached (it is static);
-    API responses carry `Cache-Control: no-store` and must not be cached by the frontend's
-    CDN or service worker. Do not register a service worker that caches API responses.
+    `Permissions-Policy`. The instance sets them on everything it serves (HSTS only when
+    `SHH_ENV=production`); a static host must be configured to.
+17. **No caching of anything per-secret.** The interstitial may be cached (it is static).
+    API responses must not be cached by the frontend's CDN or service worker, whatever
+    headers they carry: secret blobs are sent with `Cache-Control: no-store`, and `/config`
+    changes whenever the operator changes a setting. Do not register a service worker that
+    caches API responses.
 18. **Copy.** The pages refer to the instance as "this site", name the site and contact
     addresses from the instance's settings, say nothing about view counts, exact sizes or
     remaining time, and describe the lifecycle as SPEC §5 does ("revealed once, then gone").
