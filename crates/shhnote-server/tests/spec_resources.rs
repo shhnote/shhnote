@@ -315,6 +315,48 @@ async fn spec_multipart_shapes() {
     let _ = tokio::fs::remove_dir_all(&root).await;
 }
 
+// SPEC §6.1 (revision 3, C1): a declared length that leaves no valid padded size within the
+// framing slack below it is refused before any blob byte is read, so nothing is ever spooled.
+// A valid upload of the same order of size still goes through.
+#[tokio::test]
+async fn spec_invalid_declared_length_is_refused_before_spooling() {
+    let (app, _store, _blobs, root) = local("declared-length", "1000000000").await;
+    let tmp = root.join("tmp");
+    let meta_text = meta(&keys(), "ttl").to_string();
+    // 1 MiB is a valid bucket and the next one is 32 KiB further: 20 KiB past it, the window
+    // a declared length allows (16 KiB of framing) holds no valid size.
+    let blob_bytes = blob_len(1 << 20) as usize + 20 * 1024;
+    let total = meta_part(&meta_text).len() + blob_head().len() + blob_bytes + closing().len();
+
+    let (tx, body) = channel_body();
+    let mut req = multipart(body);
+    req.headers_mut()
+        .insert(header::CONTENT_LENGTH, total.into());
+    let app2 = app.clone();
+    let task = tokio::spawn(async move { send(&app2, req).await });
+    tx.send(Bytes::from(meta_part(&meta_text))).await.unwrap();
+    tx.send(Bytes::from(blob_head())).await.unwrap();
+    // More than the inline tier holds: read at all, this would be spooled.
+    for _ in 0..4 {
+        if tx.send(Bytes::from(vec![0u8; 65536])).await.is_err() {
+            break;
+        }
+    }
+    // The rest never comes: only a refusal that did not wait for it can answer.
+    let reply = tokio::time::timeout(Duration::from_secs(10), task)
+        .await
+        .expect("the upload was read instead of refused up front")
+        .unwrap();
+    drop(tx);
+    assert_eq!(reply.status, StatusCode::BAD_REQUEST);
+    assert_eq!(reply.code(), "invalid_blob_length");
+    assert_eq!(dir_stats(&tmp).0, 0, "a spool file was made");
+
+    let valid = create(&app, &keys(), "ttl", &raw_blob(1 << 20)).await;
+    assert_eq!(valid.status, StatusCode::CREATED, "{}", valid.code());
+    let _ = tokio::fs::remove_dir_all(&root).await;
+}
+
 // --- item 2 / 3: spool versus ceiling
 
 // D-20: bytes being spooled count toward the ceiling, and a create that would cross it is

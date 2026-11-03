@@ -294,14 +294,13 @@ const UPLOAD_MIN_DEADLINE: Duration = Duration::from_secs(60);
 const FRAMING_SLACK: u64 = 16 * 1024;
 
 // How many bytes the blob can be at most, from the request's Content-Length minus the `meta`
-// part (SPEC §4: the declared length). Without a Content-Length the worst case is assumed.
-fn declared_blob_upper(headers: &HeaderMap, meta_len: usize, max_blob: u64) -> u64 {
+// part (SPEC §4: the declared length). The blob is at most this long and, since the framing
+// is at most `FRAMING_SLACK`, at least that much shorter. `None` without a Content-Length.
+fn declared_blob_upper(headers: &HeaderMap, meta_len: usize) -> Option<u64> {
     headers
         .get(header::CONTENT_LENGTH)
         .and_then(|v| v.to_str().ok()?.parse::<u64>().ok())
-        .map_or(max_blob + FRAMING_SLACK, |total| {
-            total.saturating_sub(meta_len as u64)
-        })
+        .map(|total| total.saturating_sub(meta_len as u64))
 }
 
 fn upload_deadline(max_blob_bytes: u64) -> Instant {
@@ -353,10 +352,37 @@ async fn create(
             None
         }
     };
-    let upper = declared_blob_upper(&headers, meta_bytes.len(), max_blob);
+    let declared = declared_blob_upper(&headers, meta_bytes.len());
+    let upper = declared.unwrap_or(max_blob + FRAMING_SLACK);
     if let Some(err) = too_big(upper.saturating_sub(FRAMING_SLACK)) {
         return Err(err);
     }
+    // With a declared length, the blob must be a valid padded size between it and
+    // `FRAMING_SLACK` below it. When no such size exists the upload is refused before a byte
+    // of it is read; otherwise the longest one bounds the spool (SPEC §6.1). Without a
+    // Content-Length only the checks as bytes arrive apply.
+    let cap = match declared {
+        Some(upper) => {
+            // The longest valid blob in the window that is no longer than `ceiling`.
+            let within = |ceiling: u64| {
+                settings
+                    .padding
+                    .largest_blob_len_at_most(ceiling)
+                    .filter(|&len| len >= upper.saturating_sub(FRAMING_SLACK))
+            };
+            let allowed = upper.min(max_blob).min(text_only.unwrap_or(u64::MAX));
+            if let Some(longest) = within(allowed) {
+                longest
+            } else if text_only.is_some() && within(upper.min(max_blob)).is_some() {
+                return Err(ApiError::bad_request("files_disabled"));
+            } else if within(upper).is_some() {
+                return Err(ApiError::TooLarge);
+            } else {
+                return Err(ApiError::bad_request("invalid_blob_length"));
+            }
+        }
+        None => upper,
+    };
 
     let mut blob_field = next_field(&mut multipart, "blob").await?;
     // Small blobs stay in memory; once one outgrows the inline tier it is spooled to disk.
@@ -377,7 +403,7 @@ async fn create(
             // so uploads in flight can never fill the disk past it (D-20).
             reservation = Some(
                 storage
-                    .reserve(&state.store, upper)
+                    .reserve(&state.store, cap)
                     .await
                     .map_err(ApiError::internal)?
                     .ok_or(ApiError::StorageFull)?,
@@ -391,7 +417,7 @@ async fn create(
             Sink::Spool(spool) => {
                 spool.write(&chunk).await.map_err(ApiError::internal)?;
                 let written = spool.bytes_written();
-                if written > upper {
+                if written > cap {
                     return Err(ApiError::bad_request("invalid_blob_length"));
                 }
                 if let Some(err) = too_big(written) {
