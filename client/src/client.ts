@@ -3,12 +3,13 @@ import type { Payload } from "./crypto/container.ts";
 import { ShhError } from "./crypto/error.ts";
 import { type Kind, decodeFragment } from "./crypto/fragment.ts";
 import { decryptStream, encrypt, generateRandomness, lookup } from "./crypto/secret.ts";
-import { Api, ApiError, type Fetch, type Lifetime } from "./lib/api.ts";
+import { Api, ApiError, type Fetch, type Lifetime, getConfig } from "./lib/api.ts";
 
 // The whole flow in four calls, for integrations outside the website: scripts, bots,
 // password managers. Nothing here touches the DOM; pass your own fetch where needed.
 export interface ClientOptions {
-  // The instance's API base, e.g. "https://example.com/api" or "https://api.example.com".
+  // The instance's API base, versioned: "https://example.com/api/v1" (path routing) or
+  // "https://api.example.com/v1" (subdomain routing).
   apiBase: string;
   fetch?: Fetch;
   // Needed only for passphrase-protected secrets: `await Argon2.load(wasmBytes)`.
@@ -33,7 +34,7 @@ export async function createSecret(opts: CreateOptions): Promise<Created> {
   if (opts.passphrase === "") throw new ShhError("empty_passphrase", "omit the passphrase to mean direct mode");
   if (opts.passphrase && !opts.argon2) throw new ShhError("argon2_unavailable", "a passphrase needs an Argon2 instance");
   const api = new Api(opts.apiBase, opts.fetch);
-  const [config, randomness] = await Promise.all([api.config(), generateRandomness()]);
+  const [config, randomness] = await Promise.all([getConfig(opts.apiBase, opts.fetch), generateRandomness()]);
   const encrypted = await encrypt({
     randomness,
     payload: opts.payload,

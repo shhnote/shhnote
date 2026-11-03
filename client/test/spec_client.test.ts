@@ -17,8 +17,9 @@ import { ARGON2_MIN, INFO, checkArgon2Bounds, hkdfAesKey } from "../src/crypto/k
 import { CHUNK_SIZE, pad } from "../src/crypto/padding.ts";
 import { decrypt, decryptStream } from "../src/crypto/secret.ts";
 import { burnSecret, createSecret, parseFragment, revealSecret } from "../src/client.ts";
-import { ApiError } from "../src/lib/api.ts";
+import { ApiError, type InstanceConfig, getConfig } from "../src/lib/api.ts";
 import { sanitiseFileName } from "../src/lib/filename.ts";
+import { createT } from "../src/ui/i18n.ts";
 
 const subtle = globalThis.crypto.subtle;
 const wasmBytes = new Uint8Array(readFileSync(new URL("../../target/wasm32-unknown-unknown/wasm/shhnote_argon2_wasm.wasm", import.meta.url)));
@@ -342,6 +343,80 @@ describe("spec: client library", () => {
     const body = calls[0]!.body as Record<string, string>;
     assert.deepEqual(Object.keys(body), ["lookup"]);
     assert.notEqual(body["lookup"], toBase64Url(seed));
+  });
+});
+
+const instanceConfig: InstanceConfig = {
+  fragment_version: 1,
+  padding: { mode: "padme", min: 65536 },
+  inline_max: 2097152,
+  max_blob_bytes: 2097152,
+  claim_window_secs: 900,
+  min_ttl_secs: 60,
+  max_ttl_secs: 1209600,
+  default_ttl_secs: 86400,
+  ttl_presets: [3600, 86400],
+  text_max_bytes: 65536,
+  files_enabled: true,
+  regions: [],
+  server_version: "0.3.0",
+  web_mode: "full",
+};
+
+describe("spec: shared instance config (revision 3, B1)", () => {
+  it("getConfig fetches once per base and fetch implementation", async () => {
+    const { calls, fetchImpl } = recorder(() => Response.json(instanceConfig));
+    const first = await getConfig("https://cfg-a.example/api/v1", fetchImpl);
+    const second = await getConfig("https://cfg-a.example/api/v1/", fetchImpl);
+    assert.deepEqual(first, instanceConfig);
+    assert.equal(second, first, "the same answer, not a second fetch");
+    assert.equal(calls.length, 1);
+    await getConfig("https://cfg-b.example/api/v1", fetchImpl);
+    assert.equal(calls.length, 2, "another base is another instance");
+    const other = recorder(() => Response.json(instanceConfig));
+    await getConfig("https://cfg-a.example/api/v1", other.fetchImpl);
+    assert.equal(other.calls.length, 1, "another fetch never sees the first one's answer");
+  });
+
+  it("getConfig does not keep a failure", async () => {
+    let fail = true;
+    const { calls, fetchImpl } = recorder(() => (fail ? new Response(null, { status: 503 }) : Response.json(instanceConfig)));
+    await assert.rejects(getConfig("https://cfg-c.example/api/v1", fetchImpl), (e: unknown) => e instanceof ApiError && e.status === 503);
+    fail = false;
+    assert.deepEqual(await getConfig("https://cfg-c.example/api/v1", fetchImpl), instanceConfig);
+    assert.equal(calls.length, 2);
+  });
+
+  it("createSecret uses the shared config", async () => {
+    const { calls, fetchImpl } = recorder((url) =>
+      url.endsWith("/config") ? Response.json(instanceConfig) : new Response(null, { status: 201 }),
+    );
+    const apiBase = "https://cfg-d.example/api/v1";
+    await getConfig(apiBase, fetchImpl);
+    const created = await createSecret({ apiBase, fetch: fetchImpl, payload: { text: "x", files: [] }, lifetime: "ttl", ttlSeconds: 3600 });
+    assert.equal(decodeFragment(created.fragment).length, 32);
+    assert.deepEqual(
+      calls.map((c) => c.url),
+      [`${apiBase}/config`, `${apiBase}/secrets`],
+    );
+  });
+});
+
+describe("spec: page strings (revision 3, B1)", () => {
+  const rootWith = (json: string | null) =>
+    ({ querySelector: () => (json === null ? null : { textContent: json }) }) as unknown as ParentNode;
+
+  it("createT reads the strings block under the root and fills variables", () => {
+    const t = createT(rootWith('{"result-copied": "Copied", "result-chip-expires": "Expires in {period}"}'));
+    assert.equal(t("result-copied"), "Copied");
+    assert.equal(t("result-chip-expires", { period: "1 day" }), "Expires in 1 day");
+  });
+
+  it("createT falls back to the key for a missing block, a missing key or invalid JSON", () => {
+    assert.equal(createT(rootWith(null))("result-copied"), "result-copied");
+    assert.equal(createT(rootWith("{}"))("reveal-download"), "reveal-download");
+    assert.equal(createT(rootWith("{not json"))("burn-working"), "burn-working");
+    assert.equal(createT()("burn-working"), "burn-working", "no document in Node: keys, no crash");
   });
 });
 

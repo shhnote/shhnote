@@ -6,6 +6,13 @@ import { iterateStream } from "../crypto/stream.ts";
 // (SHH_EXTERNAL_MAX_OBJECT's ceiling, SPEC §7.1).
 export const DEFAULT_MAX_BLOB_BYTES = 4 * 1024 * 1024 * 1024;
 
+// A sibling instance of the same operator (SPEC §9).
+export interface Region {
+  code: string;
+  name: string;
+  url: string;
+}
+
 export interface InstanceConfig {
   fragment_version: number;
   padding: PaddingPolicy;
@@ -18,6 +25,9 @@ export interface InstanceConfig {
   ttl_presets: number[];
   text_max_bytes: number;
   files_enabled: boolean;
+  regions: Region[];
+  server_version: string;
+  web_mode: "full" | "api";
 }
 
 export type Lifetime = "single_view" | "ttl";
@@ -162,4 +172,30 @@ export class Api {
       body: JSON.stringify({ burn_token: toBase64Url(burnToken) }),
     });
   }
+}
+
+// `GET /config`, fetched once per API base and fetch implementation and shared by every
+// caller on the page (or in the process). A failed fetch is not kept, so the next call tries
+// again. The cache is keyed by the fetch implementation too, so a test double or a proxying
+// fetch never sees another one's answer.
+const defaultConfigs = new Map<string, Promise<InstanceConfig>>();
+const customConfigs = new WeakMap<Fetch, Map<string, Promise<InstanceConfig>>>();
+
+export function getConfig(apiBase: string, fetchImpl?: Fetch): Promise<InstanceConfig> {
+  const base = apiBase.replace(/\/+$/, "");
+  let cache = defaultConfigs;
+  if (fetchImpl) {
+    cache = customConfigs.get(fetchImpl) ?? new Map();
+    customConfigs.set(fetchImpl, cache);
+  }
+  let pending = cache.get(base);
+  if (!pending) {
+    const fetched = new Api(base, fetchImpl).config();
+    fetched.catch(() => {
+      if (cache.get(base) === fetched) cache.delete(base);
+    });
+    cache.set(base, fetched);
+    pending = fetched;
+  }
+  return pending;
 }

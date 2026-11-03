@@ -36,10 +36,14 @@ export function instanceValue(root: Element, name: string): string | undefined {
   return root.closest<HTMLElement>(`[${attr}]`)?.getAttribute(attr) ?? document.body.getAttribute(attr) ?? undefined;
 }
 
-export function apiFrom(root: Element): Api {
+export function apiBaseFrom(root: Element): string {
   const base = instanceValue(root, "api");
   if (!base) throw new Error("no data-shh-api attribute on the page");
-  return new Api(base);
+  return base;
+}
+
+export function apiFrom(root: Element): Api {
+  return new Api(apiBaseFrom(root));
 }
 
 // The instance's blob limit: a body past it is refused before it can fill memory.

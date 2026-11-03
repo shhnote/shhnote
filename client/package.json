@@ -34,7 +34,8 @@
       "types": "./dist/ui/index.d.ts",
       "default": "./dist/ui/index.js"
     },
-    "./argon2.wasm": "./argon2.wasm"
+    "./argon2.wasm": "./argon2.wasm",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",

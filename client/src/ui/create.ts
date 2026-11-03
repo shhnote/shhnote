@@ -1,9 +1,9 @@
 import { decodeFragment } from "../crypto/fragment.ts";
 import { ShhError } from "../crypto/error.ts";
 import { encrypt, generateRandomness } from "../crypto/secret.ts";
-import { Api, ApiError, type Lifetime } from "../lib/api.ts";
+import { Api, ApiError, type Lifetime, getConfig } from "../lib/api.ts";
 import { loadArgon2, prefetchArgon2 } from "../lib/argon2-loader.ts";
-import { $, apiFrom, argon2Url, hide, setStatus, show, wireCopy } from "./dom.ts";
+import { $, apiBaseFrom, apiFrom, argon2Url, hide, setStatus, show, wireCopy } from "./dom.ts";
 import { type Dropzone, wireDropzone } from "./dropzone.ts";
 import type { Strings, Translate } from "./i18n.ts";
 
@@ -11,6 +11,7 @@ import type { Strings, Translate } from "./i18n.ts";
 // `root` holds the form (`[data-shh-form=create]`), its wrapper and the result panel.
 export function wireCreate(root: HTMLElement, { t }: Strings): void {
   const api = apiFrom(root);
+  const apiBase = apiBaseFrom(root);
   const form = $<HTMLFormElement>("[data-shh-form=create]", root);
   const status = $("[data-shh-status]", form);
   const submit = $<HTMLButtonElement>("button[type=submit]", form);
@@ -24,7 +25,7 @@ export function wireCreate(root: HTMLElement, { t }: Strings): void {
   // Instance policy: with files switched off the drop zone goes away and the API would refuse
   // anything file-sized anyway.
   let filesEnabled = true;
-  void api.config().then((config) => {
+  void getConfig(apiBase).then((config) => {
     filesEnabled = config.files_enabled;
     if (!filesEnabled) dropzone?.hide();
   }, () => {});
@@ -47,7 +48,7 @@ export function wireCreate(root: HTMLElement, { t }: Strings): void {
     try {
       setStatus(status, t("create-encrypting"));
       const [config, randomness, argon2, fileBytes] = await Promise.all([
-        api.config(),
+        getConfig(apiBase),
         generateRandomness(),
         passphrase ? loadArgon2(argon2Url(root)) : Promise.resolve(undefined),
         Promise.all(files.map(async (f) => ({ name: f.name, type: f.type || "application/octet-stream", bytes: new Uint8Array(await f.arrayBuffer()) }))),
