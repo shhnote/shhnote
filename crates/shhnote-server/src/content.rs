@@ -100,4 +100,29 @@ mod tests {
             }
         }
     }
+
+    // The server stores `lookup_key` and `burn_key` as sent, so a client must hash them
+    // itself. Docs that leave the hash out lead third-party clients to store raw lookups.
+    // The exact formula is required: "the server stores only their SHA-256" once passed a
+    // looser check while telling clients the opposite of what to do.
+    #[test]
+    fn docs_say_creation_keys_are_hashed() {
+        let docs = SOURCES.iter().filter(|(_, doc, _)| *doc == Doc::Docs);
+        for (locale, _, markdown) in docs {
+            for section in markdown.split("\n## ") {
+                for (key, formula) in [
+                    ("lookup_key", "SHA-256(lookup)"),
+                    ("burn_key", "SHA-256(burn_token)"),
+                ] {
+                    if section.contains(key) {
+                        assert!(
+                            section.contains(formula),
+                            "{locale} docs.md mentions `{key}` without {formula} in: {}",
+                            section.lines().next().unwrap_or("")
+                        );
+                    }
+                }
+            }
+        }
+    }
 }

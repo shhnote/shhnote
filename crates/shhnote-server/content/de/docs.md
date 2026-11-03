@@ -14,9 +14,17 @@ Jede Operation, die ein Geheimnis-Credential entgegennimmt, antwortet bei jedem 
 
 Ratenlimits antworten mit **429 `rate_limited`** und einem `Retry-After`-Header in Sekunden. Limits gelten pro Endpunkt und pro Client; der Header ist eine Konstante, die Schwelle wird also nicht verraten.
 
+Solange der Betreiber die Einrichtung der Instanz nicht abgeschlossen hat, antwortet jeder Endpunkt außer `GET /health` mit **503 `not_configured`**.
+
 ## `GET /health`
 
-Bereitschaft für Monitoring, ohne Authentifizierung: `{"status": "ok"}`, wenn die Datenbank antwortet, sonst **503** `{"status": "degraded"}`. `GET /` (die API-Wurzel) sagt nur, dass der Prozess lebt.
+Bereitschaft für Monitoring, ohne Authentifizierung:
+
+```json
+{"status": "ok", "version": "{{version}}", "configured": true}
+```
+
+`status` ist `ok`, wenn die Datenbank antwortet, sonst `degraded` mit **503**. `version` ist die Serverversion. `configured` ist `false`, bis der Betreiber die Einrichtung abgeschlossen hat; bis dahin antwortet jeder andere Endpunkt mit `not_configured`. `GET /` (die API-Wurzel) sagt nur, dass der Prozess lebt.
 
 ## `GET /config`
 
@@ -35,11 +43,13 @@ Richtlinie der Instanz, ohne Authentifizierung. Vor dem Erstellen eines Geheimni
   "ttl_presets": [900, 1800, 3600, 21600, 43200, 86400, 259200, 604800, 1209600],
   "text_max_bytes": 65536,
   "files_enabled": true,
-  "regions": []
+  "regions": [],
+  "server_version": "{{version}}",
+  "web_mode": "full"
 }
 ```
 
-`padding.mode` ist `padme` (mit Minimum) oder `buckets` (mit einer `ladder` erlaubter Größen). `max_blob_bytes` ist die größte aufgefüllte Größe, die diese Instanz speichert. `text_max_bytes` und `files_enabled` sind Hinweise für Benutzeroberflächen; der Server prüft nur Größen.
+`padding.mode` ist `padme` (mit Minimum) oder `buckets` (mit einer `ladder` erlaubter Größen). `max_blob_bytes` ist die größte aufgefüllte Größe, die diese Instanz speichert. `text_max_bytes` und `files_enabled` sind Hinweise für Benutzeroberflächen; der Server prüft nur Größen. `regions` listet die Schwesterinstanzen des Betreibers als `{"code", "name", "url"}`-Objekte, leer, wenn es keine gibt. `server_version` ist die Serverversion, und `web_mode` ist `full`, wenn die Instanz ihre eigene Website ausliefert, oder `api`, wenn sie nur die API ausliefert.
 
 ## `POST /secrets`
 
@@ -49,18 +59,18 @@ Speichert ein Geheimnis. Der Körper ist `multipart/form-data` mit zwei Teilen i
 
    ```json
    {
-     "lookup_key": "<base64url des Lookup-Werts>",
-     "burn_key": "<base64url des Brenn-Tokens>",
+     "lookup_key": "<base64url von SHA-256(lookup)>",
+     "burn_key": "<base64url von SHA-256(burn_token)>",
      "lifetime": "single_view",
      "ttl_seconds": 86400
    }
    ```
 
-   `lifetime` ist `single_view` oder `ttl`. `ttl_seconds` muss zwischen `min_ttl_secs` und `max_ttl_secs` liegen; auch ein einmaliges Geheimnis läuft danach ab, wenn niemand es öffnet. Beide Schlüssel sind 32 Bytes, base64url ohne Padding. Der Server speichert nur ihren SHA-256.
+   `lifetime` ist `single_view` oder `ttl`. `ttl_seconds` muss zwischen `min_ttl_secs` und `max_ttl_secs` liegen; auch ein einmaliges Geheimnis läuft danach ab, wenn niemand es öffnet. Beide Schlüssel sind 32-Byte-SHA-256-Hashes, base64url ohne Padding: `lookup_key` ist `SHA-256(lookup)` und `burn_key` ist `SHA-256(burn_token)`, berechnet vom Client. Der Server speichert sie so, wie sie ankommen, und sieht beim Erstellen weder `lookup` noch das Brenn-Token; Aufdecken, Bestätigen, Melden und Brennen senden die ungehashten Werte, und der Server hasht sie, um das Geheimnis zu finden.
 
 2. `blob`, der verschlüsselte Blob als Bytes. Seine Länge muss genau einer aufgefüllten Größe entsprechen, die die Instanz akzeptiert.
 
-Antwortet mit **201** und leerem Körper, auch wenn ein Geheimnis mit diesem `lookup_key` bereits existiert (dann wird nichts geschrieben; eine andere Antwort würde jedem, der einen Hash besitzt, verraten, ob das Geheimnis noch da ist). Fehler: `invalid_meta`, `invalid_lookup_key`, `invalid_burn_key`, `invalid_lifetime`, `invalid_ttl`, `invalid_blob_length` (400); `files_disabled` (400, die Instanz nimmt nur textgroße Geheimnisse an); `too_large` (413); `storage_full` (507, die Instanz hat gerade keinen Platz für große Geheimnisse); `api_key_required` (401, siehe unten).
+Antwortet mit **201** und leerem Körper, auch wenn ein Geheimnis mit diesem `lookup_key` bereits existiert (dann wird nichts geschrieben; eine andere Antwort würde jedem, der einen Hash besitzt, verraten, ob das Geheimnis noch da ist). Fehler: `invalid_meta`, `invalid_lookup_key`, `invalid_burn_key`, `invalid_lifetime`, `invalid_ttl`, `invalid_blob_length`, `invalid_multipart` (400, der Körper besteht nicht aus zwei Teilen namens `meta` und `blob` in dieser Reihenfolge); `files_disabled` (400, die Instanz nimmt nur textgroße Geheimnisse an); `too_large` (413); `request_timeout` (408, der Körper kam zu langsam an); `too_busy` (503 mit `Retry-After`, zu viele Uploads gleichzeitig); `storage_full` (507, die Instanz hat gerade keinen Platz für große Geheimnisse); `api_key_required` (401, siehe unten).
 
 ## `POST /secrets/reveal`
 
@@ -109,7 +119,7 @@ Der schnellste Weg ist das Modul `shh.js`, das jede Instanz unter `/static/shh.j
 ```js
 import { Argon2, createSecret, revealSecret, burnSecret } from "./shh.js";
 
-const api = { apiBase: "{{api_url}}" };
+const api = { apiBase: "{{api_url}}/v1" };
 const { fragment, burnFragment } = await createSecret({
   ...api,
   payload: { text: "das Passwort ist hunter2", files: [] },
@@ -124,4 +134,4 @@ await burnSecret(`#${burnFragment}`, api); // jetzt 404: es war einmalig
 
 Mit Passphrase geschützte Geheimnisse brauchen zusätzlich `argon2: await Argon2.load(wasmBytes)` mit dem Modul von `/static/argon2.wasm`. Eine Passphrase ist eine nicht-leere Zeichenkette: `""` wird abgewiesen (`empty_passphrase`), und nur das Weglassen der Option bedeutet „keine Passphrase“. Schlägt etwas fehl, nachdem ein Einmal-Geheimnis beansprucht wurde (falsche Passphrase, abgebrochene Verbindung), trägt der Fehler ein `claimToken`; wird es beim nächsten Versuch als `claimToken` übergeben, wird das Geheimnis erneut geladen statt verloren zu gehen. `confirm: false` liefert es bei Erfolg zum selben Zweck zurück.
 
-Leite die Werte, die die API erwartet, aus dem 32-Byte-Seed im Teilen-Link ab: `lookup = HKDF-SHA-256(seed, info "shhnote/lookup/v1")`, base64url-kodiert gesendet. Das Brenn-Token sind separate zufällige 32 Bytes, die der Ersteller behält. Blob-Aufbau, Schlüsselumhüllung, Chunking und Auffüllung sind in der [Protokollspezifikation]({{project_url}}) festgelegt und durch deren Konformitätsvektoren byteweise festgeschrieben; ein Client, der sie reproduziert, ist mit jeder Instanz kompatibel. Wie du eine eigene Instanz betreibst, beschreibt [das Projekt]({{project_url}}).
+Leite die Werte, die die API erwartet, aus dem 32-Byte-Seed im Teilen-Link ab: `lookup = HKDF-SHA-256(seed, info "shhnote/lookup/v1")`, base64url-kodiert gesendet. Das Brenn-Token sind separate zufällige 32 Bytes, die der Ersteller behält. Beim Erstellen werden stattdessen ihre Hashes gesendet: `lookup_key = SHA-256(lookup)` und `burn_key = SHA-256(burn_token)`. Blob-Aufbau, Schlüsselumhüllung, Chunking und Auffüllung sind in der [Protokollspezifikation]({{project_url}}) festgelegt und durch deren Konformitätsvektoren byteweise festgeschrieben; ein Client, der sie reproduziert, ist mit jeder Instanz kompatibel. Wie du eine eigene Instanz betreibst, beschreibt [das Projekt]({{project_url}}).

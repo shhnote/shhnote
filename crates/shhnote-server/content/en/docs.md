@@ -14,9 +14,17 @@ Every operation that takes a secret credential answers **404 `not_found`** with 
 
 Rate limits answer **429 `rate_limited`** with a `Retry-After` header in seconds. Limits are per endpoint and per client; the header is a constant, so nothing about the threshold is revealed.
 
+Until the operator has finished setting the instance up, every endpoint except `GET /health` answers **503 `not_configured`**.
+
 ## `GET /health`
 
-Readiness for monitoring, no authentication: `{"status": "ok"}` when the database answers, otherwise **503** `{"status": "degraded"}`. `GET /` (the API root) only says the process is alive.
+Readiness for monitoring, no authentication:
+
+```json
+{"status": "ok", "version": "{{version}}", "configured": true}
+```
+
+`status` is `ok` when the database answers, otherwise `degraded` with **503**. `version` is the server version. `configured` is `false` until the operator has finished setting the instance up; until then every other endpoint answers `not_configured`. `GET /` (the API root) only says the process is alive.
 
 ## `GET /config`
 
@@ -35,11 +43,13 @@ Instance policy, no authentication. Read it before creating a secret: the paddin
   "ttl_presets": [900, 1800, 3600, 21600, 43200, 86400, 259200, 604800, 1209600],
   "text_max_bytes": 65536,
   "files_enabled": true,
-  "regions": []
+  "regions": [],
+  "server_version": "{{version}}",
+  "web_mode": "full"
 }
 ```
 
-`padding.mode` is `padme` (with a minimum) or `buckets` (with a `ladder` of allowed sizes). `max_blob_bytes` is the largest padded size this instance stores. `text_max_bytes` and `files_enabled` are hints for user interfaces; the server enforces sizes only.
+`padding.mode` is `padme` (with a minimum) or `buckets` (with a `ladder` of allowed sizes). `max_blob_bytes` is the largest padded size this instance stores. `text_max_bytes` and `files_enabled` are hints for user interfaces; the server enforces sizes only. `regions` lists the operator's sibling instances as `{"code", "name", "url"}` objects, empty when there are none. `server_version` is the server version, and `web_mode` is `full` when the instance serves its own website or `api` when it serves only the API.
 
 ## `POST /secrets`
 
@@ -49,18 +59,18 @@ Stores a secret. The body is `multipart/form-data` with two parts in this order:
 
    ```json
    {
-     "lookup_key": "<base64url of the lookup value>",
-     "burn_key": "<base64url of the burn token>",
+     "lookup_key": "<base64url of SHA-256(lookup)>",
+     "burn_key": "<base64url of SHA-256(burn_token)>",
      "lifetime": "single_view",
      "ttl_seconds": 86400
    }
    ```
 
-   `lifetime` is `single_view` or `ttl`. `ttl_seconds` must be within `min_ttl_secs` and `max_ttl_secs`; a single-view secret also expires after it if nobody opens it. Both keys are 32 bytes, base64url without padding. The server stores only their SHA-256.
+   `lifetime` is `single_view` or `ttl`. `ttl_seconds` must be within `min_ttl_secs` and `max_ttl_secs`; a single-view secret also expires after it if nobody opens it. Both keys are 32-byte SHA-256 hashes, base64url without padding: `lookup_key` is `SHA-256(lookup)` and `burn_key` is `SHA-256(burn_token)`, computed by the client. The server stores them as sent and never sees `lookup` or the burn token at creation; reveal, confirm, report and burn send the unhashed values, and the server hashes them to find the secret.
 
 2. `blob`, the encrypted blob as bytes. Its length must correspond exactly to a padded size the instance accepts.
 
-Responds **201** with an empty body, also when a secret with that `lookup_key` already exists (nothing is written then; a different answer would tell anyone holding a hash whether the secret is still there). Errors: `invalid_meta`, `invalid_lookup_key`, `invalid_burn_key`, `invalid_lifetime`, `invalid_ttl`, `invalid_blob_length` (400); `files_disabled` (400, the instance accepts only text-sized secrets); `too_large` (413); `storage_full` (507, the instance has no room for large secrets right now); `api_key_required` (401, see below).
+Responds **201** with an empty body, also when a secret with that `lookup_key` already exists (nothing is written then; a different answer would tell anyone holding a hash whether the secret is still there). Errors: `invalid_meta`, `invalid_lookup_key`, `invalid_burn_key`, `invalid_lifetime`, `invalid_ttl`, `invalid_blob_length`, `invalid_multipart` (400, the body is not two parts named `meta` and `blob` in that order); `files_disabled` (400, the instance accepts only text-sized secrets); `too_large` (413); `request_timeout` (408, the body arrived too slowly); `too_busy` (503 with `Retry-After`, too many uploads in progress); `storage_full` (507, the instance has no room for large secrets right now); `api_key_required` (401, see below).
 
 ## `POST /secrets/reveal`
 
@@ -109,7 +119,7 @@ The quickest route is the `shh.js` module served by every instance at `/static/s
 ```js
 import { Argon2, createSecret, revealSecret, burnSecret } from "./shh.js";
 
-const api = { apiBase: "{{api_url}}" };
+const api = { apiBase: "{{api_url}}/v1" };
 const { fragment, burnFragment } = await createSecret({
   ...api,
   payload: { text: "the password is hunter2", files: [] },
@@ -124,4 +134,4 @@ await burnSecret(`#${burnFragment}`, api); // 404 now: it was single-view
 
 Passphrase-protected secrets additionally need `argon2: await Argon2.load(wasmBytes)` with the module from `/static/argon2.wasm`. A passphrase is a non-empty string: `""` is refused (`empty_passphrase`), and omitting the option is the only way to mean no passphrase. A failure after a single-view secret was claimed (a wrong passphrase, a dropped connection) carries a `claimToken`; pass it as `claimToken` on the retry and the secret is downloaded again instead of being lost, and `confirm: false` returns it on success for the same purpose.
 
-Derive the values the API expects from the 32-byte seed in the share link: `lookup = HKDF-SHA-256(seed, info "shhnote/lookup/v1")`, send it base64url-encoded. The burn token is a separate random 32 bytes the creator keeps. Blob layout, key wrapping, chunking and padding are specified in the [protocol specification]({{project_url}}) and pinned byte for byte by its conformance vectors; a client that reproduces them is compatible with every instance. To run an instance of your own, start at [the project]({{project_url}}).
+Derive the values the API expects from the 32-byte seed in the share link: `lookup = HKDF-SHA-256(seed, info "shhnote/lookup/v1")`, send it base64url-encoded. The burn token is a separate random 32 bytes the creator keeps. When creating, send their hashes instead: `lookup_key = SHA-256(lookup)` and `burn_key = SHA-256(burn_token)`. Blob layout, key wrapping, chunking and padding are specified in the [protocol specification]({{project_url}}) and pinned byte for byte by its conformance vectors; a client that reproduces them is compatible with every instance. To run an instance of your own, start at [the project]({{project_url}}).
