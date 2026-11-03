@@ -1,11 +1,31 @@
 import { decodeFragment } from "../crypto/fragment.ts";
 import { ShhError } from "../crypto/error.ts";
 import { encrypt, generateRandomness } from "../crypto/secret.ts";
-import { Api, ApiError, type Lifetime, getConfig } from "../lib/api.ts";
+import { Api, ApiError, type InstanceConfig, type Lifetime, getConfig } from "../lib/api.ts";
 import { loadArgon2, prefetchArgon2 } from "../lib/argon2-loader.ts";
-import { $, type PageOptions, hide, pageSettings, setStatus, show, wireCopy } from "./dom.ts";
+import { $, type PageOptions, formatDuration, hide, pageLocale, pageSettings, setStatus, show, wireCopy } from "./dom.ts";
 import { type Dropzone, wireDropzone } from "./dropzone.ts";
 import type { Translate } from "./i18n.ts";
+
+// The lifetimes to offer, from the instance's policy: its presets plus its default, within
+// its bounds, shortest first. The default is preselected.
+export function ttlChoices(
+  config: Pick<InstanceConfig, "ttl_presets" | "default_ttl_secs" | "min_ttl_secs" | "max_ttl_secs">,
+): { seconds: number[]; selected: number } {
+  const inRange = (s: number) => s >= config.min_ttl_secs && s <= config.max_ttl_secs;
+  const offered = new Set(config.ttl_presets.filter(inRange));
+  if (inRange(config.default_ttl_secs)) offered.add(config.default_ttl_secs);
+  const seconds = [...offered].sort((a, b) => a - b);
+  const selected = offered.has(config.default_ttl_secs) ? config.default_ttl_secs : (seconds[0] ?? config.default_ttl_secs);
+  return { seconds, selected };
+}
+
+// Replaces the select's options with the instance's lifetimes. The default is also the
+// `defaultSelected` one, so `form.reset()` goes back to it.
+export function fillTtl(select: HTMLSelectElement, config: InstanceConfig, locale = pageLocale()): void {
+  const { seconds, selected } = ttlChoices(config);
+  select.replaceChildren(...seconds.map((s) => new Option(formatDuration(s, locale), String(s), s === selected, s === selected)));
+}
 
 // The create page: encrypt in the browser, upload, then swap the form for the two links.
 // `root` holds the form (`[data-shh-form=create]`), its wrapper and the result panel.
@@ -22,6 +42,8 @@ export function wireCreate(root: HTMLElement, options: PageOptions): void {
   const result = $("[data-shh-create-result]", root);
   const wrapper = $("[data-shh-create-wrapper]", root);
   const zone = form.querySelector<HTMLElement>("[data-shh-dropzone]");
+  // Filled from `/config` when present; a frontend may instead offer its own `expiry` field.
+  const ttlSelect = form.querySelector<HTMLSelectElement>("select[data-shh-ttl]");
   const dropzone: Dropzone | undefined = zone ? wireDropzone(zone, { t }) : undefined;
   show(wrapper);
   prefetchArgon2(page.argon2Url);
@@ -32,6 +54,7 @@ export function wireCreate(root: HTMLElement, options: PageOptions): void {
   void getConfig(apiBase).then((config) => {
     filesEnabled = config.files_enabled;
     if (!filesEnabled) dropzone?.hide();
+    if (ttlSelect) fillTtl(ttlSelect, config);
   }, () => {});
 
   form.addEventListener("submit", async (event) => {
@@ -40,7 +63,6 @@ export function wireCreate(root: HTMLElement, options: PageOptions): void {
     const text = String(data.get("note") ?? "").replace(/\r\n/g, "\n");
     const passphrase = String(data.get("passphrase") ?? "");
     const lifetime: Lifetime = data.get("burn") ? "single_view" : "ttl";
-    const ttlSeconds = Number(data.get("expiry"));
     const files = filesEnabled ? (dropzone?.files ?? []) : [];
 
     if (text.length === 0 && files.length === 0) {
@@ -51,8 +73,12 @@ export function wireCreate(root: HTMLElement, options: PageOptions): void {
     submit.disabled = true;
     try {
       setStatus(status, t("create-encrypting"));
-      const [config, randomness, argon2, fileBytes] = await Promise.all([
-        getConfig(apiBase),
+      // Cached since the page loaded; fetched again here if that first attempt failed, and
+      // then the lifetimes are filled in before one is read.
+      const config = await getConfig(apiBase);
+      if (ttlSelect && ttlSelect.options.length === 0) fillTtl(ttlSelect, config);
+      const ttlSeconds = ttlSelect ? Number(ttlSelect.value) : Number(data.get("expiry"));
+      const [randomness, argon2, fileBytes] = await Promise.all([
         generateRandomness(),
         passphrase ? loadArgon2(page.argon2Url) : Promise.resolve(undefined),
         Promise.all(files.map(async (f) => ({ name: f.name, type: f.type || "application/octet-stream", bytes: new Uint8Array(await f.arrayBuffer()) }))),
@@ -75,7 +101,7 @@ export function wireCreate(root: HTMLElement, options: PageOptions): void {
         encrypted.blob,
       );
 
-      const expiryLabel = $<HTMLSelectElement>("select[name=expiry]", form).selectedOptions[0]?.textContent ?? "";
+      const expiryLabel = ttlSelect?.selectedOptions[0]?.textContent ?? formatDuration(ttlSeconds, pageLocale());
       showResult(api, t, result, encrypted.fragment, encrypted.burnFragment, {
         hasPassphrase: passphrase.length > 0,
         singleView: lifetime === "single_view",

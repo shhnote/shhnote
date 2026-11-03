@@ -19,7 +19,8 @@ import { decrypt, decryptStream } from "../src/crypto/secret.ts";
 import { burnSecret, createSecret, parseFragment, revealSecret } from "../src/client.ts";
 import { ApiError, type InstanceConfig, getConfig } from "../src/lib/api.ts";
 import { sanitiseFileName } from "../src/lib/filename.ts";
-import { pageSettings } from "../src/ui/dom.ts";
+import { fillTtl, ttlChoices } from "../src/ui/create.ts";
+import { formatDuration, pageSettings } from "../src/ui/dom.ts";
 import { createT } from "../src/ui/i18n.ts";
 
 const subtle = globalThis.crypto.subtle;
@@ -458,6 +459,62 @@ describe("spec: controller options (revision 3, B2)", () => {
   it("refuses to guess an API base", () => {
     assert.throws(() => pageSettings(pageWith({})), /apiBase/);
     assert.equal(pageSettings(pageWith({}), { apiBase: "https://h.example/api/v1" }).argon2Url, "/argon2.wasm");
+  });
+});
+
+describe("spec: lifetimes from the instance (revision 3, B2)", () => {
+  it("offers the instance's presets shortest first, with its default preselected", () => {
+    assert.deepEqual(ttlChoices(instanceConfig), { seconds: [3600, 86400], selected: 86400 });
+  });
+
+  it("adds a default that is not a preset, and drops presets outside the bounds", () => {
+    const config = { ...instanceConfig, ttl_presets: [1209600, 900, 30, 3600], default_ttl_secs: 7200, max_ttl_secs: 86400 };
+    assert.deepEqual(ttlChoices(config), { seconds: [900, 3600, 7200], selected: 7200 });
+  });
+
+  it("fills the select with labelled options, the default selected and kept for form.reset()", () => {
+    // Node has no DOM: a stand-in for `Option` and for the select.
+    class FakeOption {
+      text: string;
+      value: string;
+      defaultSelected: boolean;
+      selected: boolean;
+      constructor(text: string, value: string, defaultSelected: boolean, selected: boolean) {
+        this.text = text;
+        this.value = value;
+        this.defaultSelected = defaultSelected;
+        this.selected = selected;
+      }
+    }
+    const g = globalThis as { Option?: unknown };
+    const previous = g.Option;
+    g.Option = FakeOption;
+    try {
+      let options: FakeOption[] = [];
+      const select = { replaceChildren: (...children: FakeOption[]) => (options = children) } as unknown as HTMLSelectElement;
+      fillTtl(select, { ...instanceConfig, ttl_presets: [600, 7200, 172800], default_ttl_secs: 7200 }, "en");
+      assert.deepEqual(
+        options.map((o) => [o.value, o.text, o.defaultSelected, o.selected]),
+        [
+          ["600", "10 minutes", false, false],
+          ["7200", "2 hours", true, true],
+          ["172800", "2 days", false, false],
+        ],
+      );
+    } finally {
+      g.Option = previous;
+    }
+  });
+
+  it("words any lifetime in its largest whole unit, in the page's language", () => {
+    assert.equal(formatDuration(900, "en"), "15 minutes");
+    assert.equal(formatDuration(3600, "en"), "1 hour");
+    assert.equal(formatDuration(86400, "en"), "1 day");
+    assert.equal(formatDuration(259200, "en"), "3 days");
+    assert.equal(formatDuration(5400, "en"), "90 minutes");
+    assert.equal(formatDuration(90, "en"), "90 seconds");
+    assert.equal(formatDuration(86400, "de"), "1 Tag");
+    assert.equal(formatDuration(259200, "de"), "3 Tage");
   });
 });
 

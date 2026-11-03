@@ -570,6 +570,26 @@ var Api = class {
     });
   }
 };
+var defaultConfigs = /* @__PURE__ */ new Map();
+var customConfigs = /* @__PURE__ */ new WeakMap();
+function getConfig(apiBase, fetchImpl) {
+  const base = apiBase.replace(/\/+$/, "");
+  let cache = defaultConfigs;
+  if (fetchImpl) {
+    cache = customConfigs.get(fetchImpl) ?? /* @__PURE__ */ new Map();
+    customConfigs.set(fetchImpl, cache);
+  }
+  let pending = cache.get(base);
+  if (!pending) {
+    const fetched = new Api(base, fetchImpl).config();
+    fetched.catch(() => {
+      if (cache.get(base) === fetched) cache.delete(base);
+    });
+    cache.set(base, fetched);
+    pending = fetched;
+  }
+  return pending;
+}
 
 // src/ui/dom.ts
 function $(selector, root = document) {
@@ -593,15 +613,26 @@ function setState(root, state) {
 }
 function instanceValue(root, name) {
   const attr = `data-shh-${name}`;
-  return root.closest(`[${attr}]`)?.getAttribute(attr) ?? document.body.getAttribute(attr) ?? void 0;
+  const own2 = root.closest(`[${attr}]`)?.getAttribute(attr);
+  if (own2 != null) return own2;
+  if (typeof document === "undefined") return void 0;
+  return document.body?.getAttribute(attr) ?? void 0;
+}
+function pageSettings(root, options = {}) {
+  const apiBase = options.apiBase ?? instanceValue(root, "api");
+  if (!apiBase) throw new Error("no apiBase option and no data-shh-api attribute on the page");
+  const fromPage = Number(instanceValue(root, "max-blob-bytes"));
+  return {
+    apiBase,
+    argon2Url: options.argon2Url ?? argon2Url(root),
+    maxBlobBytes: options.maxBlobBytes ?? (fromPage > 0 ? fromPage : void 0)
+  };
+}
+function apiBaseFrom(root) {
+  return pageSettings(root).apiBase;
 }
 function apiFrom(root) {
-  const base = instanceValue(root, "api");
-  if (!base) throw new Error("no data-shh-api attribute on the page");
-  return new Api(base);
-}
-function maxBlobBytesFrom(root) {
-  return Number(instanceValue(root, "max-blob-bytes")) || DEFAULT_MAX_BLOB_BYTES;
+  return new Api(apiBaseFrom(root));
 }
 function setStatus(el, text) {
   el.textContent = text;
@@ -618,8 +649,21 @@ function wireCopy(button, getText, copiedLabel) {
   });
 }
 function argon2Url(root) {
-  const version = instanceValue(root, "asset-version") ?? "";
-  return `/static/argon2.wasm?v=${version}`;
+  const version = instanceValue(root, "asset-version");
+  return version === void 0 ? "/argon2.wasm" : `/static/argon2.wasm?v=${version}`;
+}
+function formatDuration(seconds, locale) {
+  const units = [
+    ["day", 86400],
+    ["hour", 3600],
+    ["minute", 60]
+  ];
+  const [unit, size] = units.find(([, size2]) => seconds % size2 === 0) ?? ["second", 1];
+  return new Intl.NumberFormat(locale, { style: "unit", unit, unitDisplay: "long" }).format(seconds / size);
+}
+function pageLocale() {
+  if (typeof document === "undefined") return void 0;
+  return document.documentElement.lang || void 0;
 }
 function formatSize(bytes) {
   const units = ["B", "KB", "MB", "GB"];
@@ -951,21 +995,38 @@ function wireDropzone(zone, { t: t2 }) {
 }
 
 // src/ui/create.ts
-function wireCreate(root, { t: t2 }) {
-  const api = apiFrom(root);
+function ttlChoices(config) {
+  const inRange = (s) => s >= config.min_ttl_secs && s <= config.max_ttl_secs;
+  const offered = new Set(config.ttl_presets.filter(inRange));
+  if (inRange(config.default_ttl_secs)) offered.add(config.default_ttl_secs);
+  const seconds = [...offered].sort((a, b) => a - b);
+  const selected = offered.has(config.default_ttl_secs) ? config.default_ttl_secs : seconds[0] ?? config.default_ttl_secs;
+  return { seconds, selected };
+}
+function fillTtl(select, config, locale = pageLocale()) {
+  const { seconds, selected } = ttlChoices(config);
+  select.replaceChildren(...seconds.map((s) => new Option(formatDuration(s, locale), String(s), s === selected, s === selected)));
+}
+function wireCreate(root, options) {
+  const { t: t2 } = options;
+  const page = pageSettings(root, options);
+  const apiBase = page.apiBase;
+  const api = new Api(apiBase);
   const form = $("[data-shh-form=create]", root);
   const status = $("[data-shh-status]", form);
   const submit = $("button[type=submit]", form);
   const result = $("[data-shh-create-result]", root);
   const wrapper = $("[data-shh-create-wrapper]", root);
   const zone = form.querySelector("[data-shh-dropzone]");
+  const ttlSelect = form.querySelector("select[data-shh-ttl]");
   const dropzone = zone ? wireDropzone(zone, { t: t2 }) : void 0;
   show(wrapper);
-  prefetchArgon2(argon2Url(root));
+  prefetchArgon2(page.argon2Url);
   let filesEnabled = true;
-  void api.config().then((config) => {
+  void getConfig(apiBase).then((config) => {
     filesEnabled = config.files_enabled;
     if (!filesEnabled) dropzone?.hide();
+    if (ttlSelect) fillTtl(ttlSelect, config);
   }, () => {
   });
   form.addEventListener("submit", async (event) => {
@@ -974,7 +1035,6 @@ function wireCreate(root, { t: t2 }) {
     const text = String(data.get("note") ?? "").replace(/\r\n/g, "\n");
     const passphrase = String(data.get("passphrase") ?? "");
     const lifetime = data.get("burn") ? "single_view" : "ttl";
-    const ttlSeconds = Number(data.get("expiry"));
     const files = filesEnabled ? dropzone?.files ?? [] : [];
     if (text.length === 0 && files.length === 0) {
       setStatus(status, t2("create-error-empty"));
@@ -983,10 +1043,12 @@ function wireCreate(root, { t: t2 }) {
     submit.disabled = true;
     try {
       setStatus(status, t2("create-encrypting"));
-      const [config, randomness, argon2, fileBytes] = await Promise.all([
-        api.config(),
+      const config = await getConfig(apiBase);
+      if (ttlSelect && ttlSelect.options.length === 0) fillTtl(ttlSelect, config);
+      const ttlSeconds = ttlSelect ? Number(ttlSelect.value) : Number(data.get("expiry"));
+      const [randomness, argon2, fileBytes] = await Promise.all([
         generateRandomness(),
-        passphrase ? loadArgon2(argon2Url(root)) : Promise.resolve(void 0),
+        passphrase ? loadArgon2(page.argon2Url) : Promise.resolve(void 0),
         Promise.all(files.map(async (f) => ({ name: f.name, type: f.type || "application/octet-stream", bytes: new Uint8Array(await f.arrayBuffer()) })))
       ]);
       const encrypted = await encrypt({
@@ -996,7 +1058,7 @@ function wireCreate(root, { t: t2 }) {
         passphrase: passphrase || null,
         ...argon2 ? { argon2 } : {}
       });
-      if (encrypted.blob.length > config.max_blob_bytes) {
+      if (encrypted.blob.length > (page.maxBlobBytes ?? config.max_blob_bytes)) {
         setStatus(status, t2("create-error-too-large"));
         return;
       }
@@ -1005,7 +1067,7 @@ function wireCreate(root, { t: t2 }) {
         { lookupKey: encrypted.lookupKey, burnKey: encrypted.burnKey, lifetime, ttlSeconds },
         encrypted.blob
       );
-      const expiryLabel = $("select[name=expiry]", form).selectedOptions[0]?.textContent ?? "";
+      const expiryLabel = ttlSelect?.selectedOptions[0]?.textContent ?? formatDuration(ttlSeconds, pageLocale());
       showResult(api, t2, result, encrypted.fragment, encrypted.burnFragment, {
         hasPassphrase: passphrase.length > 0,
         singleView: lifetime === "single_view",
@@ -1063,22 +1125,26 @@ function messageFor(t2, e) {
 }
 
 // src/ui/i18n.ts
-var strings = null;
-var t = (key, vars = {}) => {
-  if (strings === null) {
-    const block = document.querySelector("script[data-shh-i18n]");
-    try {
-      strings = block ? JSON.parse(block.textContent ?? "{}") : {};
-    } catch {
-      strings = {};
+function createT(root) {
+  let strings2 = null;
+  return (key, vars = {}) => {
+    if (strings2 === null) {
+      const selector = "script[data-shh-i18n]";
+      const block = root?.querySelector(selector) ?? (typeof document === "undefined" ? null : document.querySelector(selector));
+      try {
+        strings2 = block ? JSON.parse(block.textContent ?? "{}") : {};
+      } catch {
+        strings2 = {};
+      }
     }
-  }
-  let text = strings[key] ?? key;
-  for (const [name, value] of Object.entries(vars)) {
-    text = text.replaceAll(`{${name}}`, String(value));
-  }
-  return text;
-};
+    let text = strings2[key] ?? key;
+    for (const [name, value] of Object.entries(vars)) {
+      text = text.replaceAll(`{${name}}`, String(value));
+    }
+    return text;
+  };
+}
+var t = createT();
 
 // src/ui/report.ts
 function wireReport(page, { t: t2 }) {
@@ -1163,9 +1229,11 @@ function wipePayload(payload) {
 }
 
 // src/ui/reveal.ts
-function wireReveal(page, { t: t2 }) {
-  const api = apiFrom(page);
-  const maxBlobBytes = maxBlobBytesFrom(page);
+function wireReveal(page, options) {
+  const { t: t2 } = options;
+  const settings = pageSettings(page, options);
+  const api = new Api(settings.apiBase);
+  const maxBlobBytes = settings.maxBlobBytes ?? DEFAULT_MAX_BLOB_BYTES;
   const armed = $("[data-shh-form=reveal]", page);
   const armedStatus = $("[data-shh-status]", armed);
   const passForm = $("[data-shh-form=passphrase]", page);
@@ -1179,7 +1247,7 @@ function wireReveal(page, { t: t2 }) {
     return;
   }
   show(armed);
-  prefetchArgon2(argon2Url(page));
+  prefetchArgon2(settings.argon2Url);
   let locked = null;
   let bodyBytes = null;
   let claimToken = null;
@@ -1254,7 +1322,7 @@ function wireReveal(page, { t: t2 }) {
     button2.disabled = true;
     try {
       setStatus(passStatus, t2("reveal-decrypting"));
-      const ek = await unwrapEk(locked.header, seed, passInput.value, await loadArgon2(argon2Url(page)));
+      const ek = await unwrapEk(locked.header, seed, passInput.value, await loadArgon2(settings.argon2Url));
       const bytes = await locked.body;
       await display(await decryptBody(ek, locked.header, iterateBytes(bytes), bytes.length + HEADER_LEN));
     } catch (e) {
@@ -1398,9 +1466,9 @@ for (const link of $$("a[data-shh-keep-hash]")) {
     if (location.hash) link.hash = location.hash;
   });
 }
-var strings2 = { t };
+var strings = { t };
 var pages = { create: wireCreate, reveal: wireReveal, burn: wireBurn, report: wireReport };
 for (const [name, wire] of Object.entries(pages)) {
   const root = document.querySelector(`[data-shh-page=${name}]`);
-  if (root) wire(root, strings2);
+  if (root) wire(root, strings);
 }

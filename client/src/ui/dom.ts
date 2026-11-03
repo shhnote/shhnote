@@ -111,6 +111,25 @@ export function argon2Url(root: Element): string {
   return version === undefined ? "/argon2.wasm" : `/static/argon2.wasm?v=${version}`;
 }
 
+// A lifetime in its largest whole unit, worded by the browser in the page's language:
+// 900 → "15 minutes", 86400 → "1 day", 259200 → "3 days". Any number of seconds works, so an
+// operator's own presets need no translations.
+export function formatDuration(seconds: number, locale?: string): string {
+  const units = [
+    ["day", 86_400],
+    ["hour", 3_600],
+    ["minute", 60],
+  ] as const;
+  const [unit, size] = units.find(([, size]) => seconds % size === 0) ?? (["second", 1] as const);
+  return new Intl.NumberFormat(locale, { style: "unit", unit, unitDisplay: "long" }).format(seconds / size);
+}
+
+// The page's language for formatting, when there is a page.
+export function pageLocale(): string | undefined {
+  if (typeof document === "undefined") return undefined;
+  return document.documentElement.lang || undefined;
+}
+
 export function formatSize(bytes: number): string {
   const units = ["B", "KB", "MB", "GB"];
   let size = bytes;

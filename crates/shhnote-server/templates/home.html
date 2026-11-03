@@ -46,17 +46,8 @@
           <div class="field-grid">
             <div class="form-field">
               <label class="form-label" for="expiry">{{ ctx.t("form-expiry-label") }}</label>
-              <select class="form-select" id="expiry" name="expiry">
-                <option value="900">{{ ctx.t("expiry-15m") }}</option>
-                <option value="1800">{{ ctx.t("expiry-30m") }}</option>
-                <option value="3600">{{ ctx.t("expiry-1h") }}</option>
-                <option value="21600">{{ ctx.t("expiry-6h") }}</option>
-                <option value="43200">{{ ctx.t("expiry-12h") }}</option>
-                <option value="86400" selected>{{ ctx.t("expiry-1d") }}</option>
-                <option value="259200">{{ ctx.t("expiry-3d") }}</option>
-                <option value="604800">{{ ctx.t("expiry-7d") }}</option>
-                <option value="1209600">{{ ctx.t("expiry-14d") }}</option>
-              </select>
+              {# Filled by the page script from the instance's presets (`/config`). #}
+              <select class="form-select" id="expiry" name="expiry" data-shh-ttl></select>
             </div>
 
             <div class="form-field">
