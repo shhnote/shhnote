@@ -102,9 +102,19 @@ export async function encrypt(opts: EncryptOptions): Promise<Encrypted> {
     noncePrefix: r.noncePrefix,
   };
 
-  const padded = pad(encodePayload(opts.payload), opts.policy);
-  const body = await sealAll(r.ek, r.noncePrefix, padded);
-  padded.fill(0);
+  const encoded = encodePayload(opts.payload);
+  let padded: Uint8Array<ArrayBuffer>;
+  try {
+    padded = pad(encoded, opts.policy);
+  } finally {
+    encoded.fill(0);
+  }
+  let body: Uint8Array;
+  try {
+    body = await sealAll(r.ek, r.noncePrefix, padded);
+  } finally {
+    padded.fill(0);
+  }
   const blob = concat(serializeHeader(header), body);
   if (blob.length !== blobLen(padded.length)) throw new Error("blob length mismatch");
 

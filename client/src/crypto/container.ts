@@ -90,8 +90,13 @@ export function manifestJson(payload: Payload): string {
 export function encodePayload(payload: Payload): Uint8Array<ArrayBuffer> {
   if (payload.text === null && payload.files.length === 0) throw new ShhError("empty_payload");
   const manifest = encoder.encode(manifestJson(payload));
-  if (manifest.length > MAX_MANIFEST_LEN) throw new ShhError("payload_too_large");
-  return concat(u32be(manifest.length), manifest, ...payload.files.map((f) => f.bytes));
+  try {
+    if (manifest.length > MAX_MANIFEST_LEN) throw new ShhError("payload_too_large");
+    return concat(u32be(manifest.length), manifest, ...payload.files.map((f) => f.bytes));
+  } finally {
+    // The manifest holds the note's text; the copy above is the one that goes on.
+    manifest.fill(0);
+  }
 }
 
 // The manifest bytes to a checked manifest: the same shape the Rust core accepts, no more.

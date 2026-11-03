@@ -1,4 +1,5 @@
 import { toBase64Url } from "../crypto/bytes.ts";
+import type { Payload } from "../crypto/container.ts";
 import type { PaddingPolicy } from "../crypto/padding.ts";
 import { iterateStream } from "../crypto/stream.ts";
 
@@ -45,11 +46,13 @@ export interface Revealed {
 // Thrown for anything other than a successful response. `status` 0 means the request never
 // got a complete answer: `network` for no answer or a body cut short, `too_large` for a body
 // over the cap. `claimToken` is set by the client library when the failure came after a
-// single-view secret was claimed.
+// single-view secret was claimed. `payload` is set when only the confirm failed: the secret
+// was decrypted, and is handed over rather than lost.
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
   claimToken?: string;
+  payload?: Payload;
 
   constructor(status: number, code: string) {
     super(`${status} ${code}`);

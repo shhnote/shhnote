@@ -160,7 +160,8 @@ function pad(payload, policy) {
   const bucket = paddedSize(payload.length + LENGTH_PREFIX, policy);
   if (bucket === null) throw new ShhError("payload_too_large");
   const padded = new Uint8Array(bucket);
-  padded.set(concat(u32be(payload.length), payload));
+  padded.set(u32be(payload.length));
+  padded.set(payload, LENGTH_PREFIX);
   return padded;
 }
 
@@ -281,8 +282,12 @@ function manifestJson(payload) {
 function encodePayload(payload) {
   if (payload.text === null && payload.files.length === 0) throw new ShhError("empty_payload");
   const manifest = encoder2.encode(manifestJson(payload));
-  if (manifest.length > MAX_MANIFEST_LEN) throw new ShhError("payload_too_large");
-  return concat(u32be(manifest.length), manifest, ...payload.files.map((f) => f.bytes));
+  try {
+    if (manifest.length > MAX_MANIFEST_LEN) throw new ShhError("payload_too_large");
+    return concat(u32be(manifest.length), manifest, ...payload.files.map((f) => f.bytes));
+  } finally {
+    manifest.fill(0);
+  }
 }
 function parseManifest(bytes) {
   let manifest;
@@ -411,8 +416,12 @@ var PayloadDecoder = class {
         case "manifest": {
           at = this.fill(chunk, at, this.manifestLen);
           if (this.buffered.length === this.manifestLen) {
-            this.manifest = parseManifest(this.buffered);
-            this.buffered = new Uint8Array(0);
+            try {
+              this.manifest = parseManifest(this.buffered);
+            } finally {
+              this.buffered.fill(0);
+              this.buffered = new Uint8Array(0);
+            }
             this.consumed += this.manifestLen;
             const remaining = this.payloadLen - this.consumed;
             const total = this.manifest.files.reduce((n, f) => n + f.size, 0);
@@ -448,7 +457,9 @@ var PayloadDecoder = class {
   }
   fill(chunk, at, want) {
     const take = Math.min(want - this.buffered.length, chunk.length - at);
-    this.buffered = this.buffered.length === 0 ? chunk.slice(at, at + take) : concat(this.buffered, chunk.subarray(at, at + take));
+    const next = this.buffered.length === 0 ? chunk.slice(at, at + take) : concat(this.buffered, chunk.subarray(at, at + take));
+    this.buffered.fill(0);
+    this.buffered = next;
     return at + take;
   }
   finish() {
@@ -466,6 +477,7 @@ var ApiError = class extends Error {
   status;
   code;
   claimToken;
+  payload;
   constructor(status, code) {
     super(`${status} ${code}`);
     this.name = "ApiError";
@@ -844,9 +856,19 @@ async function encrypt(opts) {
     wrappedEk: new Uint8Array(await subtle3.wrapKey("raw", r.ek, kek, { name: "AES-GCM", iv: own(r.wrapIv) })),
     noncePrefix: r.noncePrefix
   };
-  const padded = pad(encodePayload(opts.payload), opts.policy);
-  const body = await sealAll(r.ek, r.noncePrefix, padded);
-  padded.fill(0);
+  const encoded = encodePayload(opts.payload);
+  let padded;
+  try {
+    padded = pad(encoded, opts.policy);
+  } finally {
+    encoded.fill(0);
+  }
+  let body;
+  try {
+    body = await sealAll(r.ek, r.noncePrefix, padded);
+  } finally {
+    padded.fill(0);
+  }
   const blob = concat(serializeHeader(header), body);
   if (blob.length !== blobLen(padded.length)) throw new Error("blob length mismatch");
   return {
@@ -885,6 +907,14 @@ async function decryptBody(ek, header, body, maxBlobBytes = Infinity) {
     }
   }
   return decoder2.finish();
+}
+
+// src/lib/wipe.ts
+function wipeBytes(...buffers) {
+  for (const buffer of buffers) buffer?.fill(0);
+}
+function wipePayload(payload) {
+  for (const file of payload?.files ?? []) file.bytes.fill(0);
 }
 
 // src/crypto/argon2.ts
@@ -1045,6 +1075,18 @@ function wireCreate(root, options) {
   const dropzone = zone ? wireDropzone(zone, { t: t2 }) : void 0;
   show(wrapper);
   prefetchArgon2(page.argon2Url);
+  const inFlight = /* @__PURE__ */ new Set();
+  window.addEventListener("pagehide", () => {
+    wipeBytes(...inFlight);
+    inFlight.clear();
+    const passphrase = form.querySelector("input[name=passphrase]");
+    if (passphrase) passphrase.value = "";
+    for (const selector of ["[data-shh-share-link]", "[data-shh-burn-link]"]) {
+      const el = result.querySelector(selector);
+      if (el) el.textContent = "";
+    }
+    result.querySelector("[data-shh-open-link]")?.removeAttribute("href");
+  });
   let filesEnabled = true;
   void getConfig(apiBase).then((config) => {
     filesEnabled = config.files_enabled;
@@ -1074,13 +1116,19 @@ function wireCreate(root, options) {
         passphrase ? loadArgon2(page.argon2Url) : Promise.resolve(void 0),
         Promise.all(files.map(async (f) => ({ name: f.name, type: f.type || "application/octet-stream", bytes: new Uint8Array(await f.arrayBuffer()) })))
       ]);
-      const encrypted = await encrypt({
-        randomness,
-        payload: { text: text.length > 0 ? text : null, files: fileBytes },
-        policy: config.padding,
-        passphrase: passphrase || null,
-        ...argon2 ? { argon2 } : {}
-      });
+      for (const buffer of [randomness.seed, randomness.burnToken, ...fileBytes.map((f) => f.bytes)]) inFlight.add(buffer);
+      let encrypted;
+      try {
+        encrypted = await encrypt({
+          randomness,
+          payload: { text: text.length > 0 ? text : null, files: fileBytes },
+          policy: config.padding,
+          passphrase: passphrase || null,
+          ...argon2 ? { argon2 } : {}
+        });
+      } finally {
+        wipeBytes(...fileBytes.map((f) => f.bytes));
+      }
       if (encrypted.blob.length > (page.maxBlobBytes ?? config.max_blob_bytes)) {
         setStatus(status, t2("create-error-too-large"));
         return;
@@ -1103,6 +1151,8 @@ function wireCreate(root, options) {
     } catch (e) {
       setStatus(status, messageFor(t2, e));
     } finally {
+      wipeBytes(...inFlight);
+      inFlight.clear();
       submit.disabled = false;
     }
   });
@@ -1122,12 +1172,15 @@ function showResult(api, t2, result, fragment, burnFragment, info) {
   const status = $("[data-shh-status]", result);
   destroy.addEventListener("click", async () => {
     destroy.disabled = true;
+    const token = decodeFragment(burnFragment, "burn");
     try {
-      await api.burn(decodeFragment(burnFragment, "burn"));
+      await api.burn(token);
       setStatus(status, t2("result-destroyed"));
     } catch (e) {
       setStatus(status, messageFor(t2, e));
       destroy.disabled = false;
+    } finally {
+      wipeBytes(token);
     }
   });
   show(result);
@@ -1243,14 +1296,6 @@ function truncate(name) {
   return out;
 }
 
-// src/lib/wipe.ts
-function wipeBytes(...buffers) {
-  for (const buffer of buffers) buffer?.fill(0);
-}
-function wipePayload(payload) {
-  for (const file of payload?.files ?? []) file.bytes.fill(0);
-}
-
 // src/ui/claims.ts
 var PREFIX = "shh-claim:";
 var MAX_CLAIM_WINDOW_SECS = 86400;
@@ -1349,6 +1394,7 @@ function wireReveal(page, options) {
   let bodyBytes = null;
   let claimToken = null;
   let claimKey = null;
+  let lookupValue = null;
   const claims = new ClaimStore();
   claims.prune();
   let shown = null;
@@ -1394,7 +1440,7 @@ function wireReveal(page, options) {
     try {
       setState(page, "working");
       setStatus(working, t2("reveal-fetching"));
-      const lookupValue = await lookup(seed);
+      lookupValue ??= await lookup(seed);
       claimKey ??= await ClaimStore.keyFor(lookupValue);
       claimToken ??= claims.get(claimKey);
       const revealed = await api.reveal(lookupValue, claimToken, maxBlobBytes);
@@ -1421,6 +1467,7 @@ function wireReveal(page, options) {
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) {
         if (claimKey) claims.delete(claimKey);
+        history.replaceState(null, "", location.pathname);
         setState(page, "notfound");
       } else {
         setState(page, "armed");
@@ -1493,7 +1540,7 @@ function wireReveal(page, options) {
       const token = claimToken;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          await api.confirm(await lookup(seed), token);
+          await api.confirm(lookupValue ?? await lookup(seed), token);
           if (claimKey) claims.delete(claimKey);
           break;
         } catch {

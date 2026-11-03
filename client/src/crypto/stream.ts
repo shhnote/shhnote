@@ -127,8 +127,13 @@ export class PayloadDecoder {
         case "manifest": {
           at = this.fill(chunk, at, this.manifestLen);
           if (this.buffered.length === this.manifestLen) {
-            this.manifest = parseManifest(this.buffered);
-            this.buffered = new Uint8Array(0);
+            try {
+              this.manifest = parseManifest(this.buffered);
+            } finally {
+              // The manifest holds the note's text; the parsed string is what goes on.
+              this.buffered.fill(0);
+              this.buffered = new Uint8Array(0);
+            }
             this.consumed += this.manifestLen;
             const remaining = this.payloadLen - this.consumed;
             const total = this.manifest.files.reduce((n, f) => n + f.size, 0);
@@ -167,7 +172,10 @@ export class PayloadDecoder {
 
   private fill(chunk: Uint8Array, at: number, want: number): number {
     const take = Math.min(want - this.buffered.length, chunk.length - at);
-    this.buffered = this.buffered.length === 0 ? chunk.slice(at, at + take) : concat(this.buffered, chunk.subarray(at, at + take));
+    const next = this.buffered.length === 0 ? chunk.slice(at, at + take) : concat(this.buffered, chunk.subarray(at, at + take));
+    // A field split across chunks is joined into a new buffer; the old partial copy goes.
+    this.buffered.fill(0);
+    this.buffered = next;
     return at + take;
   }
 

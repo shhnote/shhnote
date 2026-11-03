@@ -103,8 +103,9 @@ export interface RevealedSecret {
 
 // Fetches and decrypts. A single-view secret is consumed by this call; by default the
 // server is told to destroy it right away once decryption succeeded. Any failure after a
-// single-view secret was claimed (a wrong passphrase, a dropped connection) carries the
-// claim token, so a retry can pass it along rather than lose the secret.
+// single-view secret was claimed (a wrong passphrase, a dropped connection, a failed
+// confirm) carries the claim token, so a retry can pass it along rather than lose the
+// secret. When only the confirm failed, the `ApiError` also carries the decrypted `payload`.
 export async function revealSecret(linkOrFragment: string, opts: RevealOptions): Promise<RevealedSecret> {
   if (opts.passphrase === "") throw new ShhError("empty_passphrase", "omit the passphrase to mean direct mode");
   if (opts.passphrase && !opts.argon2) throw new ShhError("argon2_unavailable", "a passphrase needs an Argon2 instance");
@@ -122,7 +123,18 @@ export async function revealSecret(linkOrFragment: string, opts: RevealOptions):
     throw e;
   }
   if (claimToken !== null && opts.confirm !== false) {
-    await api.confirm(await lookup(seed), claimToken);
+    try {
+      await api.confirm(await lookup(seed), claimToken);
+    } catch (e) {
+      // Decrypted, but the server did not hear so. The secret is consumed either way and is
+      // destroyed when the claim window ends; the caller gets the payload and the token to
+      // confirm again or download again.
+      if (e instanceof ApiError) {
+        e.claimToken = claimToken;
+        e.payload = payload;
+      }
+      throw e;
+    }
     return { payload, singleView: true, claimToken: null };
   }
   return { payload, singleView: claimToken !== null, claimToken };

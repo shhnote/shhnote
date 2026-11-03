@@ -24,10 +24,11 @@ Each line says what, why, and how to check it.
    open: no request. In the console run `document.querySelector('[data-shh-form=reveal]')
    .requestSubmit()` and `document.querySelector('[data-shh-form=reveal] button').click()`:
    still no request. A real click fetches.
-3. **The fragment is scrubbed after use.** After a reveal or a burn the page replaces its
-   history entry so the seed is not left in the URL bar, history or autocomplete.
-   **by construction**. *Check:* after revealing, the URL has no `#…`; the back button does
-   not restore it.
+3. **The fragment is scrubbed after use.** After a reveal, after a reveal that finds nothing
+   (the secret is gone) and after a burn, the page replaces its history entry so the seed is
+   not left in the URL bar, history or autocomplete. **by construction**. *Check:* after
+   revealing, and after opening a link that was already used, the URL has no `#…`; the back
+   button does not restore it.
 4. **Download names are sanitised.** File names come from the sender: normalise (NFC),
    strip control, bidi and path characters, cap the length, render inside `<bdi>`, and
    offer the file as `application/octet-stream` whatever the sender declared.
@@ -43,10 +44,16 @@ Each line says what, why, and how to check it.
 6. **Bodies are capped.** The reveal reads `max_blob_bytes` (from `/config`, or the
    `data-shh-max-blob-bytes` attribute) and refuses anything longer before buffering it.
    **by construction**. *Why:* D-4 promises bounded client memory whatever the server sends.
-7. **Decrypted material is wiped on leave.** On `pagehide` the seed, the buffered ciphertext,
-   the file bytes, the passphrase field and the rendered secret are overwritten or cleared
-   (best effort; strings cannot be wiped in JavaScript, and the pages say so).
-   **by construction** (`wipeBytes`, `wipePayload` for your own state).
+7. **Secret material is wiped when it is done and on leave.** On the reveal page, on
+   `pagehide`, the seed, the buffered ciphertext and the decrypted file bytes are
+   overwritten, the passphrase field, rendered text and file list are cleared, and blob URLs
+   are revoked. On the create page the files' plaintext bytes are overwritten as soon as the
+   blob is built and the seed and burn token once the links are shown (or the attempt
+   fails); on `pagehide` anything still in flight is overwritten and the passphrase field and
+   shown links are cleared. Best effort: strings (the note, the links as text) cannot be
+   wiped in JavaScript, and the pages say so. **by construction** (`wipeBytes`, `wipePayload`
+   for your own state). The one thing kept is the claim token in `sessionStorage` for the
+   claim window (item 5).
 8. **No expiry information is shown.** Neither the interstitial nor the revealed page says
    how long a TTL secret stays readable; a single-view secret says it is now destroyed.
    **by construction**. *Why:* SPEC §5.2 — every recipient learns to keep what they were

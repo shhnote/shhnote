@@ -1,6 +1,7 @@
 import { decodeFragment } from "../crypto/fragment.ts";
 import { ShhError } from "../crypto/error.ts";
-import { encrypt, generateRandomness } from "../crypto/secret.ts";
+import { type Encrypted, encrypt, generateRandomness } from "../crypto/secret.ts";
+import { wipeBytes } from "../lib/wipe.ts";
 import { Api, ApiError, type InstanceConfig, type Lifetime, getConfig } from "../lib/api.ts";
 import { loadArgon2, prefetchArgon2 } from "../lib/argon2-loader.ts";
 import { $, type PageOptions, formatDuration, hide, pageLocale, pageSettings, setStatus, show, wireCopy } from "./dom.ts";
@@ -48,6 +49,23 @@ export function wireCreate(root: HTMLElement, options: PageOptions): void {
   show(wrapper);
   prefetchArgon2(page.argon2Url);
 
+  // Raw material of the secret being made (seed, burn token, file bytes). Overwritten once it
+  // has done its job: file bytes as soon as the blob is built, the rest when the links are
+  // shown or the attempt fails, and anything still here when the page is left (SPEC §10,
+  // best effort: the note and the links are strings, which JavaScript cannot overwrite).
+  const inFlight = new Set<Uint8Array>();
+  window.addEventListener("pagehide", () => {
+    wipeBytes(...inFlight);
+    inFlight.clear();
+    const passphrase = form.querySelector<HTMLInputElement>("input[name=passphrase]");
+    if (passphrase) passphrase.value = "";
+    for (const selector of ["[data-shh-share-link]", "[data-shh-burn-link]"]) {
+      const el = result.querySelector(selector);
+      if (el) el.textContent = "";
+    }
+    result.querySelector("[data-shh-open-link]")?.removeAttribute("href");
+  });
+
   // Instance policy: with files switched off the drop zone goes away and the API would refuse
   // anything file-sized anyway.
   let filesEnabled = true;
@@ -83,13 +101,20 @@ export function wireCreate(root: HTMLElement, options: PageOptions): void {
         passphrase ? loadArgon2(page.argon2Url) : Promise.resolve(undefined),
         Promise.all(files.map(async (f) => ({ name: f.name, type: f.type || "application/octet-stream", bytes: new Uint8Array(await f.arrayBuffer()) }))),
       ]);
-      const encrypted = await encrypt({
-        randomness,
-        payload: { text: text.length > 0 ? text : null, files: fileBytes },
-        policy: config.padding,
-        passphrase: passphrase || null,
-        ...(argon2 ? { argon2 } : {}),
-      });
+      for (const buffer of [randomness.seed, randomness.burnToken, ...fileBytes.map((f) => f.bytes)]) inFlight.add(buffer);
+      let encrypted: Encrypted;
+      try {
+        encrypted = await encrypt({
+          randomness,
+          payload: { text: text.length > 0 ? text : null, files: fileBytes },
+          policy: config.padding,
+          passphrase: passphrase || null,
+          ...(argon2 ? { argon2 } : {}),
+        });
+      } finally {
+        // The blob holds them now, encrypted; the plaintext copies are done.
+        wipeBytes(...fileBytes.map((f) => f.bytes));
+      }
       if (encrypted.blob.length > (page.maxBlobBytes ?? config.max_blob_bytes)) {
         setStatus(status, t("create-error-too-large"));
         return;
@@ -114,6 +139,9 @@ export function wireCreate(root: HTMLElement, options: PageOptions): void {
     } catch (e) {
       setStatus(status, messageFor(t, e));
     } finally {
+      // Shown or failed: the seed and burn token live on only as the links' text.
+      wipeBytes(...inFlight);
+      inFlight.clear();
       submit.disabled = false;
     }
   });
@@ -143,12 +171,15 @@ function showResult(api: Api, t: Translate, result: HTMLElement, fragment: strin
   const status = $("[data-shh-status]", result);
   destroy.addEventListener("click", async () => {
     destroy.disabled = true;
+    const token = decodeFragment(burnFragment, "burn");
     try {
-      await api.burn(decodeFragment(burnFragment, "burn"));
+      await api.burn(token);
       setStatus(status, t("result-destroyed"));
     } catch (e) {
       setStatus(status, messageFor(t, e));
       destroy.disabled = false;
+    } finally {
+      wipeBytes(token);
     }
   });
   show(result);

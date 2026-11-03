@@ -1,4 +1,4 @@
-import { concat, readU32be, u32be } from "./bytes.ts";
+import { readU32be, u32be } from "./bytes.ts";
 import { ShhError } from "./error.ts";
 
 export const CHUNK_SIZE = 65536;
@@ -44,8 +44,10 @@ export function pad(payload: Uint8Array, policy: PaddingPolicy): Uint8Array<Arra
   if (payload.length > 0xffffffff) throw new ShhError("payload_too_large");
   const bucket = paddedSize(payload.length + LENGTH_PREFIX, policy);
   if (bucket === null) throw new ShhError("payload_too_large");
+  // Written in place, so no other copy of the plaintext is left behind.
   const padded = new Uint8Array(bucket);
-  padded.set(concat(u32be(payload.length), payload));
+  padded.set(u32be(payload.length));
+  padded.set(payload, LENGTH_PREFIX);
   return padded;
 }
 

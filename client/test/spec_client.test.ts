@@ -15,7 +15,7 @@ import { ShhError } from "../src/crypto/error.ts";
 import { decodeFragment, encodeFragment } from "../src/crypto/fragment.ts";
 import { ARGON2_MIN, INFO, checkArgon2Bounds, hkdfAesKey } from "../src/crypto/kdf.ts";
 import { CHUNK_SIZE, pad } from "../src/crypto/padding.ts";
-import { decrypt, decryptStream, lookup } from "../src/crypto/secret.ts";
+import { decrypt, decryptStream, encrypt, lookup } from "../src/crypto/secret.ts";
 import { burnSecret, createSecret, parseFragment, revealSecret } from "../src/client.ts";
 import { Api, ApiError, type InstanceConfig, getConfig } from "../src/lib/api.ts";
 import { sanitiseFileName } from "../src/lib/filename.ts";
@@ -719,6 +719,42 @@ describe("spec: protocol version (revision 3, B5)", () => {
     }
     assert.equal(configCalls.length, 1);
     assert.equal(calls.length, 2);
+  });
+});
+
+describe("spec: scrubbing (revision 3, B6)", () => {
+  it("a failed confirm throws with the claim token and the decrypted payload", async () => {
+    const blob = await blobFrom(pad(encodePayload({ text: "s", files: [] }), { mode: "padme", min: 4096 }));
+    const { calls, fetchImpl } = instance((url) =>
+      url.endsWith("/secrets/confirm")
+        ? new Response(null, { status: 503 })
+        : new Response(blob, { status: 200, headers: { "x-shh-claim-token": "CLAIM" } }),
+    );
+    await assert.rejects(
+      revealSecret(`#${encodeFragment(seed, "share")}`, { apiBase: "https://h.example/api/v1", fetch: fetchImpl }),
+      (e: unknown) => e instanceof ApiError && e.status === 503 && e.claimToken === "CLAIM" && e.payload?.text === "s",
+    );
+    assert.deepEqual(
+      calls.map((c) => c.url.replace("https://h.example/api/v1", "")),
+      ["/secrets/reveal", "/secrets/confirm"],
+    );
+  });
+
+  it("encrypt leaves the caller's buffers intact and the blob unchanged by the in-place padding", async () => {
+    const r = {
+      seed,
+      burnToken: new Uint8Array(32).fill(2),
+      ek: await subtle.importKey("raw", rawEk, { name: "AES-GCM", length: 256 }, true, ["encrypt"]),
+      salt,
+      wrapIv,
+      noncePrefix: prefix,
+    };
+    const file = { name: "a.bin", type: "application/octet-stream", bytes: new Uint8Array([1, 2, 3]) };
+    const { blob } = await encrypt({ randomness: r, payload: { text: "note", files: [file] }, policy: { mode: "padme", min: 65536 } });
+    assert.deepEqual([...file.bytes], [1, 2, 3], "wiping the file is the page's job, after encrypt returns");
+    const back = await decrypt(blob, seed, null);
+    assert.equal(back.text, "note");
+    assert.deepEqual([...back.files[0]!.bytes], [1, 2, 3]);
   });
 });
 

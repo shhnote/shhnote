@@ -47,6 +47,9 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
   // this tab's sessionStorage for the claim window, so a reload does not lose it.
   let claimToken: string | null = null;
   let claimKey: string | null = null;
+  // Derived at the press and kept for the confirm, which may still be retrying after the
+  // page is left and the seed has been overwritten.
+  let lookupValue: Uint8Array | null = null;
   const claims = new ClaimStore();
   claims.prune();
   let shown: Payload | null = null;
@@ -101,7 +104,7 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
     try {
       setState(page, "working");
       setStatus(working, t("reveal-fetching"));
-      const lookupValue = await lookup(seed);
+      lookupValue ??= await lookup(seed);
       claimKey ??= await ClaimStore.keyFor(lookupValue);
       claimToken ??= claims.get(claimKey);
       const revealed = await api.reveal(lookupValue, claimToken, maxBlobBytes);
@@ -129,8 +132,10 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
       await display(await decryptBody(ek, header, rest, maxBlobBytes));
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) {
-        // Gone, or the window closed: a stored token has nothing left to fetch.
+        // Gone, or the window closed: a stored token has nothing left to fetch, and the
+        // fragment has nothing left to open, so it leaves the URL and history too.
         if (claimKey) claims.delete(claimKey);
+        history.replaceState(null, "", location.pathname);
         setState(page, "notfound");
       } else {
         setState(page, "armed");
@@ -219,7 +224,7 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
       const token = claimToken;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          await api.confirm(await lookup(seed), token);
+          await api.confirm(lookupValue ?? (await lookup(seed)), token);
           // Destroyed: nothing left to download again.
           if (claimKey) claims.delete(claimKey);
           break;
