@@ -928,6 +928,59 @@ async fn spec_orphan_objects_are_collected_at_startup() {
     );
 }
 
+// SPEC §6.1 (revision 3, C2): the sweep deletes unreferenced objects of ours and leaves every
+// other entry alone, counting them, so a stray file never stops the server at startup.
+#[tokio::test]
+async fn spec_orphan_sweep_ignores_stray_files() {
+    let (app, store, _blobs, root) = local("orphans-stray", "1000000000").await;
+    let k = keys();
+    assert_eq!(
+        create(&app, &k, "ttl", &raw_blob(LARGE)).await.status,
+        StatusCode::CREATED
+    );
+    let blobs_dir = root.join("blobs");
+    let orphan = blobs_dir.join("AAAAAAAAAAAAAAAAAAAAAA");
+    std::fs::write(&orphan, vec![0u8; 1000]).unwrap();
+    let strays = [
+        blobs_dir.join(".DS_Store"),
+        blobs_dir.join("notes.txt"),
+        // 22 characters, but not base64url.
+        blobs_dir.join("AAAAAAAAAAAAAAAAAAAA.x"),
+    ];
+    for stray in &strays {
+        std::fs::write(stray, b"not ours").unwrap();
+    }
+    // A directory with an object-shaped name is not an object either.
+    let stray_dir = blobs_dir.join("BBBBBBBBBBBBBBBBBBBBBB");
+    std::fs::create_dir(&stray_dir).unwrap();
+    std::fs::write(stray_dir.join("inside"), b"not ours").unwrap();
+
+    let mut vars = base_vars();
+    for (k, v) in [
+        ("SHH_STORAGE", "local"),
+        ("SHH_LOCAL_PATH", root.to_str().unwrap()),
+        ("SHH_LOCAL_MAX_TOTAL_BYTES", "1000000000"),
+    ] {
+        vars.insert(k.into(), v.into());
+    }
+    let config = Config::from_vars(&vars).unwrap();
+    let reopened = Blobs::open(config.storage.external.as_ref().unwrap())
+        .await
+        .unwrap();
+    // What `main` does right after opening the tier; an error here would stop the server.
+    let sweep = reopened.collect_orphans(&store).await;
+    let orphan_left = orphan.exists();
+    let strays_left = strays.iter().all(|s| s.exists()) && stray_dir.join("inside").exists();
+    let referenced = reveal(&app, &k).await.status;
+    let _ = tokio::fs::remove_dir_all(&root).await;
+
+    let sweep = sweep.expect("a stray file stopped the sweep");
+    assert_eq!((sweep.removed, sweep.ignored), (1, 4), "{sweep:?}");
+    assert!(!orphan_left, "the unreferenced object survived");
+    assert!(strays_left, "an entry that is not ours was deleted");
+    assert_eq!(referenced, StatusCode::OK, "the referenced object went");
+}
+
 // --- item 10: shutdown
 
 // SPEC §7.1: shutdown is bounded; a stalled upload cannot keep the process alive past the

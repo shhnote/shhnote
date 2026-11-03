@@ -112,9 +112,19 @@ async fn main() {
 
     if let Some(storage) = &storage {
         match storage.collect_orphans(&store).await {
-            Ok(0) => {}
-            Ok(n) => {
-                shhnote_server::log_warn!("storage: removed {n} object(s) no secret referenced")
+            Ok(sweep) => {
+                if sweep.removed > 0 {
+                    shhnote_server::log_warn!(
+                        "storage: removed {} object(s) no secret referenced",
+                        sweep.removed
+                    );
+                }
+                if sweep.ignored > 0 {
+                    shhnote_server::log_warn!(
+                        "storage: left {} other entry(s) in the blob area alone: not shhnote objects",
+                        sweep.ignored
+                    );
+                }
             }
             Err(e) => {
                 shhnote_server::log_error!("storage error: {e}");

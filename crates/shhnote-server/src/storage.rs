@@ -130,25 +130,29 @@ impl Blobs {
         }
     }
 
-    // Deletes every object no row references (SPEC §6.1): what a crash between the object
-    // write and the row write, or a failed cleanup, leaves behind. Returns how many went.
-    pub async fn collect_orphans(&self, store: &Store) -> io::Result<usize> {
+    // Deletes every object of ours that no row references (SPEC §6.1): what a crash between
+    // the object write and the row write, or a failed cleanup, leaves behind. Anything else
+    // in the blob area (a `.DS_Store`, an operator's file, a key of another shape) is not one
+    // of ours and is left alone, only counted, so a stray file never stops the server.
+    pub async fn collect_orphans(&self, store: &Store) -> io::Result<Sweep> {
         let referenced: HashSet<String> = store
             .external_refs()
             .await
             .map_err(io::Error::other)?
             .into_iter()
             .collect();
-        let mut removed = 0;
+        let mut sweep = Sweep::default();
         for key in self.list().await? {
-            if !referenced.contains(&key) {
+            if object_name(&key).is_err() {
+                sweep.ignored += 1;
+            } else if !referenced.contains(&key) {
                 self.delete(&key).await?;
-                removed += 1;
+                sweep.removed += 1;
             }
         }
         // Whatever the ledger believed, the tier has just been reconciled with the rows.
         self.ledger().stored = None;
-        Ok(removed)
+        Ok(sweep)
     }
 
     async fn list(&self) -> io::Result<Vec<String>> {
@@ -196,6 +200,13 @@ impl Blobs {
             Tier::S3(s3) => s3.delete(key).await,
         }
     }
+}
+
+// What the startup sweep did: orphans of ours deleted, and entries that are not ours left alone.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Sweep {
+    pub removed: usize,
+    pub ignored: usize,
 }
 
 // Bytes an upload holds against the ceiling. Dropped unconfirmed, they are given back; once
@@ -426,9 +437,15 @@ impl Local {
         let mut keys = Vec::new();
         let mut entries = tokio::fs::read_dir(self.root.join("blobs")).await?;
         while let Some(entry) = entries.next_entry().await? {
-            if let Some(name) = entry.file_name().to_str() {
-                keys.push(format!("{KEY_PREFIX}{name}"));
-            }
+            // A name that is not UTF-8 cannot be ours; kept lossily so the sweep counts it. A
+            // directory gets a trailing `/`, as S3 lists folders, so it never looks like an object.
+            let name = entry.file_name();
+            let slash = if entry.file_type().await?.is_dir() {
+                "/"
+            } else {
+                ""
+            };
+            keys.push(format!("{KEY_PREFIX}{}{slash}", name.to_string_lossy()));
         }
         Ok(keys)
     }
