@@ -3,15 +3,19 @@ import { ShhError } from "../crypto/error.ts";
 import { encrypt, generateRandomness } from "../crypto/secret.ts";
 import { Api, ApiError, type Lifetime, getConfig } from "../lib/api.ts";
 import { loadArgon2, prefetchArgon2 } from "../lib/argon2-loader.ts";
-import { $, apiBaseFrom, apiFrom, argon2Url, hide, setStatus, show, wireCopy } from "./dom.ts";
+import { $, type PageOptions, hide, pageSettings, setStatus, show, wireCopy } from "./dom.ts";
 import { type Dropzone, wireDropzone } from "./dropzone.ts";
-import type { Strings, Translate } from "./i18n.ts";
+import type { Translate } from "./i18n.ts";
 
 // The create page: encrypt in the browser, upload, then swap the form for the two links.
 // `root` holds the form (`[data-shh-form=create]`), its wrapper and the result panel.
-export function wireCreate(root: HTMLElement, { t }: Strings): void {
-  const api = apiFrom(root);
-  const apiBase = apiBaseFrom(root);
+// `options` may name the API base, the Argon2 module URL and the blob limit; otherwise they
+// come from the page's `data-shh-*` attributes (and the limit from the instance's `/config`).
+export function wireCreate(root: HTMLElement, options: PageOptions): void {
+  const { t } = options;
+  const page = pageSettings(root, options);
+  const apiBase = page.apiBase;
+  const api = new Api(apiBase);
   const form = $<HTMLFormElement>("[data-shh-form=create]", root);
   const status = $("[data-shh-status]", form);
   const submit = $<HTMLButtonElement>("button[type=submit]", form);
@@ -20,7 +24,7 @@ export function wireCreate(root: HTMLElement, { t }: Strings): void {
   const zone = form.querySelector<HTMLElement>("[data-shh-dropzone]");
   const dropzone: Dropzone | undefined = zone ? wireDropzone(zone, { t }) : undefined;
   show(wrapper);
-  prefetchArgon2(argon2Url(root));
+  prefetchArgon2(page.argon2Url);
 
   // Instance policy: with files switched off the drop zone goes away and the API would refuse
   // anything file-sized anyway.
@@ -50,7 +54,7 @@ export function wireCreate(root: HTMLElement, { t }: Strings): void {
       const [config, randomness, argon2, fileBytes] = await Promise.all([
         getConfig(apiBase),
         generateRandomness(),
-        passphrase ? loadArgon2(argon2Url(root)) : Promise.resolve(undefined),
+        passphrase ? loadArgon2(page.argon2Url) : Promise.resolve(undefined),
         Promise.all(files.map(async (f) => ({ name: f.name, type: f.type || "application/octet-stream", bytes: new Uint8Array(await f.arrayBuffer()) }))),
       ]);
       const encrypted = await encrypt({
@@ -60,7 +64,7 @@ export function wireCreate(root: HTMLElement, { t }: Strings): void {
         passphrase: passphrase || null,
         ...(argon2 ? { argon2 } : {}),
       });
-      if (encrypted.blob.length > config.max_blob_bytes) {
+      if (encrypted.blob.length > (page.maxBlobBytes ?? config.max_blob_bytes)) {
         setStatus(status, t("create-error-too-large"));
         return;
       }

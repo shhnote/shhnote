@@ -6,18 +6,20 @@ import { HEADER_LEN } from "../crypto/padding.ts";
 import { decryptBody, lookup, unwrapEk } from "../crypto/secret.ts";
 import { collect, iterateBytes, readHeader } from "../crypto/stream.ts";
 import { isUserActivation } from "../lib/activation.ts";
-import { ApiError } from "../lib/api.ts";
+import { Api, ApiError, DEFAULT_MAX_BLOB_BYTES } from "../lib/api.ts";
 import { loadArgon2, prefetchArgon2 } from "../lib/argon2-loader.ts";
 import { sanitiseFileName } from "../lib/filename.ts";
 import { wipeBytes, wipePayload } from "../lib/wipe.ts";
-import { $, apiFrom, argon2Url, formatSize, hide, maxBlobBytesFrom, setState, setStatus, show, wireCopy } from "./dom.ts";
-import type { Strings } from "./i18n.ts";
+import { $, type PageOptions, formatSize, hide, pageSettings, setState, setStatus, show, wireCopy } from "./dom.ts";
 
 // `/s#…`: nothing is fetched until the button is pressed, so link previews and scanners
-// can't consume a single-view secret (SPEC §5).
-export function wireReveal(page: HTMLElement, { t }: Strings): void {
-  const api = apiFrom(page);
-  const maxBlobBytes = maxBlobBytesFrom(page);
+// can't consume a single-view secret (SPEC §5). `options` may name the API base, the Argon2
+// module URL and the blob limit; otherwise they come from the page's `data-shh-*` attributes.
+export function wireReveal(page: HTMLElement, options: PageOptions): void {
+  const { t } = options;
+  const settings = pageSettings(page, options);
+  const api = new Api(settings.apiBase);
+  const maxBlobBytes = settings.maxBlobBytes ?? DEFAULT_MAX_BLOB_BYTES;
   const armed = $<HTMLFormElement>("[data-shh-form=reveal]", page);
   const armedStatus = $("[data-shh-status]", armed);
   const passForm = $<HTMLFormElement>("[data-shh-form=passphrase]", page);
@@ -32,7 +34,7 @@ export function wireReveal(page: HTMLElement, { t }: Strings): void {
     return;
   }
   show(armed);
-  prefetchArgon2(argon2Url(page));
+  prefetchArgon2(settings.argon2Url);
 
   // Kept only for a passphrase-protected secret: the header to retry the passphrase against
   // and the ciphertext body, so every retry stays in the browser (SPEC §2.10).
@@ -123,7 +125,7 @@ export function wireReveal(page: HTMLElement, { t }: Strings): void {
     button.disabled = true;
     try {
       setStatus(passStatus, t("reveal-decrypting"));
-      const ek = await unwrapEk(locked.header, seed, passInput.value, await loadArgon2(argon2Url(page)));
+      const ek = await unwrapEk(locked.header, seed, passInput.value, await loadArgon2(settings.argon2Url));
       const bytes = await locked.body;
       await display(await decryptBody(ek, locked.header, iterateBytes(bytes), bytes.length + HEADER_LEN));
     } catch (e) {

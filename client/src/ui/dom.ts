@@ -1,4 +1,5 @@
 import { Api, DEFAULT_MAX_BLOB_BYTES } from "../lib/api.ts";
+import type { Strings } from "./i18n.ts";
 
 // Small helpers so the flow code reads as what it does, not as DOM plumbing. Controllers
 // find what they need by `data-shh-*` attributes, inside the root they are given; the
@@ -33,13 +34,46 @@ export function setState(root: ParentNode, state: string): void {
 // The value of a `data-shh-<name>` attribute on the root, an ancestor, or the body.
 export function instanceValue(root: Element, name: string): string | undefined {
   const attr = `data-shh-${name}`;
-  return root.closest<HTMLElement>(`[${attr}]`)?.getAttribute(attr) ?? document.body.getAttribute(attr) ?? undefined;
+  const own = root.closest<HTMLElement>(`[${attr}]`)?.getAttribute(attr);
+  if (own != null) return own;
+  if (typeof document === "undefined") return undefined;
+  return document.body?.getAttribute(attr) ?? undefined;
+}
+
+// What `wireCreate` and `wireReveal` take besides their root. Anything given here wins over
+// the page's `data-shh-*` attributes, so a frontend can configure the controllers in code.
+export interface PageOptions extends Strings {
+  // The instance's versioned API base (`data-shh-api`).
+  apiBase?: string;
+  // Where the Argon2 module is served from this page's origin.
+  argon2Url?: string;
+  // The most blob bytes to accept (`data-shh-max-blob-bytes`).
+  maxBlobBytes?: number;
+}
+
+export interface PageSettings {
+  apiBase: string;
+  argon2Url: string;
+  // Undefined when neither the options nor the page say; each controller picks its own fallback.
+  maxBlobBytes: number | undefined;
+}
+
+// Options first, then the page's attributes. The Argon2 module defaults to the instance's
+// versioned asset when the page names an asset version (the built-in pages), and otherwise
+// to `/argon2.wasm` at the page origin, where a frontend serves the package asset.
+export function pageSettings(root: Element, options: Omit<PageOptions, "t"> = {}): PageSettings {
+  const apiBase = options.apiBase ?? instanceValue(root, "api");
+  if (!apiBase) throw new Error("no apiBase option and no data-shh-api attribute on the page");
+  const fromPage = Number(instanceValue(root, "max-blob-bytes"));
+  return {
+    apiBase,
+    argon2Url: options.argon2Url ?? argon2Url(root),
+    maxBlobBytes: options.maxBlobBytes ?? (fromPage > 0 ? fromPage : undefined),
+  };
 }
 
 export function apiBaseFrom(root: Element): string {
-  const base = instanceValue(root, "api");
-  if (!base) throw new Error("no data-shh-api attribute on the page");
-  return base;
+  return pageSettings(root).apiBase;
 }
 
 export function apiFrom(root: Element): Api {
@@ -70,10 +104,11 @@ export function wireCopy(button: HTMLButtonElement, getText: () => string, copie
   });
 }
 
-// The instance's Argon2 module, versioned like every other asset.
+// The instance's Argon2 module, versioned like every other asset; `/argon2.wasm` when the page
+// names no asset version.
 export function argon2Url(root: Element): string {
-  const version = instanceValue(root, "asset-version") ?? "";
-  return `/static/argon2.wasm?v=${version}`;
+  const version = instanceValue(root, "asset-version");
+  return version === undefined ? "/argon2.wasm" : `/static/argon2.wasm?v=${version}`;
 }
 
 export function formatSize(bytes: number): string {

@@ -2,7 +2,22 @@
 export { wireBurn } from "./burn.ts";
 export { wireMenus, wirePasswordToggles, wireTheme } from "./chrome.ts";
 export { wireCreate } from "./create.ts";
-export { $, $$, apiFrom, argon2Url, hide, instanceValue, maxBlobBytesFrom, setState, setStatus, show, wireCopy } from "./dom.ts";
+export {
+  $,
+  $$,
+  type PageOptions,
+  type PageSettings,
+  apiFrom,
+  argon2Url,
+  hide,
+  instanceValue,
+  maxBlobBytesFrom,
+  pageSettings,
+  setState,
+  setStatus,
+  show,
+  wireCopy,
+} from "./dom.ts";
 export { Dropzone, wireDropzone } from "./dropzone.ts";
 export { type Strings, type Translate, type UiKey, createT } from "./i18n.ts";
 export { wireReport } from "./report.ts";

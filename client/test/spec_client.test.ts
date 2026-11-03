@@ -19,6 +19,7 @@ import { decrypt, decryptStream } from "../src/crypto/secret.ts";
 import { burnSecret, createSecret, parseFragment, revealSecret } from "../src/client.ts";
 import { ApiError, type InstanceConfig, getConfig } from "../src/lib/api.ts";
 import { sanitiseFileName } from "../src/lib/filename.ts";
+import { pageSettings } from "../src/ui/dom.ts";
 import { createT } from "../src/ui/i18n.ts";
 
 const subtle = globalThis.crypto.subtle;
@@ -417,6 +418,46 @@ describe("spec: page strings (revision 3, B1)", () => {
     assert.equal(createT(rootWith("{}"))("reveal-download"), "reveal-download");
     assert.equal(createT(rootWith("{not json"))("burn-working"), "burn-working");
     assert.equal(createT()("burn-working"), "burn-working", "no document in Node: keys, no crash");
+  });
+});
+
+describe("spec: controller options (revision 3, B2)", () => {
+  // An element whose ancestors carry these `data-shh-*` attributes; Node has no DOM.
+  const pageWith = (attrs: Record<string, string>) =>
+    ({
+      closest: (selector: string) => {
+        const name = /^\[(data-shh-[a-z-]+)\]$/.exec(selector)?.[1] ?? "";
+        return name in attrs ? { getAttribute: () => attrs[name] } : null;
+      },
+    }) as unknown as Element;
+  const builtIn = pageWith({
+    "data-shh-api": "https://h.example/api/v1",
+    "data-shh-asset-version": "abc123",
+    "data-shh-max-blob-bytes": "2097152",
+  });
+
+  it("falls back to the page's data-shh-* attributes", () => {
+    assert.deepEqual(pageSettings(builtIn), {
+      apiBase: "https://h.example/api/v1",
+      argon2Url: "/static/argon2.wasm?v=abc123",
+      maxBlobBytes: 2097152,
+    });
+  });
+
+  it("options win over the attributes", () => {
+    const options = { apiBase: "https://api.other.example/v1", argon2Url: "/assets/argon2.wasm", maxBlobBytes: 65536 };
+    assert.deepEqual(pageSettings(builtIn, options), options);
+  });
+
+  it("without an asset version the module is /argon2.wasm, and no limit is invented", () => {
+    const bare = pageWith({ "data-shh-api": "https://h.example/api/v1" });
+    assert.deepEqual(pageSettings(bare), { apiBase: "https://h.example/api/v1", argon2Url: "/argon2.wasm", maxBlobBytes: undefined });
+    assert.equal(pageSettings(bare, { maxBlobBytes: 1024 }).maxBlobBytes, 1024);
+  });
+
+  it("refuses to guess an API base", () => {
+    assert.throws(() => pageSettings(pageWith({})), /apiBase/);
+    assert.equal(pageSettings(pageWith({}), { apiBase: "https://h.example/api/v1" }).argon2Url, "/argon2.wasm");
   });
 });
 
