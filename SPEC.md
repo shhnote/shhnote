@@ -59,7 +59,7 @@ No public-key cryptography. There is nothing to migrate for post-quantum: AES-25
 ### 2.2 Seed and fragment
 
 - `seed`: 32 random bytes. Lives only in the URL fragment.
-- Fragment = `kind(1) ‖ payload(32)` = 33 bytes = 44 base64url characters. Share link: `https://host/s#<fragment>`; the server redirects `/s` to the visitor's language and the browser carries the fragment across.
+- Fragment = `kind(1) ‖ payload(32)` = 33 bytes = 44 base64url characters. Share link: `https://host/s#<fragment>`; the server redirects `/s` to the visitor's language and the browser carries the fragment across. When the website is disabled (`SHH_WEB=api`) the frontend performs this redirect.
 - The kind byte names both the suite (KDF, AEAD, chunking, blob layout, container format) and the fragment's role:
 
   | kind | fragment | payload |
