@@ -11,7 +11,8 @@ export type ErrorCode =
   | "corrupt"
   | "empty_payload"
   | "payload_too_large"
-  | "manifest";
+  | "manifest"
+  | "unsupported_protocol";
 
 // Every failure the crypto module can report. `code` is stable; `message` is for logs.
 // `claimToken` is set by the client library when the failure came after a single-view

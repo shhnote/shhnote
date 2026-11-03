@@ -263,6 +263,21 @@ function recorder(answer: (url: string, body: unknown) => Response) {
   return { calls, fetchImpl };
 }
 
+// A recorder for an instance: `/config` is answered with `config` (a current instance by
+// default) and left out of `calls`, so a test sees only the requests about the secret.
+function instance(answer: (url: string, body: unknown) => Response, config: InstanceConfig = instanceConfig) {
+  const inner = recorder(answer);
+  const configCalls: string[] = [];
+  const fetchImpl = async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/config")) {
+      configCalls.push(url);
+      return Response.json(config);
+    }
+    return inner.fetchImpl(url, init);
+  };
+  return { calls: inner.calls, configCalls, fetchImpl };
+}
+
 describe("spec: client library", () => {
   it("burnSecret refuses a share link without contacting the server", async () => {
     const shareLink = `https://h.example/s#${encodeFragment(seed, "share")}`;
@@ -284,7 +299,7 @@ describe("spec: client library", () => {
     const padded = pad(encodePayload({ text: "s", files: [] }), { mode: "padme", min: 4096 });
     const blob = concat(header, await sealChunk(await ekKey(), prefix, 0, true, padded));
 
-    const { calls, fetchImpl } = recorder(
+    const { calls, fetchImpl } = instance(
       () => new Response(blob, { status: 200, headers: { "x-shh-claim-token": "CLAIM" } }),
     );
     const opts = { apiBase: "https://h.example/api/v1", fetch: fetchImpl, argon2 };
@@ -314,7 +329,7 @@ describe("spec: client library", () => {
         controller.error(new Error("connection reset"));
       },
     });
-    const dropped = recorder(() => new Response(broken, { status: 200, headers: { "x-shh-claim-token": "CLAIM" } }));
+    const dropped = instance(() => new Response(broken, { status: 200, headers: { "x-shh-claim-token": "CLAIM" } }));
     await assert.rejects(
       revealSecret(link, { ...opts, fetch: dropped.fetchImpl, passphrase: "right" }),
       (e: unknown) => e instanceof ApiError && (e as { claimToken?: string }).claimToken === "CLAIM",
@@ -323,24 +338,24 @@ describe("spec: client library", () => {
 
   it("revealSecret refuses a body over the cap, announced or not", async () => {
     const blob = await blobFrom(pad(encodePayload({ text: "s", files: [] }), { mode: "padme", min: 4096 }));
-    const announced = recorder(() => new Response(blob, { status: 200, headers: { "content-length": String(blob.length) } }));
+    const announced = instance(() => new Response(blob, { status: 200, headers: { "content-length": String(blob.length) } }));
     const link = `https://h.example/s#${encodeFragment(seed, "share")}`;
     await assert.rejects(
       revealSecret(link, { apiBase: "https://h.example/api/v1", fetch: announced.fetchImpl, maxBlobBytes: blob.length - 1 }),
       (e: unknown) => e instanceof ApiError && e.code === "too_large",
     );
-    const silent = recorder(() => new Response(blob, { status: 200 }));
+    const silent = instance(() => new Response(blob, { status: 200 }));
     await assert.rejects(
       revealSecret(link, { apiBase: "https://h.example/api/v1", fetch: silent.fetchImpl, maxBlobBytes: blob.length - 1 }),
       (e: unknown) => e instanceof ApiError && e.code === "too_large",
     );
-    const fits = recorder(() => new Response(blob, { status: 200 }));
+    const fits = instance(() => new Response(blob, { status: 200 }));
     const r = await revealSecret(link, { apiBase: "https://h.example/api/v1", fetch: fits.fetchImpl, maxBlobBytes: blob.length });
     assert.equal(r.payload.text, "s");
   });
 
   it("revealSecret sends only lookup = HKDF(seed) to the given base", async () => {
-    const { calls, fetchImpl } = recorder(() => new Response(null, { status: 404 }));
+    const { calls, fetchImpl } = instance(() => new Response(null, { status: 404 }));
     await assert.rejects(revealSecret(encodeFragment(seed, "share"), { apiBase: "https://api.h.example/v1/", fetch: fetchImpl }), (e: unknown) => e instanceof ApiError && e.status === 404);
     assert.equal(calls[0]!.url, "https://api.h.example/v1/secrets/reveal");
     const body = calls[0]!.body as Record<string, string>;
@@ -671,6 +686,39 @@ describe("spec: claim token across a reload (revision 3, B4)", () => {
     });
     assert.equal(blocked.get("shh-claim:x"), null);
     assert.equal(new ClaimStore(null).get("shh-claim:x"), null, "no storage at all");
+  });
+});
+
+describe("spec: protocol version (revision 3, B5)", () => {
+  const future = { ...instanceConfig, fragment_version: 2 };
+
+  it("createSecret refuses an instance with another fragment version before uploading", async () => {
+    const { calls, configCalls, fetchImpl } = instance(() => new Response(null, { status: 201 }), future);
+    await assert.rejects(
+      createSecret({ apiBase: "https://v2.example/api/v1", fetch: fetchImpl, payload: { text: "x", files: [] }, lifetime: "ttl", ttlSeconds: 3600 }),
+      isCode("unsupported_protocol"),
+    );
+    assert.equal(configCalls.length, 1);
+    assert.equal(calls.length, 0, "nothing was uploaded");
+  });
+
+  it("revealSecret refuses before the reveal request, so a single-view secret is not consumed", async () => {
+    const { calls, fetchImpl } = instance(() => new Response(new Uint8Array(4), { status: 200, headers: { "x-shh-claim-token": "CLAIM" } }), future);
+    await assert.rejects(
+      revealSecret(`#${encodeFragment(seed, "share")}`, { apiBase: "https://v2.example/api/v1", fetch: fetchImpl }),
+      isCode("unsupported_protocol"),
+    );
+    assert.equal(calls.length, 0, "no reveal was sent");
+  });
+
+  it("revealSecret checks the version once per instance, not on every call", async () => {
+    const { calls, configCalls, fetchImpl } = instance(() => new Response(null, { status: 404 }));
+    const opts = { apiBase: "https://v1.example/api/v1", fetch: fetchImpl };
+    for (let i = 0; i < 2; i++) {
+      await assert.rejects(revealSecret(`#${encodeFragment(seed, "share")}`, opts), (e: unknown) => e instanceof ApiError && e.status === 404);
+    }
+    assert.equal(configCalls.length, 1);
+    assert.equal(calls.length, 2);
   });
 });
 

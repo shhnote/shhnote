@@ -1,9 +1,25 @@
 import type { Argon2 } from "./crypto/argon2.ts";
 import type { Payload } from "./crypto/container.ts";
 import { ShhError } from "./crypto/error.ts";
-import { type Kind, decodeFragment } from "./crypto/fragment.ts";
+import { type Kind, VERSION, decodeFragment } from "./crypto/fragment.ts";
 import { decryptStream, encrypt, generateRandomness, lookup } from "./crypto/secret.ts";
-import { Api, ApiError, type Fetch, type Lifetime, getConfig } from "./lib/api.ts";
+import { Api, ApiError, type Fetch, type InstanceConfig, type Lifetime, getConfig } from "./lib/api.ts";
+
+// The fragment versions this package can create and open (SPEC §2.13). An instance names the
+// one it speaks as `fragment_version` in `/config`.
+export const SUPPORTED_FRAGMENT_VERSIONS: readonly number[] = [VERSION];
+
+// Refuses an instance whose protocol this package does not speak, before anything is
+// encrypted, uploaded or claimed: links made for it, or secrets read from it, would be
+// unusable, and a single-view secret would be consumed for nothing.
+export function checkProtocol(config: Pick<InstanceConfig, "fragment_version">): void {
+  if (!SUPPORTED_FRAGMENT_VERSIONS.includes(config.fragment_version)) {
+    throw new ShhError(
+      "unsupported_protocol",
+      `the instance speaks fragment version ${config.fragment_version}; this package supports ${SUPPORTED_FRAGMENT_VERSIONS.join(", ")}`,
+    );
+  }
+}
 
 // The whole flow in four calls, for integrations outside the website: scripts, bots,
 // password managers. Nothing here touches the DOM; pass your own fetch where needed.
@@ -35,6 +51,7 @@ export async function createSecret(opts: CreateOptions): Promise<Created> {
   if (opts.passphrase && !opts.argon2) throw new ShhError("argon2_unavailable", "a passphrase needs an Argon2 instance");
   const api = new Api(opts.apiBase, opts.fetch);
   const [config, randomness] = await Promise.all([getConfig(opts.apiBase, opts.fetch), generateRandomness()]);
+  checkProtocol(config);
   const encrypted = await encrypt({
     randomness,
     payload: opts.payload,
@@ -92,6 +109,8 @@ export async function revealSecret(linkOrFragment: string, opts: RevealOptions):
   if (opts.passphrase === "") throw new ShhError("empty_passphrase", "omit the passphrase to mean direct mode");
   if (opts.passphrase && !opts.argon2) throw new ShhError("argon2_unavailable", "a passphrase needs an Argon2 instance");
   const { seed } = parseFragment(linkOrFragment);
+  // Checked before the reveal request, which is what claims a single-view secret.
+  checkProtocol(await getConfig(opts.apiBase, opts.fetch));
   const api = new Api(opts.apiBase, opts.fetch);
   const revealed = await api.reveal(await lookup(seed), opts.claimToken, opts.maxBlobBytes);
   const claimToken = revealed.claimToken ?? opts.claimToken ?? null;
