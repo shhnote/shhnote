@@ -48,7 +48,7 @@ pub(crate) struct Shared {
     content: Content,
     api_url: String,
     site_url: String,
-    max_blob_bytes: u64,
+    pub(crate) max_blob_bytes: u64,
     // Keys minted by the panel, waiting to be shown once on the redirected page (SPEC §8).
     pub(crate) fresh_keys: Mutex<Vec<crate::admin::FreshKey>>,
 }

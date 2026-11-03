@@ -89,7 +89,8 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    let (settings, warnings) = Settings::with_overrides(&overrides, config.env);
+    let (mut settings, mut warnings) = Settings::with_overrides(&overrides, config.env);
+    warnings.extend(settings.check_blob_limit(config.storage.max_blob_bytes()));
     for warning in warnings {
         shhnote_server::log_warn!("{warning}");
     }

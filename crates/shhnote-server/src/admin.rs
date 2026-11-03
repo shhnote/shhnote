@@ -559,6 +559,7 @@ async fn settings_save(
         &state.shared.settings,
         &submitted,
         state.shared.env,
+        state.shared.max_blob_bytes,
     )
     .await
     {
@@ -779,8 +780,10 @@ pub(crate) async fn save_settings(
     cell: &SettingsCell,
     submitted: &HashMap<String, String>,
     env: AppEnv,
+    max_blob_bytes: u64,
 ) -> Result<Settings, SaveError> {
-    let (settings, mut errors) = Settings::with_overrides(submitted, env);
+    let (mut settings, mut errors) = Settings::with_overrides(submitted, env);
+    errors.extend(settings.check_blob_limit(max_blob_bytes));
     // Setup is derived from these two being set (D-29); once set they can change but not go
     // back to empty, so the setup gate never re-arms.
     let current = cell.load();

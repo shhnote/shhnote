@@ -61,6 +61,9 @@ pub struct Settings {
     // link; empty hides it. Content pages fall back to `source_url` for `{{project_url}}`.
     pub project_url: String,
     pub padding: PaddingPolicy,
+    // Padmé's floor as last set, kept while the ladder is in use, so switching back to padme
+    // restores it instead of silently resetting it (SPEC §6.2).
+    pub padding_min: u64,
     pub claim_window_secs: i64,
     pub min_ttl_secs: i64,
     pub max_ttl_secs: i64,
@@ -101,6 +104,7 @@ impl Default for Settings {
             padding: PaddingPolicy::Padme {
                 min: PaddingPolicy::DEFAULT_MIN,
             },
+            padding_min: PaddingPolicy::DEFAULT_MIN,
             claim_window_secs: 15 * 60,
             min_ttl_secs: 60,
             max_ttl_secs: MAX_TTL_CEILING,
@@ -229,6 +233,7 @@ impl Settings {
             }
         }
 
+        s.padding_min = padding_min;
         s.padding = match padding_mode.as_str() {
             "buckets" if !padding_ladder.is_empty() => PaddingPolicy::Buckets {
                 ladder: padding_ladder,
@@ -270,12 +275,32 @@ impl Settings {
         }
     }
 
+    // Ladder sizes are checked against the largest blob this instance can store (SPEC §6.2):
+    // a bigger one could never be uploaded. The limit comes from the environment and the
+    // configured tiers, which the overrides alone do not know, so this runs after them. A
+    // ladder over it falls back to Padmé, like any invalid value; the reason is returned.
+    pub fn check_blob_limit(&mut self, max_blob_bytes: u64) -> Option<String> {
+        let PaddingPolicy::Buckets { ladder } = &self.padding else {
+            return None;
+        };
+        let largest = ladder.iter().copied().max()?;
+        if largest <= max_blob_bytes {
+            return None;
+        }
+        self.padding = PaddingPolicy::Padme {
+            min: self.padding_min,
+        };
+        Some(format!(
+            "setting padding_ladder ignored: {largest} is above the largest blob this instance stores ({max_blob_bytes} bytes)"
+        ))
+    }
+
     pub fn as_strings(&self) -> BTreeMap<&'static str, String> {
         let (padding_mode, padding_min, padding_ladder) = match &self.padding {
             PaddingPolicy::Padme { min } => ("padme", min.to_string(), String::new()),
             PaddingPolicy::Buckets { ladder } => (
                 "buckets",
-                PaddingPolicy::DEFAULT_MIN.to_string(),
+                self.padding_min.to_string(),
                 ladder
                     .iter()
                     .map(u64::to_string)
@@ -476,6 +501,10 @@ fn regions(regions: Vec<Region>, allow_http: bool) -> Result<Vec<Region>, String
         if region.code.trim().is_empty() || region.name.trim().is_empty() {
             return Err("every region needs a code and a name".into());
         }
+        // A region is somewhere to go; an empty link would point the selector at this page.
+        if region.url.trim().is_empty() {
+            return Err("every region needs a URL".into());
+        }
         web_url(&region.url, allow_http).map_err(|e| format!("every region URL {e}"))?;
     }
     Ok(regions)
@@ -521,6 +550,74 @@ mod tests {
         assert_eq!(s.max_ttl_secs, MAX_TTL_CEILING);
         assert!(s.files_enabled);
         assert_eq!(warnings.len(), 3, "{warnings:?}");
+    }
+
+    // Revision 3, C3: `padding_min` survives a switch to the ladder and back, and is still
+    // validated while the ladder is in use.
+    #[test]
+    fn padding_min_is_kept_in_buckets_mode() {
+        let pairs = overrides(&[
+            ("padding_mode", "buckets"),
+            ("padding_ladder", "65536,131072"),
+            ("padding_min", "131072"),
+        ]);
+        let (s, warnings) = Settings::with_overrides(&pairs, AppEnv::Production);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert!(matches!(s.padding, PaddingPolicy::Buckets { .. }));
+        assert_eq!(s.as_strings()["padding_min"], "131072");
+        // Saved and loaded again, then switched back: the floor is the one the admin set.
+        let mut stored: HashMap<String, String> = s
+            .as_strings()
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect();
+        stored.insert("padding_mode".into(), "padme".into());
+        let (back, _) = Settings::with_overrides(&stored, AppEnv::Production);
+        assert_eq!(back.padding, PaddingPolicy::Padme { min: 131072 });
+
+        let (low, warnings) = Settings::with_overrides(
+            &overrides(&[
+                ("padding_mode", "buckets"),
+                ("padding_ladder", "65536"),
+                ("padding_min", "1024"),
+            ]),
+            AppEnv::Production,
+        );
+        assert_eq!(low.padding_min, PaddingPolicy::DEFAULT_MIN);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+    }
+
+    #[test]
+    fn region_urls_cannot_be_empty() {
+        let regions = r#"[{"code":"eu","name":"EU","url":""}]"#;
+        let (s, warnings) =
+            Settings::with_overrides(&overrides(&[("regions", regions)]), AppEnv::Local);
+        assert!(s.regions.is_empty());
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("needs a URL"), "{warnings:?}");
+    }
+
+    #[test]
+    fn ladder_sizes_must_fit_the_instance() {
+        let pairs = overrides(&[
+            ("padding_mode", "buckets"),
+            ("padding_ladder", "65536,1048576"),
+            ("padding_min", "131072"),
+        ]);
+        let (mut fits, _) = Settings::with_overrides(&pairs, AppEnv::Production);
+        assert_eq!(fits.check_blob_limit(1048576), None);
+        assert!(matches!(fits.padding, PaddingPolicy::Buckets { .. }));
+
+        let (mut over, _) = Settings::with_overrides(&pairs, AppEnv::Production);
+        let reason = over
+            .check_blob_limit(1048575)
+            .expect("a ladder over the limit");
+        assert!(reason.contains("padding_ladder"), "{reason}");
+        // Like any invalid value it falls back, here to Padmé with the admin's floor.
+        assert_eq!(over.padding, PaddingPolicy::Padme { min: 131072 });
+
+        let mut padme = Settings::default();
+        assert_eq!(padme.check_blob_limit(65536), None);
     }
 
     #[test]

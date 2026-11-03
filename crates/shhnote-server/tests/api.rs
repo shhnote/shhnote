@@ -1410,6 +1410,19 @@ async fn admin_api_bootstraps_keys_settings_and_stats() {
     assert_eq!(bad.json()["error"]["code"], "invalid_settings");
     assert_eq!(bad.json()["details"].as_array().unwrap().len(), 1);
     assert_eq!(store.setting_overrides().await.unwrap().len(), 4);
+    // A ladder size this instance could never store is refused, not saved (SPEC §6.2).
+    let oversized = admin_api(
+        &app,
+        "PATCH",
+        "/api/v1/admin/settings",
+        &admin_key,
+        Some(json!({"padding_mode": "buckets", "padding_ladder": [65536, 1_073_741_824u64]})),
+    )
+    .await;
+    assert_eq!(oversized.status, StatusCode::UNPROCESSABLE_ENTITY);
+    let details = oversized.json()["details"].to_string();
+    assert!(details.contains("padding_ladder"), "{details}");
+    assert_eq!(store.setting_overrides().await.unwrap().len(), 4);
 
     // There is no reports ledger (D-19); reports are a daily counter in the stats.
     let stats = admin_api(&app, "GET", "/api/v1/admin/stats", &admin_key, None).await;

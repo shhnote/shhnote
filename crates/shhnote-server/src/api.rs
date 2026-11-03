@@ -130,7 +130,7 @@ impl Limits {
         }
     }
 
-    fn max_blob_bytes(self) -> u64 {
+    pub fn max_blob_bytes(self) -> u64 {
         if self.external_enabled {
             self.external_max_object
         } else {

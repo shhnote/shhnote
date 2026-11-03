@@ -253,7 +253,15 @@ async fn settings_patch(
         );
     }
     if details.is_empty() {
-        match save_settings(&state.store, &state.settings, &submitted, state.env).await {
+        match save_settings(
+            &state.store,
+            &state.settings,
+            &submitted,
+            state.env,
+            state.limits.max_blob_bytes(),
+        )
+        .await
+        {
             Ok(settings) => return Json(settings_out(&settings)).into_response(),
             Err(SaveError::Invalid(errors)) => details = errors,
             Err(SaveError::Db(e)) => return db_error(e),
