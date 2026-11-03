@@ -1375,7 +1375,7 @@ function wireReveal(page, options) {
   const { t: t2 } = options;
   const settings = pageSettings(page, options);
   const api = new Api(settings.apiBase);
-  const maxBlobBytes = settings.maxBlobBytes ?? DEFAULT_MAX_BLOB_BYTES;
+  const pageMaxBlobBytes = settings.maxBlobBytes;
   const armed = $("[data-shh-form=reveal]", page);
   const armedStatus = $("[data-shh-status]", armed);
   const passForm = $("[data-shh-form=passphrase]", page);
@@ -1443,6 +1443,7 @@ function wireReveal(page, options) {
       lookupValue ??= await lookup(seed);
       claimKey ??= await ClaimStore.keyFor(lookupValue);
       claimToken ??= claims.get(claimKey);
+      const maxBlobBytes = pageMaxBlobBytes ?? await getConfig(settings.apiBase).then((c) => c.max_blob_bytes, () => DEFAULT_MAX_BLOB_BYTES);
       const revealed = await api.reveal(lookupValue, claimToken, maxBlobBytes);
       if (revealed.claimToken) {
         claimToken = revealed.claimToken;

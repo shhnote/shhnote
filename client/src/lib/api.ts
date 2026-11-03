@@ -3,8 +3,9 @@ import type { Payload } from "../crypto/container.ts";
 import type { PaddingPolicy } from "../crypto/padding.ts";
 import { iterateStream } from "../crypto/stream.ts";
 
-// Without an instance limit to go by, the largest blob any instance can serve
-// (SHH_EXTERNAL_MAX_OBJECT's ceiling, SPEC §7.1).
+// The largest blob any instance can serve (SHH_EXTERNAL_MAX_OBJECT's ceiling, SPEC §7.1):
+// only the cap when the instance's own `max_blob_bytes` cannot be had. `revealSecret` and
+// `wireReveal` use that instead.
 export const DEFAULT_MAX_BLOB_BYTES = 4 * 1024 * 1024 * 1024;
 
 // A sibling instance of the same operator (SPEC §9).

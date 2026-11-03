@@ -758,6 +758,36 @@ describe("spec: scrubbing (revision 3, B6)", () => {
   });
 });
 
+describe("spec: body cap from the instance (revision 3, B7)", () => {
+  it("revealSecret without maxBlobBytes refuses a body over the instance's max_blob_bytes", async () => {
+    const blob = await blobFrom(pad(encodePayload({ text: "s", files: [] }), { mode: "padme", min: 4096 }));
+    const link = `#${encodeFragment(seed, "share")}`;
+    const small = { ...instanceConfig, max_blob_bytes: blob.length - 1 };
+    const announced = instance(() => new Response(blob, { status: 200, headers: { "content-length": String(blob.length) } }), small);
+    await assert.rejects(
+      revealSecret(link, { apiBase: "https://cap-a.example/api/v1", fetch: announced.fetchImpl }),
+      (e: unknown) => e instanceof ApiError && e.code === "too_large",
+    );
+    const silent = instance(() => new Response(blob, { status: 200 }), small);
+    await assert.rejects(
+      revealSecret(link, { apiBase: "https://cap-b.example/api/v1", fetch: silent.fetchImpl }),
+      (e: unknown) => e instanceof ApiError && e.code === "too_large",
+    );
+    const exact = instance(() => new Response(blob, { status: 200 }), { ...instanceConfig, max_blob_bytes: blob.length });
+    const r = await revealSecret(link, { apiBase: "https://cap-c.example/api/v1", fetch: exact.fetchImpl });
+    assert.equal(r.payload.text, "s");
+  });
+
+  it("revealSecret does not reveal without the instance's config", async () => {
+    const { calls, fetchImpl } = recorder((url) => (url.endsWith("/config") ? new Response(null, { status: 503 }) : new Response(null, { status: 200 })));
+    await assert.rejects(
+      revealSecret(`#${encodeFragment(seed, "share")}`, { apiBase: "https://cap-d.example/api/v1", fetch: fetchImpl }),
+      (e: unknown) => e instanceof ApiError && e.status === 503,
+    );
+    assert.deepEqual(calls.map((c) => c.url.split("/v1")[1]), ["/config"], "no reveal was sent");
+  });
+});
+
 describe("spec: download names (SPEC §10)", () => {
   it("controls, bidi overrides, look-alike slashes, reserved names and long names are cleaned", () => {
     const rlo = "invoice‮fdp.exe";

@@ -21,7 +21,8 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
   const { t } = options;
   const settings = pageSettings(page, options);
   const api = new Api(settings.apiBase);
-  const maxBlobBytes = settings.maxBlobBytes ?? DEFAULT_MAX_BLOB_BYTES;
+  // The option or the page's attribute; otherwise `/config`, read after the press.
+  const pageMaxBlobBytes = settings.maxBlobBytes;
   const armed = $<HTMLFormElement>("[data-shh-form=reveal]", page);
   const armedStatus = $("[data-shh-status]", armed);
   const passForm = $<HTMLFormElement>("[data-shh-form=passphrase]", page);
@@ -107,6 +108,7 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
       lookupValue ??= await lookup(seed);
       claimKey ??= await ClaimStore.keyFor(lookupValue);
       claimToken ??= claims.get(claimKey);
+      const maxBlobBytes = pageMaxBlobBytes ?? (await getConfig(settings.apiBase).then((c) => c.max_blob_bytes, () => DEFAULT_MAX_BLOB_BYTES));
       const revealed = await api.reveal(lookupValue, claimToken, maxBlobBytes);
       if (revealed.claimToken) {
         claimToken = revealed.claimToken;

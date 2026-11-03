@@ -87,7 +87,8 @@ export interface RevealOptions extends ClientOptions {
   // secret is downloaded again with it instead of a fresh reveal, which a single-view
   // secret would refuse.
   claimToken?: string | null;
-  // The most blob bytes to accept; the instance's `max_blob_bytes` from `/config`.
+  // The most blob bytes to accept. Defaults to the instance's `max_blob_bytes` from `/config`;
+  // give a smaller number to refuse more.
   maxBlobBytes?: number;
 }
 
@@ -110,14 +111,17 @@ export async function revealSecret(linkOrFragment: string, opts: RevealOptions):
   if (opts.passphrase === "") throw new ShhError("empty_passphrase", "omit the passphrase to mean direct mode");
   if (opts.passphrase && !opts.argon2) throw new ShhError("argon2_unavailable", "a passphrase needs an Argon2 instance");
   const { seed } = parseFragment(linkOrFragment);
-  // Checked before the reveal request, which is what claims a single-view secret.
-  checkProtocol(await getConfig(opts.apiBase, opts.fetch));
+  // Checked before the reveal request, which is what claims a single-view secret. The same
+  // answer bounds the body: nothing longer than this instance can store is read.
+  const config = await getConfig(opts.apiBase, opts.fetch);
+  checkProtocol(config);
+  const maxBlobBytes = opts.maxBlobBytes ?? config.max_blob_bytes;
   const api = new Api(opts.apiBase, opts.fetch);
-  const revealed = await api.reveal(await lookup(seed), opts.claimToken, opts.maxBlobBytes);
+  const revealed = await api.reveal(await lookup(seed), opts.claimToken, maxBlobBytes);
   const claimToken = revealed.claimToken ?? opts.claimToken ?? null;
   let payload: Payload;
   try {
-    payload = await decryptStream(revealed.body, seed, opts.passphrase ?? null, opts.argon2, opts.maxBlobBytes ?? revealed.contentLength ?? undefined);
+    payload = await decryptStream(revealed.body, seed, opts.passphrase ?? null, opts.argon2, Math.min(maxBlobBytes, revealed.contentLength ?? maxBlobBytes));
   } catch (e) {
     if (claimToken !== null && (e instanceof ShhError || e instanceof ApiError)) e.claimToken = claimToken;
     throw e;
