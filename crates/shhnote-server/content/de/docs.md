@@ -24,7 +24,7 @@ Bereitschaft für Monitoring, ohne Authentifizierung:
 {"status": "ok", "version": "{{version}}", "configured": true}
 ```
 
-`status` ist `ok`, wenn die Datenbank antwortet, sonst `degraded` mit **503**. `version` ist die Serverversion. `configured` ist `false`, bis der Betreiber die Einrichtung abgeschlossen hat; bis dahin antwortet jeder andere Endpunkt mit `not_configured`. `GET /` (die API-Wurzel) sagt nur, dass der Prozess lebt.
+`status` ist `ok`, wenn die Datenbank antwortet, sonst `degraded` mit **503**. `version` ist die Serverversion. `configured` ist `false`, bis der Betreiber die Einrichtung abgeschlossen hat; bis dahin antwortet jeder andere Endpunkt mit `not_configured`. `GET /` (die API-Wurzel) antwortet mit `{"name": "shhnote", "version": "v1"}`, sobald die Instanz eingerichtet ist, und vorher mit `not_configured`; für Monitoring `/health` verwenden.
 
 ## `GET /config`
 

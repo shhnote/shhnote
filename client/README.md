@@ -36,5 +36,6 @@ Every instance also serves the root and `/ui` entries as `/static/shh.js` and
 `/static/shh-ui.js`, with `/static/argon2.wasm`, for frontends without a build step.
 
 A frontend built on this package should meet the frontend conformance checklist in the
-repository (`docs/frontend-conformance.md`). The package is versioned independently of the
-server; compatibility is by `fragment_version` in `GET /config`. AGPL-3.0-only.
+repository (`docs/frontend-conformance.md`). The package is versioned in lockstep with the
+server: `@shhnote/client` x.y.z is released together with shhnote x.y.z. Compatibility with an
+instance is by `fragment_version` in `GET /config`. AGPL-3.0-only.

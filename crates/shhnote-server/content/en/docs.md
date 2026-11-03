@@ -24,7 +24,7 @@ Readiness for monitoring, no authentication:
 {"status": "ok", "version": "{{version}}", "configured": true}
 ```
 
-`status` is `ok` when the database answers, otherwise `degraded` with **503**. `version` is the server version. `configured` is `false` until the operator has finished setting the instance up; until then every other endpoint answers `not_configured`. `GET /` (the API root) only says the process is alive.
+`status` is `ok` when the database answers, otherwise `degraded` with **503**. `version` is the server version. `configured` is `false` until the operator has finished setting the instance up; until then every other endpoint answers `not_configured`. `GET /` (the API root) answers `{"name": "shhnote", "version": "v1"}` once the instance is set up, and `not_configured` before; use `/health` for monitoring.
 
 ## `GET /config`
 
