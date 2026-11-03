@@ -3,7 +3,7 @@
 Zero-knowledge secret sharing: hand someone a password, a key or a file with a link that opens once, or expires, and then is gone. Everything is encrypted in the browser before it is uploaded; the server stores an opaque, padded blob and the hash of its identifier. It cannot read a secret, tell a file from a note, or say who created or opened what, and it keeps no logs that could.
 
 - Text and files, single-view or time-limited (up to 14 days), optional passphrase
-- No accounts, no cookies, no third-party requests; the share link carries the key in its fragment, which never reaches the server
+- No accounts, no cookies for visitors (the admin panel uses one session cookie), no third-party requests; the share link carries the key in its fragment, which never reaches the server
 - Padded blobs (Padmé) so sizes reveal nothing; uniform "not found" answers so probing reveals nothing
 - Reports remove a secret without anyone seeing it; aggregate daily counters are the only statistics
 - Admin panel and JSON admin API, rate limiting without storing addresses, multi-language UI
@@ -20,7 +20,7 @@ mkdir shhnote && cd shhnote
 curl -fsSLO https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/docker/docker-compose.yml
 curl -fsSLO https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/docker/Caddyfile
 curl -fsSL https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/docker/.env.example -o .env
-docker run --rm -v "$PWD/.env:/env" ghcr.io/shhnote/shhnote init --env /env   # the two secrets
+docker run --rm ghcr.io/shhnote/shhnote init >> .env   # appends the two secrets
 # edit .env: DOMAIN, SHH_URL
 docker compose up -d
 ```
@@ -39,8 +39,8 @@ Rust (stable, with the `wasm32-unknown-unknown` target) and Node 24.
 
 ```sh
 cp .env.example .env            # SQLite and local addresses
+scripts/build-client.sh         # Argon2 WASM module and the JavaScript bundles; the server build needs them
 cargo run -p shhnote-server -- init --env .env   # fills in SHH_SECRET_KEY and SHH_ADMIN_TOKEN
-scripts/build-client.sh         # Argon2 WASM module and the JavaScript bundles
 cargo run -p shhnote-server     # http://localhost:3000
 cargo test --workspace          # add SHH_TEST_PG_URL=postgres://… to cover Postgres too
 git config core.hooksPath .githooks   # once per clone: keeps scripts executable in the index
