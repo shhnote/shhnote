@@ -29,6 +29,10 @@
             <span class="dropzone-hint" id="files-hint">{{ upload_hint }}</span>
           </label>
           <ul class="file-list" data-shh-file-list></ul>
+          {# One chosen file; the page script fills the data-shh-* hooks (client/README.md). #}
+          <template data-shh-template="dropzone-item">
+            <li><span><span data-shh-file-name></span> (<span data-shh-file-meta></span>)</span><button type="button" data-shh-file-remove>{{ ctx.t("form-files-remove") }}</button></li>
+          </template>
         </div>
 
         <div class="panel__section stack">
@@ -101,7 +105,7 @@
           <span class="form-label">{{ ctx.t("result-share-label") }}</span>
           <div class="readout">
             <span class="readout__val" data-shh-share-link></span>
-            <button type="button" class="readout__copy" data-shh-copy="share">{% call icons::icon("copy", 15) %}{% endcall %}<span>{{ ctx.t("result-copy") }}</span></button>
+            <button type="button" class="readout__copy" data-shh-copy="share">{% call icons::icon("copy", 15) %}{% endcall %}<span class="copy-idle">{{ ctx.t("result-copy") }}</span><span class="copy-done">{{ ctx.t("result-copied") }}</span></button>
           </div>
         </div>
         <div class="callout" data-shh-passphrase-reminder hidden>
@@ -126,7 +130,7 @@
           <p class="input-help">{{ ctx.t("result-burn-hint") }}</p>
           <div class="readout readout--secondary">
             <span class="readout__val" data-shh-burn-link></span>
-            <button type="button" class="readout__copy" data-shh-copy="burn">{% call icons::icon("copy", 15) %}{% endcall %}<span>{{ ctx.t("result-copy") }}</span></button>
+            <button type="button" class="readout__copy" data-shh-copy="burn">{% call icons::icon("copy", 15) %}{% endcall %}<span class="copy-idle">{{ ctx.t("result-copy") }}</span><span class="copy-done">{{ ctx.t("result-copied") }}</span></button>
           </div>
         </div>
         <div class="panel__foot panel__foot--row">

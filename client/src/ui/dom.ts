@@ -89,19 +89,44 @@ export function setStatus(el: HTMLElement, text: string): void {
   el.textContent = text;
 }
 
-// Copies with a short "copied" confirmation on the button. Falls back silently where the
-// clipboard API is unavailable (some privacy browsers), leaving the text selectable.
-export function wireCopy(button: HTMLButtonElement, getText: () => string, copiedLabel: string): void {
-  const original = button.textContent ?? "";
+// How long a copy button says it worked.
+export const COPIED_MS = 1500;
+
+// Copies, then marks the button `data-shh-copied="true"` for a moment so the page's own CSS
+// can show that it worked (swap a label, change a colour). The button's content is never
+// touched, so its icon and markup survive. Falls back silently where the clipboard API is
+// unavailable (some privacy browsers), leaving the text selectable. `_copiedLabel` is no
+// longer used (0.3.1) and stays only so older callers keep compiling.
+export function wireCopy(button: HTMLButtonElement, getText: () => string, _copiedLabel?: string): void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   button.addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(getText());
-      button.textContent = copiedLabel;
-      setTimeout(() => (button.textContent = original), 1500);
     } catch {
-      /* clipboard unavailable */
+      return; /* clipboard unavailable */
     }
+    button.dataset["shhCopied"] = "true";
+    clearTimeout(timer);
+    timer = setTimeout(() => delete button.dataset["shhCopied"], COPIED_MS);
   });
+}
+
+// A page's own markup for something a controller renders: the first element inside a
+// `<template data-shh-template="<name>">`, looked up inside `root` first, then in the
+// document. Null when the page has none, so the controller uses its built-in markup.
+export function fromTemplate(root: ParentNode, name: string): HTMLElement | null {
+  const selector = `template[data-shh-template="${name}"]`;
+  const template = root.querySelector<HTMLTemplateElement>(selector) ?? document.querySelector<HTMLTemplateElement>(selector);
+  const first = template?.content.firstElementChild;
+  return first ? (first.cloneNode(true) as HTMLElement) : null;
+}
+
+// A small element with `data-shh-*` hooks only: the built-in markup carries no classes.
+export function hook(tag: string, attribute: string, text = ""): HTMLElement {
+  const el = document.createElement(tag);
+  el.setAttribute(attribute, "");
+  el.textContent = text;
+  return el;
 }
 
 // The instance's Argon2 module, versioned like every other asset; `/argon2.wasm` when the page

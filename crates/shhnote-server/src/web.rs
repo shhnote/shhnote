@@ -376,7 +376,6 @@ impl Ctx<'_> {
 // Every translation the page script can show. Keep in step with `client/src/ui/i18n.ts`.
 const UI_KEYS: &[&str] = &[
     "form-files-remove",
-    "result-copied",
     "result-destroyed",
     "result-chip-single",
     "result-chip-multi",

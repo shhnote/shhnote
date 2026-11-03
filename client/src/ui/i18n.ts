@@ -4,7 +4,6 @@
 // or use `createT` to read a block the frontend renders the same way.
 export type UiKey =
   | "form-files-remove"
-  | "result-copied"
   | "result-destroyed"
   | "result-chip-single"
   | "result-chip-multi"

@@ -616,6 +616,50 @@ async fn spec_admin_subdomain_routing() {
     );
 }
 
+// Revision 3, B3: the reference pages give the page script its markup as templates with the
+// `data-shh-*` hooks the controllers fill, and every copy button carries both labels, since
+// the script only marks the button `data-shh-copied` and never rewrites its text.
+#[tokio::test]
+async fn spec_reference_pages_carry_controller_templates() {
+    let app = build("spec-web-templates", &[]).await;
+    let host = "localhost";
+    let reveal = fetch(&app, host, Method::GET, "/en/s", None, None, "").await;
+    let home = fetch(&app, host, Method::GET, "/en", None, None, "").await;
+    for (page, body, needles) in [
+        (
+            "/en/s",
+            &reveal.body,
+            &[
+                r#"<template data-shh-template="file-card">"#,
+                "data-shh-file-name",
+                "data-shh-file-meta",
+                "data-shh-file-download",
+            ][..],
+        ),
+        (
+            "/en",
+            &home.body,
+            &[
+                r#"<template data-shh-template="dropzone-item">"#,
+                "data-shh-file-name",
+                "data-shh-file-meta",
+                "data-shh-file-remove",
+            ][..],
+        ),
+    ] {
+        for needle in needles {
+            assert!(body.contains(needle), "{page} lacks {needle}");
+        }
+        let buttons = body.matches("data-shh-copy=").count();
+        assert!(buttons > 0, "{page} has no copy button");
+        assert_eq!(
+            body.matches(r#"class="copy-done""#).count(),
+            buttons,
+            "{page}: every copy button needs its copied label"
+        );
+    }
+}
+
 // D-27: the server version is public on /config, /health, the page footer and in content.
 #[tokio::test]
 async fn spec_server_version_is_public() {

@@ -1,9 +1,13 @@
-import { $, formatSize } from "./dom.ts";
+import { $, formatSize, fromTemplate, hook } from "./dom.ts";
 import type { Strings, Translate } from "./i18n.ts";
 
 // Drag-and-drop file picker. The browser's FileList can't be edited, so the chosen files are
 // kept here and read back by the create flow. The list it renders into is the
-// `[data-shh-file-list]` next to the zone.
+// `[data-shh-file-list]` next to the zone; each item is the page's
+// `<template data-shh-template="dropzone-item">` when it has one, else a plain `<li>`, with
+// `[data-shh-file-name]`, `[data-shh-file-meta]` (the size) and
+// `button[data-shh-file-remove]` filled in. While files are dragged over the zone it carries
+// `data-shh-dragging="true"`.
 export class Dropzone {
   readonly files: File[] = [];
   private readonly zone: HTMLElement;
@@ -22,12 +26,12 @@ export class Dropzone {
     });
     zone.addEventListener("dragover", (event) => {
       event.preventDefault();
-      zone.classList.add("is-dragging");
+      zone.dataset["shhDragging"] = "true";
     });
-    zone.addEventListener("dragleave", () => zone.classList.remove("is-dragging"));
+    zone.addEventListener("dragleave", () => delete zone.dataset["shhDragging"]);
     zone.addEventListener("drop", (event) => {
       event.preventDefault();
-      zone.classList.remove("is-dragging");
+      delete zone.dataset["shhDragging"];
       this.add(event.dataTransfer?.files ?? null);
     });
   }
@@ -45,18 +49,21 @@ export class Dropzone {
   private render(): void {
     this.list.replaceChildren();
     this.files.forEach((file, index) => {
-      const item = document.createElement("li");
-      const name = document.createElement("span");
+      const item = fromTemplate(this.zone.parentElement ?? this.zone, "dropzone-item") ?? this.builtInItem();
       // textContent, never innerHTML, so a file name can't inject HTML into the page.
-      name.textContent = `${file.name} (${formatSize(file.size)})`;
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.textContent = this.t("form-files-remove");
-      remove.addEventListener("click", () => {
-        this.files.splice(index, 1);
-        this.render();
-      });
-      item.append(name, remove);
+      const name = item.querySelector("[data-shh-file-name]");
+      if (name) name.textContent = file.name;
+      const meta = item.querySelector("[data-shh-file-meta]");
+      if (meta) meta.textContent = formatSize(file.size);
+      const remove = item.querySelector<HTMLButtonElement>("button[data-shh-file-remove]");
+      if (remove) {
+        remove.type = "button";
+        if (!remove.textContent?.trim()) remove.textContent = this.t("form-files-remove");
+        remove.addEventListener("click", () => {
+          this.files.splice(index, 1);
+          this.render();
+        });
+      }
       this.list.append(item);
     });
   }
@@ -64,7 +71,13 @@ export class Dropzone {
   reset(): void {
     this.files.length = 0;
     this.render();
-    this.zone.classList.remove("is-dragging");
+    delete this.zone.dataset["shhDragging"];
+  }
+
+  private builtInItem(): HTMLElement {
+    const item = document.createElement("li");
+    item.append(hook("span", "data-shh-file-name"), " ", hook("span", "data-shh-file-meta"), " ", hook("button", "data-shh-file-remove"));
+    return item;
   }
 }
 

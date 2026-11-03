@@ -136,8 +136,8 @@ function showResult(api: Api, t: Translate, result: HTMLElement, fragment: strin
   $("[data-shh-chip=lifetime]", result).textContent = t(info.singleView ? "result-chip-single" : "result-chip-multi");
   $("[data-shh-chip=expiry]", result).textContent = t("result-chip-expires", { period: info.expiryLabel });
   if (info.hasPassphrase) show($("[data-shh-passphrase-reminder]", result));
-  wireCopy($<HTMLButtonElement>("[data-shh-copy=share]", result), () => shareLink, t("result-copied"));
-  wireCopy($<HTMLButtonElement>("[data-shh-copy=burn]", result), () => burnLink, t("result-copied"));
+  wireCopy($<HTMLButtonElement>("[data-shh-copy=share]", result), () => shareLink);
+  wireCopy($<HTMLButtonElement>("[data-shh-copy=burn]", result), () => burnLink);
 
   const destroy = $<HTMLButtonElement>("[data-shh-destroy]", result);
   const status = $("[data-shh-status]", result);

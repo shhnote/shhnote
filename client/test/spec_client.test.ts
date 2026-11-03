@@ -4,7 +4,7 @@
 // reason names it); un-skip them with the fix.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 
 import { Argon2 } from "../src/crypto/argon2.ts";
 import { serializeHeader } from "../src/crypto/blob.ts";
@@ -20,7 +20,7 @@ import { burnSecret, createSecret, parseFragment, revealSecret } from "../src/cl
 import { ApiError, type InstanceConfig, getConfig } from "../src/lib/api.ts";
 import { sanitiseFileName } from "../src/lib/filename.ts";
 import { fillTtl, ttlChoices } from "../src/ui/create.ts";
-import { formatDuration, pageSettings } from "../src/ui/dom.ts";
+import { COPIED_MS, formatDuration, pageSettings, wireCopy } from "../src/ui/dom.ts";
 import { createT } from "../src/ui/i18n.ts";
 
 const subtle = globalThis.crypto.subtle;
@@ -409,13 +409,13 @@ describe("spec: page strings (revision 3, B1)", () => {
     ({ querySelector: () => (json === null ? null : { textContent: json }) }) as unknown as ParentNode;
 
   it("createT reads the strings block under the root and fills variables", () => {
-    const t = createT(rootWith('{"result-copied": "Copied", "result-chip-expires": "Expires in {period}"}'));
-    assert.equal(t("result-copied"), "Copied");
+    const t = createT(rootWith('{"reveal-download": "Download", "result-chip-expires": "Expires in {period}"}'));
+    assert.equal(t("reveal-download"), "Download");
     assert.equal(t("result-chip-expires", { period: "1 day" }), "Expires in 1 day");
   });
 
   it("createT falls back to the key for a missing block, a missing key or invalid JSON", () => {
-    assert.equal(createT(rootWith(null))("result-copied"), "result-copied");
+    assert.equal(createT(rootWith(null))("reveal-download"), "reveal-download");
     assert.equal(createT(rootWith("{}"))("reveal-download"), "reveal-download");
     assert.equal(createT(rootWith("{not json"))("burn-working"), "burn-working");
     assert.equal(createT()("burn-working"), "burn-working", "no document in Node: keys, no crash");
@@ -515,6 +515,48 @@ describe("spec: lifetimes from the instance (revision 3, B2)", () => {
     assert.equal(formatDuration(90, "en"), "90 seconds");
     assert.equal(formatDuration(86400, "de"), "1 Tag");
     assert.equal(formatDuration(259200, "de"), "3 Tage");
+  });
+});
+
+describe("spec: copy buttons (revision 3, B3)", () => {
+  // A stand-in button and clipboard; Node has no DOM.
+  function fakeButton() {
+    let onClick: (() => Promise<void>) | undefined;
+    const button = {
+      textContent: "Copy",
+      dataset: {} as Record<string, string>,
+      addEventListener: (_type: string, handler: () => Promise<void>) => (onClick = handler),
+    };
+    return { button, click: () => onClick!() };
+  }
+  function withClipboard(writeText: (text: string) => Promise<void>, run: () => Promise<void>) {
+    Object.defineProperty(globalThis.navigator, "clipboard", { value: { writeText }, configurable: true });
+    return run().finally(() => Reflect.deleteProperty(globalThis.navigator, "clipboard"));
+  }
+
+  it("marks the button data-shh-copied for a moment and never touches its content", async () => {
+    mock.timers.enable({ apis: ["setTimeout"] });
+    try {
+      const copied: string[] = [];
+      const { button, click } = fakeButton();
+      wireCopy(button as unknown as HTMLButtonElement, () => "the link", "ignored label");
+      await withClipboard(async (text) => void copied.push(text), click);
+      assert.deepEqual(copied, ["the link"]);
+      assert.equal(button.dataset["shhCopied"], "true");
+      assert.equal(button.textContent, "Copy");
+      mock.timers.tick(COPIED_MS);
+      assert.equal(button.dataset["shhCopied"], undefined, "restored after the feedback window");
+      assert.equal(button.textContent, "Copy");
+    } finally {
+      mock.timers.reset();
+    }
+  });
+
+  it("says nothing when the clipboard refuses", async () => {
+    const { button, click } = fakeButton();
+    wireCopy(button as unknown as HTMLButtonElement, () => "x");
+    await withClipboard(() => Promise.reject(new Error("denied")), click);
+    assert.equal(button.dataset["shhCopied"], undefined);
   });
 });
 

@@ -637,16 +637,31 @@ function apiFrom(root) {
 function setStatus(el, text) {
   el.textContent = text;
 }
-function wireCopy(button, getText, copiedLabel) {
-  const original = button.textContent ?? "";
+var COPIED_MS = 1500;
+function wireCopy(button, getText, _copiedLabel) {
+  let timer;
   button.addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(getText());
-      button.textContent = copiedLabel;
-      setTimeout(() => button.textContent = original, 1500);
     } catch {
+      return;
     }
+    button.dataset["shhCopied"] = "true";
+    clearTimeout(timer);
+    timer = setTimeout(() => delete button.dataset["shhCopied"], COPIED_MS);
   });
+}
+function fromTemplate(root, name) {
+  const selector = `template[data-shh-template="${name}"]`;
+  const template = root.querySelector(selector) ?? document.querySelector(selector);
+  const first = template?.content.firstElementChild;
+  return first ? first.cloneNode(true) : null;
+}
+function hook(tag, attribute, text = "") {
+  const el = document.createElement(tag);
+  el.setAttribute(attribute, "");
+  el.textContent = text;
+  return el;
 }
 function argon2Url(root) {
   const version = instanceValue(root, "asset-version");
@@ -950,12 +965,12 @@ var Dropzone = class {
     });
     zone.addEventListener("dragover", (event) => {
       event.preventDefault();
-      zone.classList.add("is-dragging");
+      zone.dataset["shhDragging"] = "true";
     });
-    zone.addEventListener("dragleave", () => zone.classList.remove("is-dragging"));
+    zone.addEventListener("dragleave", () => delete zone.dataset["shhDragging"]);
     zone.addEventListener("drop", (event) => {
       event.preventDefault();
-      zone.classList.remove("is-dragging");
+      delete zone.dataset["shhDragging"];
       this.add(event.dataTransfer?.files ?? null);
     });
   }
@@ -970,24 +985,32 @@ var Dropzone = class {
   render() {
     this.list.replaceChildren();
     this.files.forEach((file, index) => {
-      const item = document.createElement("li");
-      const name = document.createElement("span");
-      name.textContent = `${file.name} (${formatSize(file.size)})`;
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.textContent = this.t("form-files-remove");
-      remove.addEventListener("click", () => {
-        this.files.splice(index, 1);
-        this.render();
-      });
-      item.append(name, remove);
+      const item = fromTemplate(this.zone.parentElement ?? this.zone, "dropzone-item") ?? this.builtInItem();
+      const name = item.querySelector("[data-shh-file-name]");
+      if (name) name.textContent = file.name;
+      const meta = item.querySelector("[data-shh-file-meta]");
+      if (meta) meta.textContent = formatSize(file.size);
+      const remove = item.querySelector("button[data-shh-file-remove]");
+      if (remove) {
+        remove.type = "button";
+        if (!remove.textContent?.trim()) remove.textContent = this.t("form-files-remove");
+        remove.addEventListener("click", () => {
+          this.files.splice(index, 1);
+          this.render();
+        });
+      }
       this.list.append(item);
     });
   }
   reset() {
     this.files.length = 0;
     this.render();
-    this.zone.classList.remove("is-dragging");
+    delete this.zone.dataset["shhDragging"];
+  }
+  builtInItem() {
+    const item = document.createElement("li");
+    item.append(hook("span", "data-shh-file-name"), " ", hook("span", "data-shh-file-meta"), " ", hook("button", "data-shh-file-remove"));
+    return item;
   }
 };
 function wireDropzone(zone, { t: t2 }) {
@@ -1093,8 +1116,8 @@ function showResult(api, t2, result, fragment, burnFragment, info) {
   $("[data-shh-chip=lifetime]", result).textContent = t2(info.singleView ? "result-chip-single" : "result-chip-multi");
   $("[data-shh-chip=expiry]", result).textContent = t2("result-chip-expires", { period: info.expiryLabel });
   if (info.hasPassphrase) show($("[data-shh-passphrase-reminder]", result));
-  wireCopy($("[data-shh-copy=share]", result), () => shareLink, t2("result-copied"));
-  wireCopy($("[data-shh-copy=burn]", result), () => burnLink, t2("result-copied"));
+  wireCopy($("[data-shh-copy=share]", result), () => shareLink);
+  wireCopy($("[data-shh-copy=burn]", result), () => burnLink);
   const destroy = $("[data-shh-destroy]", result);
   const status = $("[data-shh-status]", result);
   destroy.addEventListener("click", async () => {
@@ -1361,37 +1384,14 @@ function wireReveal(page, options) {
       const block = $("[data-shh-text-block]", revealed);
       const pre = $("[data-shh-text]", block);
       pre.textContent = payload.text;
-      wireCopy($("[data-shh-copy=text]", block), () => payload.text ?? "", t2("result-copied"));
+      wireCopy($("[data-shh-copy=text]", block), () => payload.text ?? "");
       show(block);
     }
     const list = $("[data-shh-files]", revealed);
     for (const file of payload.files) {
-      const item = document.createElement("li");
-      item.className = "file-card";
-      const icon = document.createElement("span");
-      icon.className = "file-card__icon";
-      icon.setAttribute("aria-hidden", "true");
-      icon.textContent = "\u25A3";
-      const meta = document.createElement("div");
-      meta.className = "file-card__meta";
-      const name = document.createElement("div");
-      name.className = "file-card__name";
-      const safeName = sanitiseFileName(file.name);
-      const bdi = document.createElement("bdi");
-      bdi.textContent = safeName;
-      name.append(bdi);
-      const sub = document.createElement("div");
-      sub.className = "file-card__sub";
-      sub.textContent = `${file.type || "application/octet-stream"} \xB7 ${formatSize(file.bytes.length)}`;
-      meta.append(name, sub);
-      const link = document.createElement("a");
-      link.className = "btn btn--ghost btn--sm";
-      link.href = URL.createObjectURL(new Blob([file.bytes], { type: "application/octet-stream" }));
-      objectUrls.push(link.href);
-      link.download = safeName;
-      link.textContent = t2("reveal-download");
-      item.append(icon, meta, link);
-      list.append(item);
+      const url = URL.createObjectURL(new Blob([file.bytes], { type: "application/octet-stream" }));
+      objectUrls.push(url);
+      list.append(fileCard(page, t2, file.name, `${file.type || "application/octet-stream"} \xB7 ${formatSize(file.bytes.length)}`, url));
     }
     setState(page, "revealed");
     if (claimToken !== null) {
@@ -1406,6 +1406,26 @@ function wireReveal(page, options) {
       }
     }
   }
+}
+function fileCard(page, t2, rawName, meta, url) {
+  const card = fromTemplate(page, "file-card") ?? builtInFileCard();
+  const link = card.querySelector("a[data-shh-file-download]");
+  if (!link) throw new Error("a file-card template needs an a[data-shh-file-download]");
+  const safeName = sanitiseFileName(rawName);
+  const bdi = document.createElement("bdi");
+  bdi.textContent = safeName;
+  card.querySelector("[data-shh-file-name]")?.replaceChildren(bdi);
+  const metaSlot = card.querySelector("[data-shh-file-meta]");
+  if (metaSlot) metaSlot.textContent = meta;
+  link.href = url;
+  link.download = safeName;
+  if (!link.textContent?.trim()) link.textContent = t2("reveal-download");
+  return card;
+}
+function builtInFileCard() {
+  const item = document.createElement("li");
+  item.append(hook("span", "data-shh-file-name"), " ", hook("span", "data-shh-file-meta"), " ", hook("a", "data-shh-file-download"));
+  return item;
 }
 
 // src/ui/tabs.ts

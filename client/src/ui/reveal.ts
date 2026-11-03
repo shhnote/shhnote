@@ -10,7 +10,8 @@ import { Api, ApiError, DEFAULT_MAX_BLOB_BYTES } from "../lib/api.ts";
 import { loadArgon2, prefetchArgon2 } from "../lib/argon2-loader.ts";
 import { sanitiseFileName } from "../lib/filename.ts";
 import { wipeBytes, wipePayload } from "../lib/wipe.ts";
-import { $, type PageOptions, formatSize, hide, pageSettings, setState, setStatus, show, wireCopy } from "./dom.ts";
+import { $, type PageOptions, formatSize, fromTemplate, hide, hook, pageSettings, setState, setStatus, show, wireCopy } from "./dom.ts";
+import type { Translate } from "./i18n.ts";
 
 // `/s#…`: nothing is fetched until the button is pressed, so link previews and scanners
 // can't consume a single-view secret (SPEC §5). `options` may name the API base, the Argon2
@@ -171,42 +172,17 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
       const block = $("[data-shh-text-block]", revealed);
       const pre = $("[data-shh-text]", block);
       pre.textContent = payload.text;
-      wireCopy($<HTMLButtonElement>("[data-shh-copy=text]", block), () => payload.text ?? "", t("result-copied"));
+      wireCopy($<HTMLButtonElement>("[data-shh-copy=text]", block), () => payload.text ?? "");
       show(block);
     }
 
     const list = $<HTMLUListElement>("[data-shh-files]", revealed);
     for (const file of payload.files) {
-      const item = document.createElement("li");
-      item.className = "file-card";
-      const icon = document.createElement("span");
-      icon.className = "file-card__icon";
-      icon.setAttribute("aria-hidden", "true");
-      icon.textContent = "▣";
-      const meta = document.createElement("div");
-      meta.className = "file-card__meta";
-      const name = document.createElement("div");
-      name.className = "file-card__name";
-      // The cleaned name, as text inside <bdi>: the sender's name can neither inject markup
-      // nor reorder the text around it.
-      const safeName = sanitiseFileName(file.name);
-      const bdi = document.createElement("bdi");
-      bdi.textContent = safeName;
-      name.append(bdi);
-      const sub = document.createElement("div");
-      sub.className = "file-card__sub";
-      sub.textContent = `${file.type || "application/octet-stream"} · ${formatSize(file.bytes.length)}`;
-      meta.append(name, sub);
-      const link = document.createElement("a");
-      link.className = "btn btn--ghost btn--sm";
       // Always octet-stream: a sender-chosen text/html would render under this origin if the
       // blob URL were opened in a tab.
-      link.href = URL.createObjectURL(new Blob([file.bytes as BlobPart], { type: "application/octet-stream" }));
-      objectUrls.push(link.href);
-      link.download = safeName;
-      link.textContent = t("reveal-download");
-      item.append(icon, meta, link);
-      list.append(item);
+      const url = URL.createObjectURL(new Blob([file.bytes as BlobPart], { type: "application/octet-stream" }));
+      objectUrls.push(url);
+      list.append(fileCard(page, t, file.name, `${file.type || "application/octet-stream"} · ${formatSize(file.bytes.length)}`, url));
     }
     setState(page, "revealed");
 
@@ -224,4 +200,31 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
       }
     }
   }
+}
+
+// One downloadable file: the page's `<template data-shh-template="file-card">` when it has
+// one, else a plain `<li>`. Hooks filled in: `[data-shh-file-name]` (the cleaned name, as
+// text inside a `<bdi>`, so the sender's name can neither inject markup nor reorder the text
+// around it), `[data-shh-file-meta]` (type and size) and `a[data-shh-file-download]`, which
+// keeps its own label or gets "reveal-download".
+function fileCard(page: HTMLElement, t: Translate, rawName: string, meta: string, url: string): HTMLElement {
+  const card = fromTemplate(page, "file-card") ?? builtInFileCard();
+  const link = card.querySelector<HTMLAnchorElement>("a[data-shh-file-download]");
+  if (!link) throw new Error('a file-card template needs an a[data-shh-file-download]');
+  const safeName = sanitiseFileName(rawName);
+  const bdi = document.createElement("bdi");
+  bdi.textContent = safeName;
+  card.querySelector("[data-shh-file-name]")?.replaceChildren(bdi);
+  const metaSlot = card.querySelector("[data-shh-file-meta]");
+  if (metaSlot) metaSlot.textContent = meta;
+  link.href = url;
+  link.download = safeName;
+  if (!link.textContent?.trim()) link.textContent = t("reveal-download");
+  return card;
+}
+
+function builtInFileCard(): HTMLElement {
+  const item = document.createElement("li");
+  item.append(hook("span", "data-shh-file-name"), " ", hook("span", "data-shh-file-meta"), " ", hook("a", "data-shh-file-download"));
+  return item;
 }
