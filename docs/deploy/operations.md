@@ -6,10 +6,10 @@ Deployment settings come from the environment (or a `.env` file in the working d
 
 | Variable | Needed | Meaning |
 |---|---|---|
-| `SHH_ENV` | yes | `production` or `local`. Production turns on HSTS and secure cookies and refuses `SHH_DEBUG`. |
+| `SHH_ENV` | | `production` (default) or `local`. Production turns on HSTS and secure cookies and refuses `SHH_DEBUG`. |
 | `SHH_URL` | yes | Public address, scheme and host only. |
 | `SHH_SECRET_KEY` | yes | At least 32 random characters; signs admin sessions. Changing it logs every admin out. |
-| `SHH_ADMIN_TOKEN` | at first | Bootstrap credential for the admin panel and admin API, at least 32 characters. Ignored once an admin API key exists; remove it then. |
+| `SHH_ADMIN_TOKEN` | at first | Bootstrap credential for the admin panel and admin API, at least 32 characters. Stops working as soon as the first admin API key exists; remove it then. |
 | `SHH_HOST`, `SHH_PORT` | | Bind address, default `127.0.0.1:3000`. Containers set `0.0.0.0`. |
 | `SHH_TRUSTED_PROXIES` | behind a proxy | Addresses or CIDR ranges whose `X-Forwarded-For` is honoured. |
 | `SHH_API_ROUTING` | | `path` (API at `/api`, default) or `subdomain` (API at `api.<host>`). |
@@ -36,12 +36,12 @@ Deployment settings come from the environment (or a `.env` file in the working d
 | `shhnote` | Runs the server. SIGTERM or Ctrl-C stops accepting requests, finishes the ones in flight (up to 30 s), then exits. |
 | `shhnote init` | Generates `SHH_SECRET_KEY` and `SHH_ADMIN_TOKEN` and prints them as `KEY=value` lines. `shhnote init --env <path>` writes them into that file instead: creates it (owner-readable only), fills an empty `KEY=` line in place, appends a missing key, and never overwrites a value that is set. The file is replaced whole through a temp file and a rename in its directory, keeping its permissions (and its owner and group when run as root), so it is never left half-written; the directory must be writable, and a bind-mounted single file cannot be updated this way (use the printing form there). Needs no configuration; the first command of every install. |
 | `shhnote check` | Loads the configuration and pings the database; exit code 0 when a start would succeed. |
-| `shhnote health` | Asks the running server's `/api/v1/health`; used as the container health check. |
+| `shhnote health` | Asks the running server's health endpoint (`/api/v1/health`, or `/v1/health` on the `api.` host under subdomain routing); used as the container health check. |
 | `shhnote reset-admin` | Deletes every admin API key, so `SHH_ADMIN_TOKEN` works again. For lockouts. |
 
 ## First admin, and retiring the token
 
-Until setup is done the site serves only its admin panel and admin API (every other page and API call answers 503 with a setup page; `/health` says `configured: false`). Setup is three things: sign in at `/en/admin` with `SHH_ADMIN_TOKEN`, create an admin API key (keep it in a password manager; it is shown once), then set the site name and the contact address under Settings. Sign out and sign in with the key. From that moment the token is ignored and the server logs a warning as long as it is still set: remove it. The admin JSON API under `/api/v1/admin` takes the same keys as `Authorization: Bearer`.
+Until setup is done the site serves only its admin panel and admin API (every other page and API call answers 503 with a setup page; `/health` says `configured: false`). Setup is three things: sign in at `/en/admin` with `SHH_ADMIN_TOKEN`, create an admin API key (keep it in a password manager; it is shown once), then sign in with the key and set the site name and the contact address under Settings. The token, and any session signed in with it, stops working as soon as the first admin key exists; if it is still set, the server logs a warning at startup. Remove it. The admin JSON API under `/api/v1/admin` (`api.<host>/v1/admin` under subdomain routing; see [admin API](../admin-api.md)) takes the same keys as `Authorization: Bearer`.
 
 ## Backups
 
@@ -56,7 +56,7 @@ Because secrets expire or self-destruct within days, restoring an old backup bri
 
 ## Upgrades
 
-Back up, replace the binary or pull the image, start. Migrations are embedded and run at startup, forward-only. Watch `journalctl -u shhnote` or `docker compose logs` for the "listening" line; a failed migration leaves the service stopped and the backup is the way back.
+Back up, replace the binary or pull the image, start. Migrations are embedded and run at startup, forward-only. Then check that it answers: `shhnote health` exits 0 (`docker compose ps` shows the container as healthy). The start line, `info: listening on 0.0.0.0:3000` (with your bind address), is logged only at `SHH_LOG_LEVEL=info` or more; the examples set `warn`. A failed migration is logged as an error in `journalctl -u shhnote` or `docker compose logs`, leaves the service stopped, and the backup is the way back.
 
 ## Storage tiers
 

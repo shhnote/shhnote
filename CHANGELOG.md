@@ -1,7 +1,7 @@
 # Changelog
 
 User-visible changes, newest first. The protocol is specified in `SPEC.md`; the security
-review that preceded 0.2.0, with every finding and fix, has its own record in
+review that preceded 0.3.0, with every finding and fix, has its own record in
 `docs/security-review/CHANGELOG.md`.
 
 ## 0.3.0 — 2026-11-02

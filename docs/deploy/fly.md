@@ -16,7 +16,7 @@ fly deploy
 
 `fly deploy` builds the Dockerfile remotely, so no local toolchain is needed. The health check hits `/api/v1/health`, which also checks the database. Stops send SIGTERM and wait 35 s (`kill_timeout`), long enough for the server's own 30 s drain.
 
-Open `https://<app>.fly.dev/en/admin` (or your custom domain after `fly certs add`), sign in with the bootstrap token, create an admin key, then `fly secrets unset SHH_ADMIN_TOKEN`.
+Open `https://<app>.fly.dev/en/admin` (or your custom domain after `fly certs add`), sign in with the bootstrap token, create an admin API key, sign in with it, and set the site name and contact address under "Settings": until then every page except the admin panel answers 503 with a setup page. Then `fly secrets unset SHH_ADMIN_TOKEN` (the token stops working anyway once an admin key exists).
 
 ## Notes
 

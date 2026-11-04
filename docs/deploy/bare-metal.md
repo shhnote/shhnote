@@ -64,7 +64,7 @@ secrets.example.com {
 }
 ```
 
-Other proxies: [reverse proxies](reverse-proxies.md). Then open `https://<domain>/en/admin`, sign in with the bootstrap token, create an admin key and remove `SHH_ADMIN_TOKEN` from the environment file (`systemctl restart shhnote` afterwards).
+Other proxies: [reverse proxies](reverse-proxies.md). Then open `https://<domain>/en/admin`, sign in with the bootstrap token, create an admin API key, sign in with it, and set the site name and contact address under "Settings": until then every page except the admin panel answers 503 with a setup page. Then remove `SHH_ADMIN_TOKEN` from the environment file (`systemctl restart shhnote` afterwards; the token stops working anyway once an admin key exists).
 
 ## Upgrades
 

@@ -2,12 +2,12 @@
 # `docker run --rm ghcr.io/shhnote/shhnote init >> .env`, set DOMAIN and SHH_URL, then
 # `docker compose up -d`. Caddy obtains the TLS certificate.
 #
-#   docker compose --profile postgres up -d     adds a Postgres container (set SHH_DB=postgres)
+#   COMPOSE_PROFILES=caddy,postgres in .env     adds a Postgres container (set SHH_DB=postgres)
 #   COMPOSE_PROFILES= (empty) in .env           no Caddy; see compose.own-proxy.yml
 
 services:
   shhnote:
-    # Pin the version you deploy (ghcr.io/shhnote/shhnote:0.2, say); `latest` moves.
+    # Pin the version you deploy (ghcr.io/shhnote/shhnote:0.3, say); `latest` moves.
     image: ghcr.io/shhnote/shhnote:latest
     build:
       context: ../..

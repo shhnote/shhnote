@@ -32,7 +32,7 @@ Then:
 
 ```sh
 docker compose up -d
-docker compose logs -f shhnote      # "listening on http://0.0.0.0:3000"
+docker compose ps                   # shhnote shows "healthy" within a minute
 ```
 
 Open `https://<domain>/en/admin`, sign in with the bootstrap token, create an admin API key under "API keys", sign in with it, and set the site name and contact address under "Settings": until then the site serves nothing but the admin panel. Then delete the `SHH_ADMIN_TOKEN` line from `.env` (the token stops working anyway once an admin key exists). Settings such as lifetimes and rate limits live in the admin panel too, not in `.env`.
@@ -63,11 +63,17 @@ SHH_PG_USERNAME=shhnote
 SHH_PG_PASSWORD=<random>
 ```
 
+and turn on the `postgres` profile next to Caddy, in the same file:
+
 ```sh
-docker compose --profile postgres up -d
+COMPOSE_PROFILES=caddy,postgres     # or just postgres with your own proxy
 ```
 
-Add `postgres` to `COMPOSE_PROFILES` in `.env` (`COMPOSE_PROFILES=caddy,postgres`) so plain `docker compose up -d` keeps starting it. For a Postgres elsewhere, set `SHH_PG_HOST` to it and skip the profile. Migrations run at startup.
+```sh
+docker compose up -d
+```
+
+For a Postgres elsewhere, set `SHH_PG_HOST` to it and leave the profile out. Migrations run at startup.
 
 ## Files and blobs
 
