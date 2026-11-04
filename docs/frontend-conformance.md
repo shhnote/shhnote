@@ -41,12 +41,15 @@ Each line says what, why, and how to check it.
    next attempt while the claim window is open (it is kept in `sessionStorage` for that
    window, item 7). **by construction**. *Check:* reveal a single-view passphrase secret,
    type a wrong passphrase twice, then the right one, with the network tab open: one
-   `POST …/secrets/reveal` for all three attempts (besides it only `GET …/config` and,
-   after decryption, `POST …/secrets/confirm`), then the secret. Reload between attempts:
-   the next attempt sends `claim_token`.
-6. **Bodies are capped.** The reveal refuses a body longer than the instance's
-   `max_blob_bytes`, whether the server announces the length or not, before buffering it.
-   The limit comes from the controller's `maxBlobBytes` option, else the
+   `POST …/secrets/reveal` for all three attempts (the other requests are the `argon2.wasm`
+   load on page load, item 10, `GET …/config` after the press, and, after decryption,
+   `POST …/secrets/confirm`), then the secret. Reload between attempts: the next attempt
+   sends `claim_token`.
+6. **Bodies are capped.** The reveal refuses a body longer than `blobLen(max_blob_bytes)`,
+   whether the server announces the length or not, before buffering it: `max_blob_bytes` is
+   the instance's largest padded size (a bucket, SPEC §4), and the blob for that bucket is
+   95 bytes plus one 16-byte tag per 64 KiB chunk longer (SPEC §2.8); the create side
+   compares the padded size, not the blob length, with the same number. The limit comes from the controller's `maxBlobBytes` option, else the
    `data-shh-max-blob-bytes` attribute, else `/config`, which the controller reads after the
    press and before the reveal request in any case (it checks `fragment_version` there and
    reveals nothing without it). `revealSecret` uses `/config`'s value unless given a smaller
@@ -63,17 +66,19 @@ Each line says what, why, and how to check it.
    for your own state). The one thing kept is the claim token in `sessionStorage` for the
    claim window (item 5).
 8. **No expiry information is shown.** Neither the interstitial nor the revealed page says
-   how long a TTL secret stays readable; a single-view secret says it is now destroyed.
-   **by construction**. *Why:* SPEC §5.2 — every recipient learns to keep what they were
+   how long a TTL secret stays readable; a single-view secret says it is destroyed once the
+   confirm has succeeded (until then, only that it was revealed). **by construction**. *Why:* SPEC §5.2 — every recipient learns to keep what they were
    sent on the first read.
 9. **WebAssembly unavailable is a clear failure.** When `WebAssembly` is missing or blocked
    (Tor Browser at "Safer"), a passphrase secret shows a specific message, not "corrupt".
    **by construction** (`loadArgon2` rejects with `argon2_unavailable`). *Check:* Firefox
    with `javascript.options.wasm` set to `false`, or Tor Browser at Safer.
-10. **`argon2.wasm` is fetched on every create and reveal page**, whether or not a
-    passphrase is involved (D-22). **by construction** (`prefetchArgon2`). *Why:* fetching
-    it only when needed tells the network which secrets have passphrases. *Check:* the
-    network tab shows the module request on page load of `/` and `/s`.
+10. **`argon2.wasm` is fetched on every create page load and on every reveal page load that
+    carries a valid fragment**, whether or not a passphrase is involved (D-22); a `/s` with no
+    or an invalid fragment shows "not found" and fetches nothing. **by construction**
+    (`prefetchArgon2`). *Why:* fetching it only when needed tells the network which secrets
+    have passphrases. *Check:* the network tab shows the module request on page load of `/`
+    and `/s#<valid>`.
 11. **The empty passphrase is not a passphrase.** A blank field means "none" *before* the
     library is called; the library refuses `""` (`empty_passphrase`). **by construction**.
 
