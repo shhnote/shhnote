@@ -713,6 +713,38 @@ async fn spec_stalled_clients_are_timed_out() {
     assert_eq!(spool.0, 0, "the stalled upload's spool file survived");
 }
 
+// SPEC §7.1 / principle 7: an upload takes a slot only once it has delivered a chunk's worth
+// of blob, and the rolling deadline cuts anything slower than the minimum rate soon after the
+// grace. Sixty-four connections that trickle a byte at a time therefore block nobody.
+#[tokio::test]
+async fn spec_trickling_uploads_hold_no_upload_slot() {
+    let (app, _store, _blobs) = build("trickle", &[("SHH_MAX_UPLOADS", "64")]).await;
+    let mut holders = Vec::new();
+    let mut taps = Vec::new();
+    for _ in 0..64 {
+        let (tx, body) = channel_body();
+        let req = multipart(body);
+        let app = app.clone();
+        holders.push(tokio::spawn(async move { send(&app, req).await }));
+        let mut head = meta_part(&meta(&keys(), "ttl").to_string()).into_bytes();
+        head.extend_from_slice(blob_head().as_bytes());
+        tx.send(Bytes::from(head)).await.unwrap();
+        taps.push(tx);
+    }
+    for _ in 0..5 {
+        for tx in &taps {
+            tx.send(Bytes::from_static(b"\0")).await.unwrap();
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let honest = create(&app, &keys(), "ttl", &raw_blob(65_536)).await;
+    assert_eq!(honest.status, StatusCode::CREATED, "{}", honest.code());
+    drop(taps);
+    for h in holders {
+        let _ = h.await;
+    }
+}
+
 // --- item 9: S3 client
 
 // A minimal S3 stand-in: answers 200 with an empty body until `hang` is set, then accepts

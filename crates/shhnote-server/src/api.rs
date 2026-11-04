@@ -286,9 +286,44 @@ struct CreateMeta {
 const META_MAX_BYTES: usize = 4096;
 // A body chunk must arrive within this; a client that goes quiet is cut (SPEC §7.1).
 const BODY_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
-// The whole upload must finish at this rate or better, with a floor for small instances.
+// The upload must keep this rate overall, after a grace period that covers the headers, the
+// `meta` part and a slow start. The deadline moves with every byte received, so a client that
+// trickles bytes cannot keep a connection or an upload slot for long.
 const UPLOAD_MIN_BYTES_PER_SEC: u64 = 32 * 1024;
-const UPLOAD_MIN_DEADLINE: Duration = Duration::from_secs(60);
+const UPLOAD_GRACE: Duration = Duration::from_secs(60);
+// An upload counts against `SHH_MAX_UPLOADS` once it has delivered a chunk's worth of blob or
+// is about to be spooled; before that it holds a few KiB of memory and nothing else, so the
+// slots cannot be taken by connections that send next to nothing.
+const UPLOAD_PERMIT_BYTES: u64 = 64 * 1024;
+
+// How long an upload may still take: the grace plus the time the bytes already received
+// have earned at the minimum rate.
+struct UploadClock {
+    start: Instant,
+    received: u64,
+}
+
+impl UploadClock {
+    fn new() -> Self {
+        Self {
+            start: Instant::now(),
+            received: 0,
+        }
+    }
+
+    fn deadline(&self) -> Instant {
+        self.start + allowance(self.received)
+    }
+
+    fn received(&mut self, bytes: usize) {
+        self.received = self.received.saturating_add(bytes as u64);
+    }
+}
+
+fn allowance(received: u64) -> Duration {
+    let earned_ms = received.saturating_mul(1000) / UPLOAD_MIN_BYTES_PER_SEC;
+    UPLOAD_GRACE + Duration::from_millis(earned_ms)
+}
 
 // Multipart framing around the blob: boundaries and part headers. The body limit allows this
 // much on top of the largest blob, so a declared length is at most this far above the blob.
@@ -304,26 +339,15 @@ fn declared_blob_upper(headers: &HeaderMap, meta_len: usize) -> Option<u64> {
         .map(|total| total.saturating_sub(meta_len as u64))
 }
 
-fn upload_deadline(max_blob_bytes: u64) -> Instant {
-    let needed = Duration::from_secs(max_blob_bytes / UPLOAD_MIN_BYTES_PER_SEC);
-    Instant::now() + needed.max(UPLOAD_MIN_DEADLINE)
-}
-
 // `meta` comes first so the request can be refused before the blob is read.
 async fn create(
     State(state): State<ApiState>,
     headers: HeaderMap,
     mut multipart: Multipart,
 ) -> Result<StatusCode, ApiError> {
-    // Held until the row is written, so the cap counts the whole upload.
-    let _slot = state
-        .uploads
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| ApiError::TooBusy)?;
-    let deadline = upload_deadline(state.limits.max_blob_bytes());
+    let mut clock = UploadClock::new();
     let meta_field = next_field(&mut multipart, "meta").await?;
-    let meta_bytes = read_capped(meta_field, META_MAX_BYTES).await?;
+    let meta_bytes = read_capped(meta_field, META_MAX_BYTES, &mut clock).await?;
     let meta: CreateMeta =
         serde_json::from_slice(&meta_bytes).map_err(|_| ApiError::bad_request("invalid_meta"))?;
     let lookup_key =
@@ -396,7 +420,24 @@ async fn create(
     };
     let mut sink = Sink::Memory(Vec::new());
     let mut reservation = None;
-    while let Some(chunk) = next_chunk(&mut blob_field, deadline).await? {
+    let mut slot = None;
+    while let Some(chunk) = next_chunk(&mut blob_field, &mut clock).await? {
+        let so_far = match &sink {
+            Sink::Memory(buf) => buf.len() as u64,
+            Sink::Spool(spool) => spool.bytes_written(),
+        };
+        let spilling = matches!(&sink, Sink::Memory(buf)
+            if state.storage.is_some() && buf.len() + chunk.len() > memory_limit);
+        // Held until the row is written, so the cap counts the whole upload (SPEC §7.1).
+        if slot.is_none() && (so_far + chunk.len() as u64 >= UPLOAD_PERMIT_BYTES || spilling) {
+            slot = Some(
+                state
+                    .uploads
+                    .clone()
+                    .try_acquire_owned()
+                    .map_err(|_| ApiError::TooBusy)?,
+            );
+        }
         if let (Sink::Memory(buf), Some(storage)) = (&mut sink, &state.storage)
             && buf.len() + chunk.len() > memory_limit
         {
@@ -776,10 +817,13 @@ async fn report(
 // Reads a small part in chunks and refuses the moment the cap is passed, so an oversized
 // part costs no more memory than the cap (SPEC §4). Takes the field by value: the multipart
 // stream only moves on once the field is dropped.
-async fn read_capped(mut field: Field<'_>, cap: usize) -> Result<Vec<u8>, ApiError> {
-    let deadline = Instant::now() + BODY_IDLE_TIMEOUT;
+async fn read_capped(
+    mut field: Field<'_>,
+    cap: usize,
+    clock: &mut UploadClock,
+) -> Result<Vec<u8>, ApiError> {
     let mut bytes = Vec::new();
-    while let Some(chunk) = next_chunk(&mut field, deadline).await? {
+    while let Some(chunk) = next_chunk(&mut field, clock).await? {
         if bytes.len() + chunk.len() > cap {
             return Err(ApiError::bad_request("invalid_meta"));
         }
@@ -788,11 +832,20 @@ async fn read_capped(mut field: Field<'_>, cap: usize) -> Result<Vec<u8>, ApiErr
     Ok(bytes)
 }
 
-// Each chunk must arrive within the idle timeout, and the whole part before `deadline`.
-async fn next_chunk(field: &mut Field<'_>, deadline: Instant) -> Result<Option<Bytes>, ApiError> {
-    let wait = BODY_IDLE_TIMEOUT.min(deadline.saturating_duration_since(Instant::now()));
+// Each chunk must arrive within the idle timeout and before the clock's rolling deadline.
+async fn next_chunk(
+    field: &mut Field<'_>,
+    clock: &mut UploadClock,
+) -> Result<Option<Bytes>, ApiError> {
+    let wait = BODY_IDLE_TIMEOUT.min(clock.deadline().saturating_duration_since(Instant::now()));
     match tokio::time::timeout(wait, field.chunk()).await {
-        Ok(chunk) => chunk.map_err(multipart_error),
+        Ok(chunk) => {
+            let chunk = chunk.map_err(multipart_error)?;
+            if let Some(chunk) = &chunk {
+                clock.received(chunk.len());
+            }
+            Ok(chunk)
+        }
         Err(_) => Err(ApiError::Timeout),
     }
 }
@@ -947,4 +1000,29 @@ async fn endpoint_not_found() -> Response {
         "no_such_endpoint",
         "This endpoint does not exist.",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The rolling deadline: a grace period, then one second per 32 KiB received, so a
+    // trickling client is cut soon after the grace while a client at the minimum rate
+    // always has time left.
+    #[test]
+    fn upload_allowance_grows_with_bytes_received() {
+        assert_eq!(allowance(0), UPLOAD_GRACE);
+        assert_eq!(
+            allowance(UPLOAD_MIN_BYTES_PER_SEC),
+            UPLOAD_GRACE + Duration::from_secs(1)
+        );
+        assert_eq!(
+            allowance(64 * 1024 * 1024),
+            UPLOAD_GRACE + Duration::from_secs(2048)
+        );
+        assert_eq!(
+            allowance(u64::MAX),
+            UPLOAD_GRACE + Duration::from_millis(u64::MAX / UPLOAD_MIN_BYTES_PER_SEC)
+        );
+    }
 }

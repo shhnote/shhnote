@@ -70,6 +70,8 @@ Stores a secret. The body is `multipart/form-data` with two parts in this order:
 
 2. `blob`, the encrypted blob as bytes. Its length must correspond exactly to a padded size the instance accepts.
 
+Send a `Content-Length`. With it the server checks the blob's length against its policy and its ceilings before reading the blob; a chunked upload without one is checked only as the bytes arrive, and on an instance with an external tier it reserves room for the largest blob the instance accepts until it ends, so it can be refused with `storage_full` on a nearly full tier. The upload must keep an overall rate of 32 KiB/s after a 60-second grace period, or it is cut with `request_timeout`.
+
 Responds **201** with an empty body, also when a secret with that `lookup_key` already exists (nothing is written then; a different answer would tell anyone holding a hash whether the secret is still there). Errors: `invalid_meta`, `invalid_lookup_key`, `invalid_burn_key`, `invalid_lifetime`, `invalid_ttl`, `invalid_blob_length`, `invalid_multipart` (400, the body is not two parts named `meta` and `blob` in that order); `files_disabled` (400, the instance accepts only text-sized secrets); `too_large` (413); `request_timeout` (408, the body arrived too slowly); `too_busy` (503 with `Retry-After`, too many uploads in progress); `storage_full` (507, the instance has no room for large secrets right now); `api_key_required` (401, see below).
 
 ## `POST /secrets/reveal`

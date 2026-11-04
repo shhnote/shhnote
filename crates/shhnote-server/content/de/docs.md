@@ -70,6 +70,8 @@ Speichert ein Geheimnis. Der Körper ist `multipart/form-data` mit zwei Teilen i
 
 2. `blob`, der verschlüsselte Blob als Bytes. Seine Länge muss genau einer aufgefüllten Größe entsprechen, die die Instanz akzeptiert.
 
+Sende einen `Content-Length`-Header. Mit ihm prüft der Server die Länge des Blobs gegen seine Richtlinie und seine Obergrenzen, bevor er den Blob liest; ein Chunked-Upload ohne ihn wird erst geprüft, während die Bytes ankommen, und auf einer Instanz mit externem Speicher reserviert er bis zum Ende Platz für den größten Blob, den die Instanz akzeptiert, sodass er auf einem fast vollen Speicher mit `storage_full` abgelehnt werden kann. Der Upload muss nach einer Schonfrist von 60 Sekunden insgesamt eine Rate von 32 KiB/s halten, sonst wird er mit `request_timeout` abgebrochen.
+
 Antwortet mit **201** und leerem Körper, auch wenn ein Geheimnis mit diesem `lookup_key` bereits existiert (dann wird nichts geschrieben; eine andere Antwort würde jedem, der einen Hash besitzt, verraten, ob das Geheimnis noch da ist). Fehler: `invalid_meta`, `invalid_lookup_key`, `invalid_burn_key`, `invalid_lifetime`, `invalid_ttl`, `invalid_blob_length`, `invalid_multipart` (400, der Körper besteht nicht aus zwei Teilen namens `meta` und `blob` in dieser Reihenfolge); `files_disabled` (400, die Instanz nimmt nur textgroße Geheimnisse an); `too_large` (413); `request_timeout` (408, der Körper kam zu langsam an); `too_busy` (503 mit `Retry-After`, zu viele Uploads gleichzeitig); `storage_full` (507, die Instanz hat gerade keinen Platz für große Geheimnisse); `api_key_required` (401, siehe unten).
 
 ## `POST /secrets/reveal`
