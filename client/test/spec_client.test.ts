@@ -23,6 +23,8 @@ import { ClaimStore } from "../src/ui/claims.ts";
 import { fillTtl, ttlChoices } from "../src/ui/create.ts";
 import { COPIED_MS, formatDuration, pageSettings, wireCopy } from "../src/ui/dom.ts";
 import { createT } from "../src/ui/i18n.ts";
+import * as ui from "../src/ui/index.ts";
+import { wireTabs } from "../src/ui/tabs.ts";
 
 const subtle = globalThis.crypto.subtle;
 const wasmBytes = new Uint8Array(readFileSync(new URL("../../target/wasm32-unknown-unknown/wasm/shhnote_argon2_wasm.wasm", import.meta.url)));
@@ -475,6 +477,83 @@ describe("spec: controller options (revision 3, B2)", () => {
   it("refuses to guess an API base", () => {
     assert.throws(() => pageSettings(pageWith({})), /apiBase/);
     assert.equal(pageSettings(pageWith({}), { apiBase: "https://h.example/api/v1" }).argon2Url, "/argon2.wasm");
+  });
+});
+
+describe("spec: controller options and hooks (revision 3, D3a)", () => {
+  // A root with one `[data-shh-form=<name>]` form inside and no data-shh-* attributes anywhere.
+  function bareRoot(name: string) {
+    const form = {
+      hidden: true,
+      querySelector: () => ({ textContent: "", disabled: false }),
+      addEventListener: () => {},
+    };
+    const sections: { dataset: Record<string, string>; hidden: boolean }[] = [{ dataset: { shhState: "notfound" }, hidden: true }];
+    const root = {
+      closest: () => null,
+      querySelector: (selector: string) => (selector === `[data-shh-form=${name}]` ? form : null),
+      querySelectorAll: () => sections,
+    };
+    return { root: root as unknown as HTMLElement, form, sections };
+  }
+  const t = (key: string) => key;
+  const options = { t, apiBase: "https://api.other.example/v1" };
+  const withLocation = (run: () => void) => {
+    const g = globalThis as { location?: unknown; history?: unknown };
+    const saved = [g.location, g.history];
+    g.location = { hash: "", pathname: "/burn", origin: "https://site.example" };
+    g.history = { replaceState: () => {} };
+    try {
+      run();
+    } finally {
+      [g.location, g.history] = saved;
+    }
+  };
+
+  it("wireBurn and wireReport take apiBase as an option, with no data-shh-api on the page", () => {
+    withLocation(() => {
+      const burn = bareRoot("burn");
+      assert.throws(() => ui.wireBurn(burn.root, { t }), /apiBase/);
+      ui.wireBurn(burn.root, options);
+      assert.equal(burn.sections[0]!.hidden, false, "an empty fragment ends in notfound");
+
+      const report = bareRoot("report");
+      assert.throws(() => ui.wireReport(report.root, { t }), /apiBase/);
+      ui.wireReport(report.root, options);
+      assert.equal(report.form.hidden, false, "the form is shown");
+    });
+  });
+
+  it("wireTabs marks a wired container with data-shh-ready, not a class", () => {
+    const attributes: Record<string, string> = {};
+    const tab = { id: "t1", tabIndex: -1, setAttribute: () => {}, getAttribute: () => "p1", addEventListener: () => {}, focus: () => {} };
+    const tabList = { hidden: true, querySelectorAll: () => [tab] };
+    const container = {
+      classList: { add: () => assert.fail("wireTabs added a class") },
+      querySelector: () => tabList,
+      querySelectorAll: () => [],
+      setAttribute: (name: string, value: string) => (attributes[name] = value),
+    };
+    const root = { querySelectorAll: () => [container] } as unknown as ParentNode;
+    const g = globalThis as { document?: unknown; window?: unknown; location?: unknown; history?: unknown };
+    const saved = [g.document, g.window, g.location, g.history];
+    g.document = { getElementById: () => ({ id: "p1", hidden: true }) };
+    g.window = { addEventListener: () => {} };
+    g.location = { hash: "" };
+    try {
+      wireTabs(root);
+    } finally {
+      [g.document, g.window, g.location, g.history] = saved;
+    }
+    assert.deepEqual(attributes, { "data-shh-ready": "true" });
+    assert.equal(tabList.hidden, false);
+  });
+
+  it("/ui exports the helpers a frontend needs to match the reference pages", () => {
+    assert.equal(ui.COPIED_MS, COPIED_MS);
+    assert.equal(ui.formatDuration(3600, "en"), "1 hour");
+    assert.deepEqual(ui.ttlChoices(instanceConfig), ttlChoices(instanceConfig));
+    assert.equal(ui.fillTtl, fillTtl);
   });
 });
 

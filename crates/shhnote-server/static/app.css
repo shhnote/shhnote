@@ -623,4 +623,4 @@ main { flex: 1; }
 .doc-switch button[aria-selected="true"] { background: var(--bg); color: var(--text); box-shadow: var(--shadow); }
 .settings-group { padding-top: 1.5rem; }
 .settings-group__title { font-size: var(--size-16); margin-bottom: 1.25rem; }
-.tabs.is-ready .settings-group__title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.tabs[data-shh-ready] .settings-group__title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

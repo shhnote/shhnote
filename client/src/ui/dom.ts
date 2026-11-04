@@ -96,7 +96,7 @@ export const COPIED_MS = 1500;
 // can show that it worked (swap a label, change a colour). The button's content is never
 // touched, so its icon and markup survive. Falls back silently where the clipboard API is
 // unavailable (some privacy browsers), leaving the text selectable. `_copiedLabel` is no
-// longer used (0.3.1) and stays only so older callers keep compiling.
+// longer used (0.4.0) and stays only so older callers keep compiling.
 export function wireCopy(button: HTMLButtonElement, getText: () => string, _copiedLabel?: string): void {
   let timer: ReturnType<typeof setTimeout> | undefined;
   button.addEventListener("click", async () => {

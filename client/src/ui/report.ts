@@ -1,14 +1,14 @@
 import { decodeFragment } from "../crypto/fragment.ts";
 import { lookup } from "../crypto/secret.ts";
 import { Api } from "../lib/api.ts";
-import { $, apiFrom, setState, setStatus, show } from "./dom.ts";
-import type { Strings } from "./i18n.ts";
+import { $, type PageOptions, pageSettings, setState, setStatus, show } from "./dom.ts";
 
 // `/report`: paste a secret link; the server removes the secret if it is active and counts the
 // report in its daily statistics, with no record of which secret it was (D-19). The answer is
-// the same whatever happened, so nothing is learned here.
-export function wireReport(page: HTMLElement, { t }: Strings): void {
-  const api = apiFrom(page);
+// the same whatever happened, so nothing is learned here. Options as for `wireBurn`.
+export function wireReport(page: HTMLElement, options: PageOptions): void {
+  const { t } = options;
+  const api = new Api(pageSettings(page, options).apiBase);
   const form = $<HTMLFormElement>("[data-shh-form=report]", page);
   const input = $<HTMLInputElement>("input[name=link]", form);
   const status = $("[data-shh-status]", form);

@@ -14,7 +14,8 @@ Three entry points, take the layer you need:
   `SUPPORTED_FRAGMENT_VERSIONS`), the Argon2 loader, `sanitiseFileName`, `isUserActivation`
   and the wipe helpers. No DOM; runs in browsers, Node and workers.
 - `@shhnote/client/ui` — the reference page controllers (`wireCreate`, `wireReveal`,
-  `wireBurn`, `wireReport`, …) and `createT`. They bind to `data-shh-*` attributes inside a
+  `wireBurn`, `wireReport`, …), `createT` and the helpers the reference pages use
+  (`formatDuration`, `ttlChoices`, `fillTtl`, `COPIED_MS`). They bind to `data-shh-*` attributes inside a
   root element you give them and take their strings from you; they ship no CSS, and any
   markup they generate is either yours (a `<template>`) or plain elements with `data-shh-*`
   hooks only.
@@ -89,7 +90,7 @@ this, if you want to see the result):
 - `maxBlobBytes`: the create page otherwise uses `/config`'s `max_blob_bytes`; the reveal page
   reads `/config` after the press, and falls back to 4 GiB only if it cannot.
 
-`wireBurn` and `wireReport` take `{ t }` only and read the API base from `data-shh-api`.
+`wireBurn` and `wireReport` take the same options; only `apiBase` matters to them.
 
 **States.** Inside a controller's root, every `[data-shh-state="<name>"]` element is hidden
 except the one for the current state. Elements the markup below calls "shown" start with
@@ -147,7 +148,7 @@ Text is always set with `textContent`, never as HTML.
   `reveal-single-view`, `reveal-download`, `reveal-error-network`, `reveal-error-corrupt`,
   `reveal-error-wasm`.
 
-### `wireBurn(root, { t })` and `wireReport(root, { t })`
+### `wireBurn(root, options)` and `wireReport(root, options)`
 
 - Burn: states `armed`, `done`, `notfound`; `[data-shh-form=burn]`, shown once the fragment
   is a burn fragment, with its button and a `[data-shh-status]`. Only a trusted submit burns.
@@ -169,7 +170,13 @@ Text is always set with `textContent`, never as HTML.
   (`shhnote-theme`) when the browser allows.
 - `wireMenus(root?)`: closes `details[data-shh-menu]` on outside click, focus loss or Escape.
 - `wireTabs(root?)`: `[data-shh-tabs]` with a `[role=tablist]` of `[role=tab][aria-controls]`
-  and optional `[data-shh-tab-link]` links.
+  and optional `[data-shh-tab-link]` links. Shows the tab list and sets
+  `data-shh-ready="true"` on the container once wired, so your CSS can hide what only makes
+  sense without tabs.
+- `formatDuration(seconds, locale?)`: a lifetime in its largest whole unit, worded by the
+  browser (`Intl`), e.g. "15 minutes", "3 days". `ttlChoices(config)` gives the lifetimes
+  `wireCreate` offers (`{ seconds, selected }`), and `fillTtl(select, config, locale?)` fills
+  a `<select>` with them. `COPIED_MS` is how long `wireCopy` keeps `data-shh-copied`.
 
 ## What is stored and what is wiped
 

@@ -1,11 +1,12 @@
 import { decodeFragment } from "../crypto/fragment.ts";
 import { Api, ApiError } from "../lib/api.ts";
-import { $, apiFrom, setState, setStatus, show } from "./dom.ts";
-import type { Strings } from "./i18n.ts";
+import { $, type PageOptions, pageSettings, setState, setStatus, show } from "./dom.ts";
 
-// `/burn#…`: static until confirmed, so a prefetched burn link destroys nothing.
-export function wireBurn(page: HTMLElement, { t }: Strings): void {
-  const api = apiFrom(page);
+// `/burn#…`: static until confirmed, so a prefetched burn link destroys nothing. Of the
+// options only `apiBase` matters here; it wins over the page's `data-shh-api`.
+export function wireBurn(page: HTMLElement, options: PageOptions): void {
+  const { t } = options;
+  const api = new Api(pageSettings(page, options).apiBase);
   const form = $<HTMLFormElement>("[data-shh-form=burn]", page);
   const status = $("[data-shh-status]", form);
 

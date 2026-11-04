@@ -1,10 +1,12 @@
 // `@shhnote/client/ui`: the reference page controllers. DOM only here.
 export { wireBurn } from "./burn.ts";
 export { wireMenus, wirePasswordToggles, wireTheme } from "./chrome.ts";
-export { wireCreate } from "./create.ts";
+export { fillTtl, ttlChoices, wireCreate } from "./create.ts";
 export {
   $,
   $$,
+  COPIED_MS,
+  formatDuration,
   type PageOptions,
   type PageSettings,
   apiFrom,

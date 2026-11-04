@@ -1,6 +1,8 @@
 import { $$ } from "./dom.ts";
 
-// Progressive enhancement for the how-it-works page: without the script both sections show.
+// Progressive enhancement for tabbed sections (the admin settings page): without the script
+// every section shows. Once wired, the container gets `data-shh-ready="true"`, so the page's
+// CSS can hide what only makes sense without tabs, such as the section titles.
 export function wireTabs(root: ParentNode = document): void {
   for (const container of $$("[data-shh-tabs]", root)) {
     const tabList = container.querySelector<HTMLElement>("[role=tablist]");
@@ -50,6 +52,6 @@ export function wireTabs(root: ParentNode = document): void {
     const fromHash = panels.findIndex((panel) => panel && `#${panel.id}` === location.hash);
     select(Math.max(fromHash, 0), false);
     tabList.hidden = false;
-    container.classList.add("is-ready");
+    container.setAttribute("data-shh-ready", "true");
   }
 }
