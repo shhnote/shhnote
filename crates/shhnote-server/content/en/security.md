@@ -8,7 +8,7 @@
 ## What we can't promise
 
 - **Memory in your browser.** After a secret is shown, the page overwrites what it can when you leave. JavaScript can't guarantee that, so your browser may keep decrypted data in memory until the tab is closed. Close the tab when you're done.
-- **Automated clicks.** The reveal page fetches nothing until a real click or key press. A link scanner or browser extension that injects real input, as a person would, can open a single-view secret. The recipient then gets the same "no secret found" answer as for any used or expired link. It does not say why, but a link that should have worked and doesn't is the sign that something else read it.
+- **Automated clicks.** The reveal page sends nothing about the secret until a real click or key press (only the page's own scripts and the Argon2 module are loaded, from this site, with no identifier in the request). A link scanner or browser extension that injects real input, as a person would, can open a single-view secret. The recipient then gets the same "no secret found" answer as for any used or expired link. It does not say why, but a link that should have worked and doesn't is the sign that something else read it.
 - **Leftovers after deletion.** Deleting a secret removes the record. Encrypted leftovers may linger in database journals, free disk space or backups until they are overwritten. They are ciphertext without a key.
 - **Timestamps on large files.** Large secrets stored outside the database carry the time the file was written, which the storage system records on its own.
 

@@ -19,9 +19,10 @@ StateDirectoryMode=0700
 DynamicUser=yes
 Restart=on-failure
 RestartSec=5s
-# Longer than the server's own 30 s drain, so an upload in progress can finish.
+# The server drains for up to 30 s and then takes up to 5 s to close connections;
+# the rest is margin, so an upload in progress can finish.
 KillSignal=SIGTERM
-TimeoutStopSec=35s
+TimeoutStopSec=45s
 
 # Hardening: the process needs the network, its state directory and nothing else.
 NoNewPrivileges=yes

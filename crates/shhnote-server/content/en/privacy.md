@@ -35,7 +35,7 @@ Deletion removes the record. As on any computer, encrypted leftovers may linger 
 
 ## Server logs
 
-Like most websites, our server may briefly record technical details of each request, such as your IP address and the time, to keep the service secure and working. [Describe how long logs are kept, or state that they are not kept.] Logs never contain secret keys, because browsers don't send the part of the link that holds the key.
+The shhnote software itself never logs requests or addresses: it keeps a salted hash of your address in memory for rate limiting and writes nothing about a request to disk. A reverse proxy, CDN or hosting provider in front of it may briefly record technical details of each request, such as your IP address and the time, to keep the service secure and working. [Describe what is in front of this site and how long its logs are kept, or state that none are kept.] Such logs never contain secret keys, because browsers don't send the part of the link that holds the key.
 
 ## Your rights
 

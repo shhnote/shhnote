@@ -51,7 +51,7 @@ sudo systemctl enable --now shhnote
 systemctl status shhnote
 ```
 
-The unit runs with `DynamicUser`, a private `/var/lib/shhnote` state directory and a strict sandbox (read-only system, no capabilities, no new privileges). `ExecStartPre` runs `shhnote check`, so a broken environment file fails the start with a clear message in `journalctl -u shhnote`. Stopping waits up to 35 s for uploads in flight.
+The unit runs with `DynamicUser`, a private `/var/lib/shhnote` state directory and a strict sandbox (read-only system, no capabilities, no new privileges). `ExecStartPre` runs `shhnote check`, so a broken environment file fails the start with a clear message in `journalctl -u shhnote`. Stopping waits up to 45 s (`TimeoutStopSec`): the server drains uploads in flight for up to 30 s, then takes up to 5 s more to close connections, and the unit leaves a margin on top.
 
 ## 4. Proxy
 
@@ -64,7 +64,7 @@ secrets.example.com {
 }
 ```
 
-Other proxies: [reverse proxies](reverse-proxies.md). Then open `https://<domain>/en/admin`, sign in with the bootstrap token, create an admin API key, sign in with it, and set the site name and contact address under "Settings": until then every page except the admin panel answers 503 with a setup page. Then remove `SHH_ADMIN_TOKEN` from the environment file (`systemctl restart shhnote` afterwards; the token stops working anyway once an admin key exists).
+Other proxies: [reverse proxies](reverse-proxies.md). Then open `https://<domain>/en/admin`, sign in with the bootstrap token, create an admin API key, sign in with it, and set the site name and contact address under "Settings": until then every public page answers 503 with a setup page and every public API call `503 not_configured`; only the admin panel, the admin API, `/static/*` and `/health` work. Then remove `SHH_ADMIN_TOKEN` from the environment file (`systemctl restart shhnote` afterwards; the token stops working anyway once an admin key exists).
 
 ## Upgrades
 

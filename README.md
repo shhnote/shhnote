@@ -25,7 +25,7 @@ docker run --rm ghcr.io/shhnote/shhnote init >> .env   # appends the two secrets
 docker compose up -d
 ```
 
-Caddy fetches the TLS certificate; the admin panel is at `/en/admin`. Sign in with the bootstrap token, create an admin key, set the site name and a contact address, remove the token — until then the site serves only its admin panel. Details and the other ways to run it:
+Caddy fetches the TLS certificate; the admin panel is at `/en/admin`. Sign in with the bootstrap token, create an admin key, set the site name and a contact address, remove the token — until then every public page and API call answers 503, and only the admin panel, the admin API, `/static/*` and `/health` work. Details and the other ways to run it:
 
 - [Docker](docs/deploy/docker.md): compose with Caddy, with your own proxy, with Postgres
 - [Bare metal](docs/deploy/bare-metal.md): release binary, systemd, an existing proxy and database

@@ -35,7 +35,7 @@ Löschen entfernt den Eintrag. Wie auf jedem Computer können verschlüsselte Re
 
 ## Server-Protokolle
 
-Wie die meisten Websites kann unser Server technische Angaben zu jeder Anfrage kurz festhalten, etwa deine IP-Adresse und die Uhrzeit, um den Dienst sicher und funktionsfähig zu halten. [Beschreibe, wie lange Protokolle aufbewahrt werden, oder gib an, dass keine aufbewahrt werden.] Protokolle enthalten nie geheime Schlüssel, weil Browser den Teil des Links mit dem Schlüssel nicht mitsenden.
+Die shhnote-Software selbst protokolliert weder Anfragen noch Adressen: Sie hält für die Ratenbegrenzung einen gesalzenen Hash deiner Adresse im Arbeitsspeicher und schreibt nichts über eine Anfrage auf die Festplatte. Ein Reverse-Proxy, ein CDN oder der Hosting-Anbieter davor kann technische Angaben zu jeder Anfrage kurz festhalten, etwa deine IP-Adresse und die Uhrzeit, um den Dienst sicher und funktionsfähig zu halten. [Beschreibe, was vor dieser Website steht und wie lange dessen Protokolle aufbewahrt werden, oder gib an, dass keine aufbewahrt werden.] Solche Protokolle enthalten nie geheime Schlüssel, weil Browser den Teil des Links mit dem Schlüssel nicht mitsenden.
 
 ## Deine Rechte
 

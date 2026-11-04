@@ -26,8 +26,9 @@ services:
       - no-new-privileges:true
     pids_limit: 256
     mem_limit: 1g
-    # Longer than the server's own 30 s drain, so an upload in progress can finish.
-    stop_grace_period: 35s
+    # The server drains for up to 30 s and then takes up to 5 s to close connections;
+    # the rest is margin, so an upload in progress can finish.
+    stop_grace_period: 45s
     restart: unless-stopped
 
   caddy:

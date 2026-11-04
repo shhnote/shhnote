@@ -11,7 +11,8 @@
 app = "shhnote-example"
 primary_region = "ams"
 kill_signal = "SIGTERM"
-kill_timeout = 35
+# The server drains for up to 30 s and then takes up to 5 s to close connections; the rest is margin.
+kill_timeout = 45
 
 [build]
   dockerfile = "Dockerfile"
