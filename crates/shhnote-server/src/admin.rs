@@ -41,6 +41,18 @@ pub(crate) struct FreshKey {
     expires: i64,
 }
 
+// The panel's paths under `/{locale}/admin` (or `/{locale}/` on its own host); the setup
+// gate opens exactly these before setup (D-29), nothing else under the prefix.
+pub(crate) const PATHS: [&str; 7] = [
+    "",
+    "/login",
+    "/logout",
+    "/settings",
+    "/keys",
+    "/keys/delete",
+    "/keys/sessions",
+];
+
 pub(crate) fn routes() -> Router<PageState> {
     Router::new()
         .route("/", get(dashboard))

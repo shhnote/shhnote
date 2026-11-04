@@ -635,6 +635,21 @@ async fn spec_api_mode_serves_no_pages() {
         "{}",
         config.body
     );
+    // Round 2, R-13: a trailing slash on a public path is not redirected either (there is
+    // nothing to redirect to), while the API and the panel keep their one URL.
+    for path in ["/en/", "/s/", "/nope/", "/en/privacy/"] {
+        let r = fetch(&app, host, Method::GET, path, None, None, "").await;
+        assert_eq!(r.status, StatusCode::NOT_FOUND, "{path}");
+        assert!(
+            !r.headers.contains_key(header::LOCATION),
+            "{path} redirected"
+        );
+    }
+    for (path, target) in [("/api/v1/", "/api/v1"), ("/en/admin/", "/en/admin")] {
+        let r = fetch(&app, host, Method::GET, path, None, None, "").await;
+        assert_eq!(r.status, StatusCode::PERMANENT_REDIRECT, "{path}");
+        assert_eq!(r.headers[header::LOCATION], target);
+    }
 
     let full = build("spec-web-full-mode", &[]).await;
     let config = fetch(&full, host, Method::GET, "/api/v1/config", None, None, "").await;
@@ -895,9 +910,20 @@ async fn spec_setup_gate() {
         setup.body.contains("/en/admin/login"),
         "no link to the panel"
     );
-    for path in ["/", "/en", "/en/privacy", "/en/docs"] {
+    // Round 2, R-11: only the panel's own routes are open under `/{locale}/admin`; an unknown
+    // path there is a public page and gets the setup page like any other.
+    for path in [
+        "/",
+        "/en",
+        "/en/privacy",
+        "/en/docs",
+        "/en/admin/nothing-here",
+        "/en/admin/../s",
+        "/en/admin/keys/nope",
+    ] {
         let r = fetch(&app, host, Method::GET, path, None, None, "").await;
         assert_eq!(r.status, StatusCode::SERVICE_UNAVAILABLE, "{path}");
+        assert!(r.body.contains("not set up yet"), "{path}: {}", r.body);
     }
     let api = fetch(
         &app,
@@ -969,4 +995,70 @@ async fn spec_setup_gate() {
     }
     let health = fetch(&app, host, Method::GET, "/api/v1/health", None, None, "").await;
     assert!(health.body.contains(r#""configured":true"#));
+
+    // D-29 in `api` mode: no page exists, so every non-admin path gets the JSON envelope.
+    let api_mode = build_unconfigured("spec-web-setup-gate-api", &[("SHH_WEB", "api")]).await;
+    for path in ["/", "/en", "/en/s", "/nope", "/api/v1/config"] {
+        let r = fetch(&api_mode, host, Method::GET, path, None, None, "").await;
+        assert_eq!(r.status, StatusCode::SERVICE_UNAVAILABLE, "{path}");
+        assert!(
+            r.body.contains(r#""code":"not_configured""#) && !r.body.contains("<html"),
+            "{path}: {}",
+            r.body
+        );
+        assert_eq!(r.headers[header::CACHE_CONTROL], "no-store");
+    }
+    assert_eq!(
+        fetch(
+            &api_mode,
+            host,
+            Method::GET,
+            "/en/admin/login",
+            None,
+            None,
+            ""
+        )
+        .await
+        .status,
+        StatusCode::OK
+    );
+
+    // Round 2, R-12: with the panel on its own host, the setup page's one link goes there.
+    let subdomain = build_unconfigured(
+        "spec-web-setup-gate-subdomain",
+        &[
+            ("SHH_ENV", "production"),
+            ("SHH_URL", "https://example.com"),
+            ("SHH_ADMIN_ROUTING", "subdomain"),
+        ],
+    )
+    .await;
+    let page = fetch(
+        &subdomain,
+        "example.com",
+        Method::GET,
+        "/en/s",
+        None,
+        None,
+        "",
+    )
+    .await;
+    assert_eq!(page.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(
+        page.body
+            .contains(r#"href="https://admin.example.com/en/login""#),
+        "{}",
+        page.body
+    );
+    let login = fetch(
+        &subdomain,
+        "admin.example.com",
+        Method::GET,
+        "/en/login",
+        None,
+        None,
+        "",
+    )
+    .await;
+    assert_eq!(login.status, StatusCode::OK);
 }

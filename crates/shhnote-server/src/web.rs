@@ -41,6 +41,8 @@ pub(crate) struct Shared {
     pub(crate) env: AppEnv,
     // `/admin` on the main domain, or nothing on the admin subdomain (D-25).
     admin_prefix: &'static str,
+    // The panel's origin when it has its own host, for links rendered on another host.
+    admin_origin: Option<String>,
     pub(crate) admin_token_hash: Option<[u8; 32]>,
     asset_version: String,
     // app.css with the asset hash substituted into its font URLs.
@@ -129,6 +131,13 @@ pub fn router(config: &Config, api: &ApiState) -> WebRouters {
         AdminRouting::Path => "/admin",
         AdminRouting::Subdomain { .. } => "",
     };
+    let admin_origin = match &config.admin_routing {
+        AdminRouting::Path => None,
+        AdminRouting::Subdomain { host } => {
+            let scheme = config.url.split("://").next().unwrap_or("https");
+            Some(format!("{scheme}://{host}"))
+        }
+    };
     let shared = Arc::new(Shared {
         i18n: I18n::load(),
         offered: i18n::offered(&config.locales, config.default_locale.as_deref())
@@ -140,6 +149,7 @@ pub fn router(config: &Config, api: &ApiState) -> WebRouters {
         secure_cookies: config.env == AppEnv::Production,
         env: config.env,
         admin_prefix,
+        admin_origin,
         admin_token_hash: api.admin_token_hash,
         asset_version: asset_version(),
         css: APP_CSS.replace("__V__", &asset_version()),
@@ -314,6 +324,15 @@ impl Ctx<'_> {
 
     pub(crate) fn admin_href(&self, path: &str) -> String {
         format!("/{}{}{path}", self.locale, self.shared.admin_prefix)
+    }
+
+    // A link into the panel from a page that may be served on another host: absolute to the
+    // admin host when the panel has one (D-25), the path form otherwise.
+    pub(crate) fn admin_url(&self, path: &str) -> String {
+        match &self.shared.admin_origin {
+            Some(origin) => format!("{origin}/{}{path}", self.locale),
+            None => self.admin_href(path),
+        }
     }
 
     // The configured site name; the Fluent `brand-name` term stays the project name.

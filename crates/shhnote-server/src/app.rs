@@ -7,7 +7,7 @@ use axum::{
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
 };
-use shhnote_core::config::{AdminRouting, ApiRouting, Config};
+use shhnote_core::config::{AdminRouting, ApiRouting, Config, WebMode};
 use tower::ServiceExt;
 
 use crate::{
@@ -42,17 +42,23 @@ fn core(config: &Config, state: ApiState) -> Router {
         admin,
         setup,
     } = web::router(config, &state);
+    let api_host = match &config.api_routing {
+        ApiRouting::Subdomain { host } => Some(host.clone()),
+        ApiRouting::Path => None,
+    };
+    let admin_host = match &config.admin_routing {
+        AdminRouting::Subdomain { host } => Some(host.clone()),
+        AdminRouting::Path => None,
+    };
+    let hosts_known = Hosts {
+        web: config.web,
+        api_host: api_host.clone(),
+        admin_host: admin_host.clone(),
+    };
     let gate = GateState {
         api: state.clone(),
         setup,
-        api_host: match &config.api_routing {
-            ApiRouting::Subdomain { host } => Some(host.clone()),
-            ApiRouting::Path => None,
-        },
-        admin_host: match &config.admin_routing {
-            AdminRouting::Subdomain { host } => Some(host.clone()),
-            AdminRouting::Path => None,
-        },
+        hosts: hosts_known.clone(),
     };
     let cors_state = CorsState {
         site: config.url.trim_end_matches('/').to_ascii_lowercase(),
@@ -79,22 +85,26 @@ fn core(config: &Config, state: ApiState) -> Router {
     } else {
         route_by_host(hosts, web)
     };
-    app.layer(middleware::from_fn(redirect_trailing_slash))
-        .layer(middleware::from_fn(request_timeout))
-        // Outermost of the core layers, inside the headers: the setup gate answers before
-        // any route does, and its 503 still carries the SPEC §11 headers.
-        .layer(middleware::from_fn_with_state(gate, setup_gate))
+    app.layer(middleware::from_fn_with_state(
+        hosts_known,
+        redirect_trailing_slash,
+    ))
+    .layer(middleware::from_fn(request_timeout))
+    // Outermost of the core layers, inside the headers: the setup gate answers before
+    // any route does, and its 503 still carries the SPEC §11 headers.
+    .layer(middleware::from_fn_with_state(gate, setup_gate))
 }
 
+// What a request's host and path say about where it is headed, for the layers that run
+// before routing.
 #[derive(Clone)]
-struct GateState {
-    api: ApiState,
-    setup: web::SetupRenderer,
+struct Hosts {
+    web: WebMode,
     api_host: Option<String>,
     admin_host: Option<String>,
 }
 
-impl GateState {
+impl Hosts {
     fn on_api_host(&self, host: Option<&str>) -> bool {
         matches!((host, &self.api_host), (Some(h), Some(api)) if h.eq_ignore_ascii_case(api))
     }
@@ -102,18 +112,36 @@ impl GateState {
     fn on_admin_host(&self, host: Option<&str>) -> bool {
         matches!((host, &self.admin_host), (Some(h), Some(admin)) if h.eq_ignore_ascii_case(admin))
     }
+
+    fn is_api(&self, host: Option<&str>, path: &str) -> bool {
+        self.on_api_host(host) || path == "/api" || path.starts_with("/api/")
+    }
+
+    // The panel, wherever it is served: its own host, or `/{locale}/admin…` on the site.
+    fn is_admin(&self, host: Option<&str>, path: &str) -> bool {
+        self.on_admin_host(host) || (self.admin_host.is_none() && admin_path_tail(path).is_some())
+    }
+}
+
+#[derive(Clone)]
+struct GateState {
+    api: ApiState,
+    setup: web::SetupRenderer,
+    hosts: Hosts,
 }
 
 // Until setup is met (D-29) only the admin panel, the admin API, `/static/*` and `/health`
-// answer; every other route is 503: the setup page for pages, the error envelope for the API.
+// answer; every other route is 503: the setup page for pages, the error envelope for the API
+// and, in `api` mode, for every path, since no page exists there (D-24).
 async fn setup_gate(State(gate): State<GateState>, req: Request, next: Next) -> Response {
     if api::ensure_configured(&gate.api).await {
         return next.run(req).await;
     }
+    let hosts = &gate.hosts;
     let host = request_host(&req);
     let path = req.uri().path();
-    let is_api = gate.on_api_host(host) || path == "/api" || path.starts_with("/api/");
-    let api_path = if gate.on_api_host(host) {
+    let is_api = hosts.is_api(host, path);
+    let api_path = if hosts.on_api_host(host) {
         path
     } else {
         path.strip_prefix("/api").unwrap_or(path)
@@ -121,12 +149,12 @@ async fn setup_gate(State(gate): State<GateState>, req: Request, next: Next) -> 
     let open = path.starts_with("/static/")
         || (is_api && api_path.trim_end_matches('/') == "/v1/health")
         || (is_api && (api_path == "/v1/admin" || api_path.starts_with("/v1/admin/")))
-        || gate.on_admin_host(host)
-        || (gate.admin_host.is_none() && is_admin_path(path));
+        || hosts.on_admin_host(host)
+        || (hosts.admin_host.is_none() && is_admin_path(path));
     if open {
         return next.run(req).await;
     }
-    if is_api {
+    if is_api || hosts.web == WebMode::Api {
         let mut response = api::error_response(
             StatusCode::SERVICE_UNAVAILABLE,
             "not_configured",
@@ -144,15 +172,29 @@ async fn setup_gate(State(gate): State<GateState>, req: Request, next: Next) -> 
     gate.setup.render(accept_language)
 }
 
-// `/{locale}/admin` and everything under it, for any locale code the server knows.
+// The part of `path` after `/{locale}/admin`, for any locale code the server knows; `None`
+// for anything that is not under the panel's prefix.
+fn admin_path_tail(path: &str) -> Option<&str> {
+    let rest = path.strip_prefix('/')?;
+    let (locale, tail) = rest.split_once('/')?;
+    if !crate::i18n::LOCALES.contains(&locale) {
+        return None;
+    }
+    if tail == "admin" {
+        Some("")
+    } else {
+        tail.strip_prefix("admin/").map(|t| t.trim_end_matches('/'))
+    }
+}
+
+// Exactly the panel's routes under `/{locale}/admin`: an unknown path under the prefix is a
+// public 404 page and stays behind the gate.
 fn is_admin_path(path: &str) -> bool {
-    let Some(rest) = path.strip_prefix('/') else {
-        return false;
-    };
-    let Some((locale, tail)) = rest.split_once('/') else {
-        return false;
-    };
-    crate::i18n::LOCALES.contains(&locale) && (tail == "admin" || tail.starts_with("admin/"))
+    admin_path_tail(path).is_some_and(|tail| {
+        crate::admin::PATHS
+            .iter()
+            .any(|p| p.trim_start_matches('/') == tail)
+    })
 }
 
 // Time a handler may take to produce its response head (SPEC §7.1). Uploads are the exception:
@@ -175,11 +217,19 @@ async fn request_timeout(req: Request, next: Next) -> Response {
     }
 }
 
-// Gives every page one URL, so `/api/v1/` and `/api/v1` don't count as different pages.
-async fn redirect_trailing_slash(req: Request, next: Next) -> Response {
+// Gives every page one URL, so `/api/v1/` and `/api/v1` don't count as different pages. In
+// `api` mode a public path has no page to redirect to and answers 404 like the rest (D-24);
+// the API and the panel are still normalised.
+async fn redirect_trailing_slash(State(hosts): State<Hosts>, req: Request, next: Next) -> Response {
     let path = req.uri().path();
     if path == "/" || !path.ends_with('/') {
         return next.run(req).await;
+    }
+    if hosts.web == WebMode::Api {
+        let host = request_host(&req);
+        if !hosts.is_api(host, path) && !hosts.is_admin(host, path) {
+            return next.run(req).await;
+        }
     }
 
     // Collapse leading slashes too: a redirect to `//evil.com` would send the browser to another site.
