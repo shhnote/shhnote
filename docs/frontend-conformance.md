@@ -94,8 +94,9 @@ Each line says what, why, and how to check it.
     `wireCreate`/`wireReveal` as the `argon2Url` option; without it they use `/argon2.wasm`
     at the page's origin (or `/static/argon2.wasm?v=…` on a page that sets
     `data-shh-asset-version`, as the instance's own pages do).
-15. **The API origin is in `allowed_origins`** when the frontend is not on the instance's
-    site origin (D-26), and the frontend never sends credentials with API requests.
+15. **The frontend's origin is in the instance's `allowed_origins`** when the frontend is not
+    on the instance's site origin (D-26), and the frontend never sends credentials with API
+    requests.
 16. **Security headers on every response** of the frontend host: HSTS, `X-Frame-Options:
     DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, a restrictive
     `Permissions-Policy`. The instance sets them on everything it serves (HSTS only when

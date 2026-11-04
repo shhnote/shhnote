@@ -47,6 +47,8 @@ kill_timeout = 35
     timeout = "5s"
     grace_period = "10s"
     method = "GET"
+    # With SHH_API_ROUTING=subdomain the API answers only on the api. host: use
+    # path = "/v1/health" and send that host, headers = { Host = "api.<your domain>" }.
     path = "/api/v1/health"
 
 [[vm]]

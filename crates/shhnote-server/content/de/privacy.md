@@ -12,6 +12,7 @@ Wenn du ein Geheimnis erstellst, speichern wir:
 
 - **Das verschlüsselte Geheimnis.** Ohne den Schlüssel in deinem Link ist es unlesbar, auch für uns.
 - **Seine Einstellungen:** wann es abläuft und ob es nach einmaligem Ansehen gelöscht wird.
+- **Sobald ein Geheimnis mit „nach dem Lesen löschen“ geöffnet wurde:** ein Hash des Einmal-Tokens, mit dem der Browser des Empfängers es erneut herunterladen kann, und wann dieses Zeitfenster endet, auf die Minute aufgerundet.
 - **Gehashte Zugangsdaten:** Einweg-Hashes der Werte, mit denen dein Browser es findet oder brennt; daraus lässt sich nichts Brauchbares zurückgewinnen.
 
 Deine Passphrase, den Schlüssel aus deinem Link, den Erstellungszeitpunkt und ob eine Passphrase gesetzt wurde, speichern wir nicht. Die Ablaufzeit wird je nach Lebensdauer auf volle 5 Minuten, Stunden oder Tage aufgerundet, sodass sich der genaue Erstellungszeitpunkt nicht daraus zurückrechnen lässt. Die verschlüsselten Daten sind aufgefüllt, daher kennen wir nur ihre grobe Größenklasse.
@@ -28,7 +29,7 @@ Löschen entfernt den Eintrag. Wie auf jedem Computer können verschlüsselte Re
 
 ## Was wir nicht tun
 
-- Wir verwenden keine Cookies und kein Tracking und zeigen keine Werbung.
+- Wir setzen keine Cookies für Besucher, verfolgen dich nicht und zeigen keine Werbung. Nur der Admin-Bereich, den allein die Betreiber dieser Seite nutzen, hat ein Anmelde-Cookie. Deine Theme-Wahl bleibt in deinem Browser und wird nie an uns gesendet.
 - Du musst kein Konto anlegen.
 - Wir verkaufen deine Daten nicht und geben sie nicht weiter.
 

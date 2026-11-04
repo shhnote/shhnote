@@ -12,6 +12,7 @@ When you create a secret, we store:
 
 - **The encrypted secret.** Without the key in your link, it is unreadable, including to us.
 - **Its settings:** when it expires and whether it is deleted after one view.
+- **Once a burn-after-reading secret is opened:** a hash of the one-time token that lets the recipient's browser download it again, and when that window closes, rounded up to the minute.
 - **Hashed credentials:** one-way hashes of the values your browser uses to find or burn it, which can't be turned back into anything useful.
 
 We don't store your passphrase, the key from your link, when the secret was created, or whether a passphrase was set. The expiry time is rounded up to a 5-minute, hourly or daily step, depending on how long the secret lives, so the exact creation time can't be read back from it. The encrypted data is padded, so we only know its rough size class.
@@ -28,7 +29,7 @@ Deletion removes the record. As on any computer, encrypted leftovers may linger 
 
 ## What we don't do
 
-- We don't use cookies or tracking, and we don't show ads.
+- We don't set cookies for visitors, track you or show ads. The admin panel, used only by the people who run this site, has one sign-in cookie. Your theme choice stays in your browser and is never sent to us.
 - We don't ask you to create an account.
 - We don't sell or share your data.
 

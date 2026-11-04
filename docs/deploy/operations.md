@@ -64,7 +64,9 @@ Back up, replace the binary or pull the image, start. Migrations are embedded an
 - **local**: blobs above the inline ceiling go to disk under `SHH_LOCAL_PATH`, counted against `SHH_LOCAL_MAX_TOTAL_BYTES`. Deleted blobs are removed by the scheduler and the directory is self-contained; put it on the same filesystem as its `tmp` spool (it is, by default).
 - **s3**: blobs go to a bucket via a built-in SigV4 client (AWS, MinIO, R2 and others via `SHH_S3_ENDPOINT`). Uploads are spooled in `SHH_SPOOL_PATH` first, so that directory needs room for a few concurrent uploads of `SHH_EXTERNAL_MAX_OBJECT`. The server checks at startup that bucket versioning is off and that the credentials work. Self-hosted endpoints must present a certificate the public roots trust; a private CA or an expired certificate fails the start with a clear message. Use plain `http://` for a MinIO on the same host, or front it with a trusted certificate.
 
-Two admin settings interact with the tiers: "files enabled" off hides the file input and refuses anything larger than a text secret; "store small secrets in the database" off sends every blob to the external tier.
+Three admin settings interact with the tiers: "files enabled" off hides the file input and refuses anything larger than a text secret; "store small secrets in the database" off sends every blob to the external tier; a padding ladder (buckets mode) must end at or below the largest blob the instance stores, `SHH_EXTERNAL_MAX_OBJECT` with an external tier or `SHH_INLINE_MAX` without. The panel refuses a ladder that is too large; if you lower the limit below a stored ladder, the server logs a warning at startup and pads with Padmé until you fix it.
+
+The server keeps its blob and spool directories private: at startup it sets the local tier's `blobs/` and `tmp/` and the S3 spool directory to `0700` (owner only), logs a warning when it had to change one, and refuses to start, naming the directory, if it cannot.
 
 ## What is logged
 
