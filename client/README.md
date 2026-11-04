@@ -9,8 +9,8 @@ Three entry points, take the layer you need:
 - `@shhnote/client/crypto` — the protocol (SPEC §2): fragments, key derivation, the blob
   format, padding, chunked AES-GCM, the streaming decoder. No `fetch`, no DOM; pinned by the
   conformance vectors.
-- `@shhnote/client` — the protocol plus the `Api` client, `getConfig`, `createSecret` /
-  `revealSecret` / `burnSecret`, the protocol check (`checkProtocol`,
+- `@shhnote/client` — the protocol plus the `Api` client, `getConfig` / `invalidateConfig`,
+  `createSecret` / `revealSecret` / `burnSecret`, the protocol check (`checkProtocol`,
   `SUPPORTED_FRAGMENT_VERSIONS`), the Argon2 loader, `sanitiseFileName`, `isUserActivation`
   and the wipe helpers. No DOM; runs in browsers, Node and workers.
 - `@shhnote/client/ui` — the reference page controllers (`wireCreate`, `wireReveal`,
@@ -48,8 +48,20 @@ const { payload } = await revealSecret(`#${fragment}`, api);
   `GET /config` (once per API base and fetch implementation, through `getConfig`) and throw
   `ShhError("unsupported_protocol")` if its `fragment_version` is not one this package
   supports, before anything is uploaded or claimed. `revealSecret` does not reveal without
-  it, and caps the body at the instance's `max_blob_bytes` unless you pass a smaller
-  `maxBlobBytes`.
+  it.
+- **`/config` is checked, not trusted.** Every field must have the right shape and range (whole
+  numbers where numbers are expected, a well-formed padding policy, the two `web_mode`
+  values, and so on); anything else is `ApiError(0, "invalid_config")`, naming the field,
+  and nothing is revealed or uploaded. `max_blob_bytes` is clamped to the 4 GiB any instance
+  can store at most. An instance older than this package (no `server_version` or
+  `web_mode`) is refused the same way; the two are versioned together.
+- **`max_blob_bytes` is a bucket.** It is the largest padded size (SPEC §6.2) the instance
+  accepts, not a byte count of the blob: the blob for that bucket is `blobLen(bucket)` bytes,
+  the bucket plus a 95-byte header and a 16-byte tag per 64 KiB chunk. `createSecret` compares
+  the padded size with it; `revealSecret` caps the body at `blobLen(max_blob_bytes)`, or at
+  `maxBlobBytes` (a byte count) when you pass a smaller one, both as announced in
+  `Content-Length` and as received, and bounds the decoder by the announced length so a blob
+  whose manifest claims more than it holds reserves nothing.
 - **Single-view secrets** are consumed by `revealSecret`, and confirmed (destroyed) right away
   unless you pass `confirm: false`. Any failure after the claim (a wrong passphrase, a
   dropped connection, a failed confirm) carries a `claimToken`; pass it back as `claimToken`
@@ -58,9 +70,13 @@ const { payload } = await revealSecret(`#${fragment}`, api);
 - **Errors** are `ShhError` (the protocol; `code` is stable) or `ApiError` (`status` and the
   server's `code`; status `0` with `network` or `too_large` when no complete answer arrived).
 - **`getConfig(apiBase, fetch?)`** is exported: the same cached `/config` the functions use. A
-  failed fetch is not kept. A successful one is kept for the life of the page or process, so
-  a long-running process picks up a changed instance policy only after a restart (or with a
-  fresh fetch implementation).
+  failed fetch is not kept; a successful one is kept for the life of the page or process.
+  **`invalidateConfig(apiBase, fetch?)`** drops it, so the next call fetches again.
+  `createSecret` does that itself once when the instance answers `400 invalid_blob_length` or
+  `files_disabled` (its padding policy or file setting changed since `/config` was read) and
+  pads again with the fresh answer; `isStalePolicyError(e)` is the test it uses, exported for
+  callers that drive `Api` themselves. Other changes (lifetimes, limits) are picked up only
+  after an invalidation or a restart.
 
 ## The reference controllers (`/ui`)
 
@@ -89,13 +105,23 @@ this, if you want to see the result):
   instance's own pages), otherwise `/argon2.wasm` at the page's origin. It must be on the
   page's own origin: `loadArgon2` refuses any other with `argon2_unavailable`, since a module
   from elsewhere could hand every passphrase secret a constant key (SPEC §10).
-- `maxBlobBytes`: otherwise both pages use `/config`'s `max_blob_bytes`.
+- `maxBlobBytes`: a byte count, only ever a tighter cap than the instance's own. The reveal
+  page caps the body at the smaller of this option and `blobLen(max_blob_bytes)` from
+  `/config`, read after the press; it ignores the `data-shh-max-blob-bytes` attribute, which
+  was rendered when the page loaded and could be staler than `/config` (a cap below the real
+  size would cost a single-view secret, since the claim comes before the body). The create
+  page uses the attribute as an early hint and `/config` as the instance's word, comparing
+  the padded size, not the blob length.
 
-Both pages read `/config` (once, shared through `getConfig`) and check its `fragment_version`
-with `checkProtocol`: the create page before it encrypts, the reveal page after the press and
-before the reveal request, so a single-view secret is never used up by a page that cannot
-open it. If `/config` cannot be read, the reveal page stays armed with
-`reveal-error-network`; an unsupported version shows `error-unsupported-protocol`.
+Both pages read `/config` (once, shared through `getConfig`, and checked as described above)
+and check its `fragment_version` with `checkProtocol`: the create page before it encrypts,
+the reveal page after the press and before the reveal request, so a single-view secret is
+never used up by a page that cannot open it. If `/config` cannot be read, the reveal page
+stays armed with `reveal-error-network`; an unsupported version shows
+`error-unsupported-protocol`. The create page retries once with a fresh `/config` when the
+instance refuses the blob's size (its policy changed), reading the files again for the second
+attempt. Both pages reload themselves when restored from the back-forward cache, since their
+secret material was wiped when they were left.
 
 `wireBurn` and `wireReport` take the same options; only `apiBase` matters to them.
 
@@ -107,7 +133,10 @@ before the script runs.
 **Templates.** Where a controller renders a list item it uses your
 `<template data-shh-template="<name>">` when the page has one (its first element is cloned,
 looked up inside the root, then in the document), else a plain `<li>` with the same hooks.
-Text is always set with `textContent`, never as HTML.
+Text is always set with `textContent`, never as HTML. A template that lacks a required hook
+is refused when the controller is wired (`wireReveal` throws for a `file-card` without its
+download anchor), not when a secret is on screen, so a mistake in your markup can never
+consume a single-view secret.
 
 ### `wireCreate(root, options)`
 
@@ -129,11 +158,13 @@ Text is always set with `textContent`, never as HTML.
   `[data-shh-destroy]` and a `[data-shh-status]`.
 - The links are `<page origin>/s#…` and `<page origin>/burn#…`: the frontend must serve
   those paths (see `docs/deploy/own-frontend.md`).
+- The note is refused when its UTF-8 length exceeds the instance's `text_max_bytes`, with the
+  limit shown.
 - Strings: `create-encrypting`, `create-uploading`, `create-error-empty`,
-  `create-error-too-large`, `create-error-network`, `create-error-failed`,
-  `create-error-wasm`, `error-unsupported-protocol`, `result-chip-single`,
-  `result-chip-multi`, `result-chip-expires` (`{period}`), `result-destroyed`,
-  `form-files-remove`.
+  `create-error-too-large`, `create-error-text-too-long` (`{max}`), `create-error-network`,
+  `create-error-failed`, `create-error-wasm`, `error-unsupported-protocol`,
+  `result-chip-single`, `result-chip-multi`, `result-chip-expires` (`{period}`),
+  `result-destroyed`, `form-files-remove`.
 
 ### `wireReveal(root, options)`
 
@@ -146,15 +177,23 @@ Text is always set with `textContent`, never as HTML.
 - `[data-shh-form=passphrase]` with `input[name=passphrase]`, a button and a
   `[data-shh-status]`.
 - Inside `[data-shh-state=revealed]`: `[data-shh-lifetime]` with `[data-shh-lifetime-text]`
-  (says "destroyed" for a single-view secret, hidden otherwise),
+  (for a single-view secret `reveal-single-view` once shown, then
+  `reveal-single-view-destroyed` once the confirm has succeeded; hidden for a TTL secret),
   `[data-shh-text-block]` (shown when there is text) with `[data-shh-text]` and
   `[data-shh-copy=text]`, and the list `[data-shh-files]`. Items: template `file-card` with
-  `[data-shh-file-name]` (the sanitised name, in a `<bdi>`), `[data-shh-file-meta]` (type and
-  size) and the required `a[data-shh-file-download]` (an `application/octet-stream` blob URL;
-  keeps its own label or gets `reveal-download`).
+  `[data-shh-file-name]` (the sanitised name, in a `<bdi>`), `[data-shh-file-meta]` (the
+  sender's type with controls and bidi characters removed, and the size, in a `<bdi>`) and
+  the required `a[data-shh-file-download]` (an `application/octet-stream` blob URL; keeps its
+  own label or gets `reveal-download`).
+- What a failed reveal says: `reveal-error-corrupt` only when decryption failed (the link is
+  incomplete or the data is not a secret); `reveal-error-network` when no answer arrived;
+  `reveal-error-busy` for a rate limit, a restart or an instance that is not set up (the link
+  is fine, try again); `reveal-error-too-large` for a body over the cap. `revealErrorKey(e)`
+  is exported, for a page that renders its own status.
 - Strings: `reveal-fetching`, `reveal-decrypting`, `reveal-wrong-passphrase`,
-  `reveal-single-view`, `reveal-download`, `reveal-error-network`, `reveal-error-corrupt`,
-  `reveal-error-wasm`, `error-unsupported-protocol`.
+  `reveal-single-view`, `reveal-single-view-destroyed`, `reveal-download`,
+  `reveal-error-network`, `reveal-error-busy`, `reveal-error-too-large`,
+  `reveal-error-corrupt`, `reveal-error-wasm`, `error-unsupported-protocol`.
 
 ### `wireBurn(root, options)` and `wireReport(root, options)`
 
@@ -189,15 +228,20 @@ Text is always set with `textContent`, never as HTML.
 ## What is stored and what is wiped
 
 The reveal controller keeps one thing in browser storage: the claim token of a single-view
-secret, in `sessionStorage` under `SHA-256(lookup)`, until the claim window closes, the
-secret is confirmed or a reveal finds nothing. A reload within the window then downloads the
-claimed secret again rather than finding it gone. The theme choice is the only other value,
-in `localStorage`.
+secret, in `sessionStorage` under `SHA-256(lookup)`, as `{claimToken, expiresAt}`, until the
+claim window closes, the secret is confirmed or a reveal finds nothing. A reload within the
+window then downloads the claimed secret again rather than finding it gone. The entry is
+useless without the seed, which is never stored. Browsers persist `sessionStorage` to disk
+for session restore, so for the length of the window it can sit in the recipient's browser
+profile, next to the share URL the browser keeps in its history anyway. The theme choice is
+the only other value, in `localStorage`.
 
 Secret bytes are overwritten when they are done with and when the page is left (SPEC §10
-lists exactly what). For your own state use `wipeBytes(...buffers)` and
-`wipePayload(payload)`; the latter overwrites file bytes but cannot touch `payload.text`:
-JavaScript strings cannot be overwritten.
+lists exactly what; on the reveal page that includes the lookup value and the claim token once
+no confirm is still retrying, and the Argon2 wrapper wipes its copy of the passphrase bytes).
+For your own state use `wipeBytes(...buffers)` and `wipePayload(payload)`; the latter
+overwrites file bytes but cannot touch `payload.text`: JavaScript strings cannot be
+overwritten.
 
 ## Served bundles, conformance, versions
 

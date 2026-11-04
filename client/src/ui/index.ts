@@ -23,5 +23,5 @@ export {
 export { Dropzone, wireDropzone } from "./dropzone.ts";
 export { type Strings, type Translate, type UiKey, createT } from "./i18n.ts";
 export { wireReport } from "./report.ts";
-export { wireReveal } from "./reveal.ts";
+export { revealErrorKey, wireReveal } from "./reveal.ts";
 export { wireTabs } from "./tabs.ts";
