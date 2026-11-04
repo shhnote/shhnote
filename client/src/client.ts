@@ -2,6 +2,7 @@ import type { Argon2 } from "./crypto/argon2.ts";
 import type { Payload } from "./crypto/container.ts";
 import { ShhError } from "./crypto/error.ts";
 import { type Kind, VERSION, decodeFragment } from "./crypto/fragment.ts";
+import { blobLen } from "./crypto/padding.ts";
 import { decryptStream, encrypt, generateRandomness, lookup } from "./crypto/secret.ts";
 import { Api, ApiError, type Fetch, type InstanceConfig, type Lifetime, getConfig, invalidateConfig } from "./lib/api.ts";
 
@@ -67,7 +68,8 @@ export async function createSecret(opts: CreateOptions): Promise<Created> {
       passphrase: opts.passphrase ?? null,
       ...(opts.argon2 ? { argon2: opts.argon2 } : {}),
     });
-    if (encrypted.blob.length > config.max_blob_bytes) throw new ShhError("payload_too_large");
+    // `max_blob_bytes` is the largest padded size (bucket) the instance accepts (SPEC §4).
+    if (encrypted.bucket > config.max_blob_bytes) throw new ShhError("payload_too_large");
     try {
       await api.create(
         { lookupKey: encrypted.lookupKey, burnKey: encrypted.burnKey, lifetime: opts.lifetime, ttlSeconds: opts.ttlSeconds },
@@ -104,8 +106,9 @@ export interface RevealOptions extends ClientOptions {
   // secret is downloaded again with it instead of a fresh reveal, which a single-view
   // secret would refuse.
   claimToken?: string | null;
-  // The most blob bytes to accept. Defaults to the instance's `max_blob_bytes` from `/config`;
-  // give a smaller number to refuse more.
+  // The most blob bytes to accept. Defaults to the longest blob the instance stores, which is
+  // `blobLen(max_blob_bytes)` for the bucket `/config` names; give a smaller number of bytes
+  // to refuse more.
   maxBlobBytes?: number;
 }
 
@@ -132,7 +135,8 @@ export async function revealSecret(linkOrFragment: string, opts: RevealOptions):
   // answer bounds the body: nothing longer than this instance can store is read.
   const config = await getConfig(opts.apiBase, opts.fetch);
   checkProtocol(config);
-  const maxBlobBytes = opts.maxBlobBytes ?? config.max_blob_bytes;
+  // `max_blob_bytes` is a bucket; the blob for it carries the header and a tag per chunk.
+  const maxBlobBytes = Math.min(opts.maxBlobBytes ?? Infinity, blobLen(config.max_blob_bytes));
   const api = new Api(opts.apiBase, opts.fetch);
   const revealed = await api.reveal(await lookup(seed), opts.claimToken, maxBlobBytes);
   const claimToken = revealed.claimToken ?? opts.claimToken ?? null;

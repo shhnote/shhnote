@@ -29,6 +29,10 @@ const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 // A lone surrogate half: JSON.parse accepts the escape, but it is not a Unicode string.
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
+// The keys the manifest schema knows. A duplicate of one of these is refused, as the Rust
+// core's serde does; a duplicated unknown key is ignored there, so it is ignored here too.
+const KNOWN_KEYS = new Set(["v", "text", "files", "name", "type", "size"]);
+
 // JSON.parse keeps the last of two duplicate keys and reads `1.0` as `1`. Two conforming
 // clients would then disagree on one manifest, so the raw text is scanned for both first.
 function checkManifestSyntax(text: string): void {
@@ -44,8 +48,10 @@ function checkManifestSyntax(text: string): void {
       if (afterSeparator && containers[containers.length - 1] === "object") {
         const key = JSON.parse(text.slice(i, j + 1)) as string;
         const seen = keys[keys.length - 1]!;
-        if (seen.has(key)) throw new ShhError("manifest", "duplicate key");
-        seen.add(key);
+        if (KNOWN_KEYS.has(key)) {
+          if (seen.has(key)) throw new ShhError("manifest", "duplicate key");
+          seen.add(key);
+        }
       }
       afterSeparator = false;
       i = j + 1;
@@ -128,6 +134,8 @@ export function parseManifest(bytes: Uint8Array): Manifest {
       typeof meta.type !== "string" ||
       !Number.isInteger(meta.size) ||
       meta.size < 0 ||
+      // `-0` is an integer to JavaScript and a negative number to serde; neither side accepts it.
+      Object.is(meta.size, -0) ||
       LONE_SURROGATE.test(meta.name) ||
       LONE_SURROGATE.test(meta.type)
     ) {

@@ -105,26 +105,25 @@ async function lyingBlob(claimed: number): Promise<Uint8Array<ArrayBuffer>> {
 }
 
 describe("review r2 pass 5: body cap and memory bound (D-4, S-20)", () => {
-  it("F-5-1: decryptBody capped at the instance maximum, as wireReveal passes it, reserves the claimed file size before the truncation is seen", async () => {
+  it("F-5-1: the decoder, bounded by the response length as both revealSecret and wireReveal now pass it, reserves nothing of a lying manifest", async () => {
     const claimed = 48 * 1024 * 1024;
     const blob = await lyingBlob(claimed);
     const ek = await ekKey(["decrypt"]);
 
-    // What the reference reveal page does (reveal.ts:154): the cap is `max_blob_bytes`, not
-    // the response length. The 64 KiB blob makes the decoder allocate the 48 MiB file.
-    // Measured right after the failure: the buffers are unreachable but not yet collected.
-    const before = process.memoryUsage().arrayBuffers;
-    const { header, rest } = await readHeader(pieces(blob, 4096));
-    await assert.rejects(decryptBody(ek, header, rest, DEFAULT_MAX_BLOB_BYTES), isCode("corrupt"));
-    const reserved = process.memoryUsage().arrayBuffers - before;
-    assert.ok(reserved >= claimed, `reserved ${reserved} bytes, expected at least ${claimed}`);
-
-    // What revealSecret does (client.ts:125): the cap is min(max_blob_bytes, Content-Length),
-    // so the length prefix is refused before any file buffer exists.
+    // What both the library and the reference page do (revision 4, C2): the cap is
+    // min(blobLen(max_blob_bytes), Content-Length), so the length prefix is refused before
+    // any file buffer exists. Measured right after the failure.
     const bounded = await readHeader(pieces(blob, 4096));
     const beforeBounded = process.memoryUsage().arrayBuffers;
-    await assert.rejects(decryptBody(ek, bounded.header, bounded.rest, blob.length), isCode("corrupt"));
+    await assert.rejects(decryptBody(ek, bounded.header, bounded.rest, Math.min(DEFAULT_MAX_BLOB_BYTES, blob.length)), isCode("corrupt"));
     assert.ok(process.memoryUsage().arrayBuffers - beforeBounded < claimed / 2, "nothing of the claimed size was reserved");
+
+    // Even a caller that passes a large cap is protected by the decoder's own check of the
+    // manifest's sizes against that cap, before allocating.
+    const loose = await readHeader(pieces(blob, 4096));
+    const beforeLoose = process.memoryUsage().arrayBuffers;
+    await assert.rejects(decryptBody(ek, loose.header, loose.rest, claimed / 2), isCode("corrupt"));
+    assert.ok(process.memoryUsage().arrayBuffers - beforeLoose < claimed / 2, "the manifest's sizes were not checked against the bound");
   });
 
   it("F-5-2: a non-numeric max_blob_bytes from /config switches the body cap off instead of failing closed", async () => {
@@ -209,9 +208,8 @@ describe("review r2 pass 5: manifest parsing parity with the Rust core (S-46)", 
     return concat(u32be(m.length), m, tail);
   };
 
-  it("F-5-5: a file size of -0 is accepted here and refused by serde_json", () => {
-    const p = decodePayload(withManifest('{"v":1,"text":"t","files":[{"name":"a","type":"","size":-0}]}'));
-    assert.equal(p.files[0]!.bytes.length, 0);
+  it("F-5-5: a file size of -0 is refused here as serde_json refuses it (revision 4, C4)", () => {
+    assert.throws(() => decodePayload(withManifest('{"v":1,"text":"t","files":[{"name":"a","type":"","size":-0}]}')), isCode("manifest"));
   });
 
   it("deep nesting in an ignored key is accepted on both sides, and stays inside the error contract (checked)", () => {
@@ -223,8 +221,9 @@ describe("review r2 pass 5: manifest parsing parity with the Rust core (S-46)", 
     }
   });
 
-  it("F-5-5: a duplicated unknown key is refused here and ignored by serde_json", () => {
-    assert.throws(() => decodePayload(withManifest('{"v":1,"text":"t","files":[],"x":1,"x":2}')), isCode("manifest"));
+  it("F-5-5: a duplicated unknown key is ignored here as serde_json ignores it; a duplicated known key is still refused (revision 4, C4)", () => {
+    assert.equal(decodePayload(withManifest('{"v":1,"text":"t","files":[],"x":1,"x":2}')).text, "t");
+    assert.throws(() => decodePayload(withManifest('{"v":1,"text":"t","files":[{"name":"a","type":"","size":0,"size":0}]}')), isCode("manifest"));
   });
 
   it("the parity cases the vectors pin still hold", () => {

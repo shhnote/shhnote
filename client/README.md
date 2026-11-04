@@ -86,7 +86,9 @@ this, if you want to see the result):
 
 - `apiBase`: required one way or the other.
 - `argon2Url`: `/static/argon2.wasm?v=<version>` when the page names an asset version (the
-  instance's own pages), otherwise `/argon2.wasm` at the page's origin.
+  instance's own pages), otherwise `/argon2.wasm` at the page's origin. It must be on the
+  page's own origin: `loadArgon2` refuses any other with `argon2_unavailable`, since a module
+  from elsewhere could hand every passphrase secret a constant key (SPEC §10).
 - `maxBlobBytes`: otherwise both pages use `/config`'s `max_blob_bytes`.
 
 Both pages read `/config` (once, shared through `getConfig`) and check its `fragment_version`

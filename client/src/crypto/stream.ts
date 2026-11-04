@@ -137,6 +137,9 @@ export class PayloadDecoder {
             this.consumed += this.manifestLen;
             const remaining = this.payloadLen - this.consumed;
             const total = this.manifest.files.reduce((n, f) => n + f.size, 0);
+            // Checked before any file buffer exists: the manifest's sizes can claim no more
+            // than the bound the caller gave, whatever the length prefix said.
+            if (total > this.maxPayload - 4 - this.manifestLen) throw new ShhError("corrupt", "file sizes exceed the bound");
             if (total > remaining) throw new ShhError("corrupt", "file sizes exceed payload");
             if (total < remaining) throw new ShhError("corrupt", "trailing bytes after the last file");
             this.files = this.manifest.files.map((f) => ({ name: f.name, type: f.type, bytes: new Uint8Array(f.size) }));

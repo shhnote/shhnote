@@ -29,7 +29,7 @@ const config = {
   web_mode: "full",
 };
 
-test("review_r2_pass0: a blob of blobLen(max_blob_bytes) bytes, which the server stores, is refused by the client", async () => {
+test("review_r2_pass0: a blob of blobLen(max_blob_bytes) bytes, which the server stores, passes the client's cap (revision 4, C2)", async () => {
   const served = blobLen(MAX);
   assert.ok(served > MAX, "blobLen(bucket) exceeds the bucket");
   const fetchImpl = async (input: string): Promise<Response> => {
@@ -43,8 +43,9 @@ test("review_r2_pass0: a blob of blobLen(max_blob_bytes) bytes, which the server
     throw new Error(`unexpected ${input}`);
   };
   const fragment = encodeFragment(new Uint8Array(32), "share");
+  // The body is all zeros, so decryption fails; what matters is that the cap let it through.
   await assert.rejects(
     revealSecret(`#${fragment}`, { apiBase: "https://x.test/api/v1", fetch: fetchImpl }),
-    (e: unknown) => e instanceof ApiError && e.code === "too_large",
+    (e: unknown) => !(e instanceof ApiError && e.code === "too_large"),
   );
 });

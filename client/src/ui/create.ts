@@ -125,8 +125,9 @@ export function wireCreate(root: HTMLElement, options: PageOptions): void {
         if (ttlSelect && ttlSelect.options.length === 0) fillTtl(ttlSelect, config);
         ttlSeconds = ttlSelect ? Number(ttlSelect.value) : Number(data.get("expiry"));
         const candidate = await encryptFor(config);
+        // `max_blob_bytes` is the largest padded size (bucket) the instance accepts (SPEC §4).
         // The page's attribute is an early hint only; `/config` is the instance's word.
-        if (candidate.blob.length > Math.min(page.maxBlobBytes ?? Infinity, config.max_blob_bytes)) {
+        if (candidate.bucket > Math.min(page.maxBlobBytes ?? Infinity, config.max_blob_bytes)) {
           setStatus(status, t("create-error-too-large"));
           return;
         }

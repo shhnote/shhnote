@@ -330,6 +330,7 @@ def main():
         ("file-size-too-large", payload_of(b'{"v":1,"text":null,"files":[{"name":"a","type":"t","size":10}]}', b"12345"), "corrupt", "file size reaches past the payload"),
         ("file-size-too-small", payload_of(b'{"v":1,"text":null,"files":[{"name":"a","type":"t","size":3}]}', b"12345"), "corrupt", "bytes left over after the last file"),
         ("file-size-negative", payload_of(b'{"v":1,"text":null,"files":[{"name":"a","type":"t","size":-1}]}'), "manifest", "negative file size"),
+        ("file-size-negative-zero", payload_of(b'{"v":1,"text":null,"files":[{"name":"a","type":"t","size":-0}]}'), "manifest", "-0 is a negative number to a strict integer parser and an integer to JavaScript; both sides refuse it"),
         ("file-size-fractional", payload_of(b'{"v":1,"text":null,"files":[{"name":"a","type":"t","size":2.5}]}', b"12"), "manifest", "fractional file size"),
         ("file-entry-null", payload_of(b'{"v":1,"text":"hi","files":[null]}'), "manifest", "a file entry that is not an object"),
         ("file-entry-missing-name", payload_of(b'{"v":1,"text":null,"files":[{"type":"t","size":0}]}'), "manifest", "a file entry without a name"),

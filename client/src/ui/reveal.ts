@@ -3,7 +3,7 @@ import type { Header } from "../crypto/blob.ts";
 import type { Payload } from "../crypto/container.ts";
 import { ShhError } from "../crypto/error.ts";
 import { decodeFragment } from "../crypto/fragment.ts";
-import { HEADER_LEN } from "../crypto/padding.ts";
+import { HEADER_LEN, blobLen } from "../crypto/padding.ts";
 import { decryptBody, lookup, unwrapEk } from "../crypto/secret.ts";
 import { collect, iterateBytes, readHeader } from "../crypto/stream.ts";
 import { isUserActivation } from "../lib/activation.ts";
@@ -130,7 +130,8 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
         button.disabled = false;
         return;
       }
-      const maxBlobBytes = Math.min(optionMaxBlobBytes ?? Infinity, config.max_blob_bytes);
+      // `max_blob_bytes` is a bucket; the blob for it carries the header and a tag per chunk.
+      const maxBlobBytes = Math.min(optionMaxBlobBytes ?? Infinity, blobLen(config.max_blob_bytes));
       const revealed = await api.reveal(lookupValue, claimToken, maxBlobBytes);
       if (revealed.claimToken) {
         claimToken = revealed.claimToken;
@@ -154,7 +155,9 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
         passInput.focus();
         return;
       }
-      await display(await decryptBody(ek, header, rest, maxBlobBytes));
+      // The decoder is bounded by what the server said it would send, when it said: a blob
+      // whose length prefix claims more than that is refused before anything is allocated.
+      await display(await decryptBody(ek, header, rest, Math.min(maxBlobBytes, revealed.contentLength ?? maxBlobBytes)));
     } catch (e) {
       if (e instanceof ShhError && e.code === "unsupported_protocol") {
         // Nothing was claimed. A retry would meet the same instance, so the button stays off.

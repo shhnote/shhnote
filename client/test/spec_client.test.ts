@@ -14,7 +14,7 @@ import { decodePayload, encodePayload } from "../src/crypto/container.ts";
 import { ShhError } from "../src/crypto/error.ts";
 import { decodeFragment, encodeFragment } from "../src/crypto/fragment.ts";
 import { ARGON2_MIN, INFO, checkArgon2Bounds, hkdfAesKey } from "../src/crypto/kdf.ts";
-import { CHUNK_SIZE, pad } from "../src/crypto/padding.ts";
+import { CHUNK_SIZE, blobLen, pad } from "../src/crypto/padding.ts";
 import { decrypt, decryptStream, encrypt, lookup } from "../src/crypto/secret.ts";
 import { burnSecret, createSecret, parseFragment, revealSecret } from "../src/client.ts";
 import { Api, ApiError, DEFAULT_MAX_BLOB_BYTES, type InstanceConfig, getConfig, invalidateConfig } from "../src/lib/api.ts";
@@ -921,7 +921,9 @@ describe("spec: body cap from the instance (revision 3, B7)", () => {
   it("revealSecret without maxBlobBytes refuses a body over the instance's max_blob_bytes", async () => {
     const blob = await blobFrom(pad(encodePayload({ text: "s", files: [] }), { mode: "padme", min: 4096 }));
     const link = `#${encodeFragment(seed, "share")}`;
-    const small = { ...instanceConfig, max_blob_bytes: blob.length - 1 };
+    // `max_blob_bytes` is a bucket: the blob here is the 4096 bucket, and one size below it
+    // caps the body at blobLen(4095), a byte short.
+    const small = { ...instanceConfig, max_blob_bytes: 4095 };
     const announced = instance(() => new Response(blob, { status: 200, headers: { "content-length": String(blob.length) } }), small);
     await assert.rejects(
       revealSecret(link, { apiBase: "https://cap-a.example/api/v1", fetch: announced.fetchImpl }),
@@ -932,9 +934,10 @@ describe("spec: body cap from the instance (revision 3, B7)", () => {
       revealSecret(link, { apiBase: "https://cap-b.example/api/v1", fetch: silent.fetchImpl }),
       (e: unknown) => e instanceof ApiError && e.code === "too_large",
     );
-    const exact = instance(() => new Response(blob, { status: 200 }), { ...instanceConfig, max_blob_bytes: blob.length });
+    const exact = instance(() => new Response(blob, { status: 200 }), { ...instanceConfig, max_blob_bytes: 4096 });
     const r = await revealSecret(link, { apiBase: "https://cap-c.example/api/v1", fetch: exact.fetchImpl });
     assert.equal(r.payload.text, "s");
+    assert.equal(blob.length, blobLen(4096), "the top bucket's blob is longer than the bucket");
   });
 
   it("revealSecret does not reveal without the instance's config", async () => {
