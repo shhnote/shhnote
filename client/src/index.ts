@@ -12,6 +12,7 @@ export {
   burnSecret,
   checkProtocol,
   createSecret,
+  isStalePolicyError,
   parseFragment,
   revealSecret,
 } from "./client.ts";
@@ -26,6 +27,7 @@ export {
   type Region,
   type Revealed,
   getConfig,
+  invalidateConfig,
 } from "./lib/api.ts";
 export { loadArgon2, prefetchArgon2 } from "./lib/argon2-loader.ts";
 export { sanitiseFileName } from "./lib/filename.ts";

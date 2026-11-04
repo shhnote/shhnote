@@ -3,7 +3,7 @@ import type { Payload } from "./crypto/container.ts";
 import { ShhError } from "./crypto/error.ts";
 import { type Kind, VERSION, decodeFragment } from "./crypto/fragment.ts";
 import { decryptStream, encrypt, generateRandomness, lookup } from "./crypto/secret.ts";
-import { Api, ApiError, type Fetch, type InstanceConfig, type Lifetime, getConfig } from "./lib/api.ts";
+import { Api, ApiError, type Fetch, type InstanceConfig, type Lifetime, getConfig, invalidateConfig } from "./lib/api.ts";
 
 // The fragment versions this package can create and open (SPEC §2.13). An instance names the
 // one it speaks as `fragment_version` in `/config`.
@@ -46,25 +46,42 @@ export interface Created {
   burnFragment: string;
 }
 
+// The instance refused the blob's size: its padding policy or its file setting changed since
+// `/config` was read, so the cached answer is stale and one fresh attempt is worth making.
+export function isStalePolicyError(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 400 && (e.code === "invalid_blob_length" || e.code === "files_disabled");
+}
+
 export async function createSecret(opts: CreateOptions): Promise<Created> {
   if (opts.passphrase === "") throw new ShhError("empty_passphrase", "omit the passphrase to mean direct mode");
   if (opts.passphrase && !opts.argon2) throw new ShhError("argon2_unavailable", "a passphrase needs an Argon2 instance");
   const api = new Api(opts.apiBase, opts.fetch);
-  const [config, randomness] = await Promise.all([getConfig(opts.apiBase, opts.fetch), generateRandomness()]);
-  checkProtocol(config);
-  const encrypted = await encrypt({
-    randomness,
-    payload: opts.payload,
-    policy: config.padding,
-    passphrase: opts.passphrase ?? null,
-    ...(opts.argon2 ? { argon2: opts.argon2 } : {}),
-  });
-  if (encrypted.blob.length > config.max_blob_bytes) throw new ShhError("payload_too_large");
-  await api.create(
-    { lookupKey: encrypted.lookupKey, burnKey: encrypted.burnKey, lifetime: opts.lifetime, ttlSeconds: opts.ttlSeconds },
-    encrypted.blob,
-  );
-  return { fragment: encrypted.fragment, burnFragment: encrypted.burnFragment };
+  const randomness = await generateRandomness();
+  for (let attempt = 0; ; attempt++) {
+    const config = await getConfig(opts.apiBase, opts.fetch);
+    checkProtocol(config);
+    const encrypted = await encrypt({
+      randomness,
+      payload: opts.payload,
+      policy: config.padding,
+      passphrase: opts.passphrase ?? null,
+      ...(opts.argon2 ? { argon2: opts.argon2 } : {}),
+    });
+    if (encrypted.blob.length > config.max_blob_bytes) throw new ShhError("payload_too_large");
+    try {
+      await api.create(
+        { lookupKey: encrypted.lookupKey, burnKey: encrypted.burnKey, lifetime: opts.lifetime, ttlSeconds: opts.ttlSeconds },
+        encrypted.blob,
+      );
+    } catch (e) {
+      if (attempt === 0 && isStalePolicyError(e)) {
+        invalidateConfig(opts.apiBase, opts.fetch);
+        continue;
+      }
+      throw e;
+    }
+    return { fragment: encrypted.fragment, burnFragment: encrypted.burnFragment };
+  }
 }
 
 export interface ParsedFragment {

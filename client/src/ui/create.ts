@@ -1,9 +1,9 @@
-import { checkProtocol } from "../client.ts";
+import { checkProtocol, isStalePolicyError } from "../client.ts";
 import { decodeFragment } from "../crypto/fragment.ts";
 import { ShhError } from "../crypto/error.ts";
 import { type Encrypted, encrypt, generateRandomness } from "../crypto/secret.ts";
 import { wipeBytes } from "../lib/wipe.ts";
-import { Api, ApiError, type InstanceConfig, type Lifetime, getConfig } from "../lib/api.ts";
+import { Api, ApiError, type InstanceConfig, type Lifetime, getConfig, invalidateConfig } from "../lib/api.ts";
 import { loadArgon2, prefetchArgon2 } from "../lib/argon2-loader.ts";
 import { $, type PageOptions, formatDuration, hide, pageLocale, pageSettings, setStatus, show, wireCopy } from "./dom.ts";
 import { type Dropzone, wireDropzone } from "./dropzone.ts";
@@ -92,42 +92,60 @@ export function wireCreate(root: HTMLElement, options: PageOptions): void {
     submit.disabled = true;
     try {
       setStatus(status, t("create-encrypting"));
-      // Cached since the page loaded; fetched again here if that first attempt failed, and
-      // then the lifetimes are filled in before one is read.
-      const config = await getConfig(apiBase);
-      // Links in a format the instance doesn't speak would be useless to their recipients.
-      checkProtocol(config);
-      if (ttlSelect && ttlSelect.options.length === 0) fillTtl(ttlSelect, config);
-      const ttlSeconds = ttlSelect ? Number(ttlSelect.value) : Number(data.get("expiry"));
-      const [randomness, argon2, fileBytes] = await Promise.all([
-        generateRandomness(),
-        passphrase ? loadArgon2(page.argon2Url) : Promise.resolve(undefined),
-        Promise.all(files.map(async (f) => ({ name: f.name, type: f.type || "application/octet-stream", bytes: new Uint8Array(await f.arrayBuffer()) }))),
-      ]);
-      for (const buffer of [randomness.seed, randomness.burnToken, ...fileBytes.map((f) => f.bytes)]) inFlight.add(buffer);
-      let encrypted: Encrypted;
-      try {
-        encrypted = await encrypt({
-          randomness,
-          payload: { text: text.length > 0 ? text : null, files: fileBytes },
-          policy: config.padding,
-          passphrase: passphrase || null,
-          ...(argon2 ? { argon2 } : {}),
-        });
-      } finally {
-        // The blob holds them now, encrypted; the plaintext copies are done.
-        wipeBytes(...fileBytes.map((f) => f.bytes));
+      // Encrypts under the instance's current policy. The plaintext file bytes are read here
+      // and wiped as soon as the blob holds them, so a second attempt reads them again.
+      const encryptFor = async (config: InstanceConfig): Promise<Encrypted> => {
+        const [randomness, argon2, fileBytes] = await Promise.all([
+          generateRandomness(),
+          passphrase ? loadArgon2(page.argon2Url) : Promise.resolve(undefined),
+          Promise.all(files.map(async (f) => ({ name: f.name, type: f.type || "application/octet-stream", bytes: new Uint8Array(await f.arrayBuffer()) }))),
+        ]);
+        for (const buffer of [randomness.seed, randomness.burnToken, ...fileBytes.map((f) => f.bytes)]) inFlight.add(buffer);
+        try {
+          return await encrypt({
+            randomness,
+            payload: { text: text.length > 0 ? text : null, files: fileBytes },
+            policy: config.padding,
+            passphrase: passphrase || null,
+            ...(argon2 ? { argon2 } : {}),
+          });
+        } finally {
+          // The blob holds them now, encrypted; the plaintext copies are done.
+          wipeBytes(...fileBytes.map((f) => f.bytes));
+        }
+      };
+      let ttlSeconds = 0;
+      let encrypted: Encrypted | null = null;
+      for (let attempt = 0; encrypted === null; attempt++) {
+        // Cached since the page loaded; fetched again here if that first attempt failed, and
+        // then the lifetimes are filled in before one is read.
+        const config = await getConfig(apiBase);
+        // Links in a format the instance doesn't speak would be useless to their recipients.
+        checkProtocol(config);
+        if (ttlSelect && ttlSelect.options.length === 0) fillTtl(ttlSelect, config);
+        ttlSeconds = ttlSelect ? Number(ttlSelect.value) : Number(data.get("expiry"));
+        const candidate = await encryptFor(config);
+        // The page's attribute is an early hint only; `/config` is the instance's word.
+        if (candidate.blob.length > Math.min(page.maxBlobBytes ?? Infinity, config.max_blob_bytes)) {
+          setStatus(status, t("create-error-too-large"));
+          return;
+        }
+        setStatus(status, t("create-uploading"));
+        try {
+          await api.create(
+            { lookupKey: candidate.lookupKey, burnKey: candidate.burnKey, lifetime, ttlSeconds },
+            candidate.blob,
+          );
+          encrypted = candidate;
+        } catch (e) {
+          // The policy changed since `/config` was read: once more with a fresh one.
+          if (attempt === 0 && isStalePolicyError(e)) {
+            invalidateConfig(apiBase);
+            continue;
+          }
+          throw e;
+        }
       }
-      if (encrypted.blob.length > (page.maxBlobBytes ?? config.max_blob_bytes)) {
-        setStatus(status, t("create-error-too-large"));
-        return;
-      }
-
-      setStatus(status, t("create-uploading"));
-      await api.create(
-        { lookupKey: encrypted.lookupKey, burnKey: encrypted.burnKey, lifetime, ttlSeconds },
-        encrypted.blob,
-      );
 
       const expiryLabel = ttlSelect?.selectedOptions[0]?.textContent ?? formatDuration(ttlSeconds, pageLocale());
       showResult(api, t, result, encrypted.fragment, encrypted.burnFragment, {

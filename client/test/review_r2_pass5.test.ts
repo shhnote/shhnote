@@ -133,14 +133,14 @@ describe("review r2 pass 5: body cap and memory bound (D-4, S-20)", () => {
     // A sane instance refuses a body over its maximum.
     const strict = instance(() => new Response(blob, { status: 200 }), { ...instanceConfig, max_blob_bytes: 100 });
     await assert.rejects(revealSecret(link, { apiBase: "https://cap-1.example/api/v1", fetch: strict.fetchImpl }), (e: unknown) => e instanceof ApiError && e.code === "too_large");
-    // A hostile or broken /config: the comparisons against NaN are all false and the whole
-    // body streams through, however long it is.
+    // A hostile or broken /config fails closed (revision 4, C1): nothing is revealed, so the
+    // single-view secret is not claimed, and the error names the config.
     const hostile = instance(() => new Response(blob, { status: 200 }), { ...instanceConfig, max_blob_bytes: "unlimited" });
-    const r = await revealSecret(link, { apiBase: "https://cap-2.example/api/v1", fetch: hostile.fetchImpl });
-    assert.equal(r.payload.text, "s", "the body was accepted with no cap at all");
-    // And a numeric value above DEFAULT_MAX_BLOB_BYTES is used as given, not clamped.
+    await assert.rejects(revealSecret(link, { apiBase: "https://cap-2.example/api/v1", fetch: hostile.fetchImpl }), (e: unknown) => e instanceof ApiError && e.code === "invalid_config");
+    assert.ok(!hostile.calls.some((c) => c.url.endsWith("/secrets/reveal")), "a reveal was sent on an untrusted config");
+    // And a numeric value above DEFAULT_MAX_BLOB_BYTES is clamped to the ceiling.
     const huge = instance(() => new Response(blob, { status: 200 }), { ...instanceConfig, max_blob_bytes: 2 ** 50 });
-    assert.equal((await getConfig("https://cap-3.example/api/v1", huge.fetchImpl)).max_blob_bytes, 2 ** 50);
+    assert.equal((await getConfig("https://cap-3.example/api/v1", huge.fetchImpl)).max_blob_bytes, DEFAULT_MAX_BLOB_BYTES);
     assert.equal((await revealSecret(link, { apiBase: "https://cap-3.example/api/v1", fetch: huge.fetchImpl })).payload.text, "s");
   });
 
@@ -149,10 +149,15 @@ describe("review r2 pass 5: body cap and memory bound (D-4, S-20)", () => {
     const { fetchImpl } = recorder(() => new Response(body, { status: 200, headers: { "content-length": "abc" } }));
     const api = new Api("https://cap-4.example/api/v1", fetchImpl);
     const revealed = await api.reveal(await lookup(seed), null, 10);
-    assert.equal(revealed.contentLength, NaN);
-    let seen = 0;
-    for await (const piece of revealed.body) seen += piece.length;
-    assert.equal(seen, 1000, "a 10-byte cap let 1000 bytes through");
+    // Revision 4, C1: not a usable length, so it is treated as not announced and the
+    // as-received cap applies.
+    assert.equal(revealed.contentLength, null);
+    await assert.rejects(
+      (async () => {
+        for await (const piece of revealed.body) void piece;
+      })(),
+      (e: unknown) => e instanceof ApiError && e.code === "too_large",
+    );
   });
 });
 
@@ -171,12 +176,11 @@ describe("review r2 pass 5: /config caching and precedence", () => {
     });
     const opts = { apiBase: "https://stale.example/api/v1", fetch: fetchImpl, payload: { text: "x", files: [] }, lifetime: "ttl" as const, ttlSeconds: 3600 };
     await createSecret(opts);
-    // The admin switches to a bucket ladder; the page keeps padding by the old policy.
+    // The admin switches to a bucket ladder; the first refusal makes the client re-read
+    // /config and pad again, and later creates use the fresh answer (revision 4, C1).
     policy = { mode: "buckets", ladder: [131072] };
-    for (let i = 0; i < 3; i++) {
-      await assert.rejects(createSecret(opts), (e: unknown) => e instanceof ApiError && e.status === 400 && e.code === "invalid_blob_length");
-    }
-    assert.equal(refused, 3, "three attempts, none re-read /config");
+    for (let i = 0; i < 3; i++) await createSecret(opts);
+    assert.equal(refused, 1, "only the first attempt after the change is refused");
   });
 });
 

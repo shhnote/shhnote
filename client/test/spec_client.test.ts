@@ -17,7 +17,7 @@ import { ARGON2_MIN, INFO, checkArgon2Bounds, hkdfAesKey } from "../src/crypto/k
 import { CHUNK_SIZE, pad } from "../src/crypto/padding.ts";
 import { decrypt, decryptStream, encrypt, lookup } from "../src/crypto/secret.ts";
 import { burnSecret, createSecret, parseFragment, revealSecret } from "../src/client.ts";
-import { Api, ApiError, type InstanceConfig, getConfig } from "../src/lib/api.ts";
+import { Api, ApiError, DEFAULT_MAX_BLOB_BYTES, type InstanceConfig, getConfig, invalidateConfig } from "../src/lib/api.ts";
 import { sanitiseFileName } from "../src/lib/filename.ts";
 import { ClaimStore } from "../src/ui/claims.ts";
 import { fillTtl, messageFor, ttlChoices } from "../src/ui/create.ts";
@@ -405,6 +405,41 @@ describe("spec: shared instance config (revision 3, B1)", () => {
     await assert.rejects(getConfig("https://cfg-c.example/api/v1", fetchImpl), (e: unknown) => e instanceof ApiError && e.status === 503);
     fail = false;
     assert.deepEqual(await getConfig("https://cfg-c.example/api/v1", fetchImpl), instanceConfig);
+    assert.equal(calls.length, 2);
+  });
+
+  // Revision 4, C1: /config is the one input the client uses as a bound, so it is checked
+  // before use and fails closed; a stale answer can be dropped.
+  it("getConfig refuses a config it cannot trust and clamps the blob ceiling", async () => {
+    const bad: [string, unknown][] = [
+      ["max_blob_bytes", "unlimited"],
+      ["max_blob_bytes", 0],
+      ["max_blob_bytes", 1.5],
+      ["padding", { mode: "buckets", ladder: [] }],
+      ["padding", { mode: "random" }],
+      ["ttl_presets", "900"],
+      ["files_enabled", "yes"],
+      ["fragment_version", -1],
+      ["web_mode", "spa"],
+    ];
+    for (const [key, value] of bad) {
+      const { fetchImpl } = recorder(() => Response.json({ ...instanceConfig, [key]: value }));
+      await assert.rejects(getConfig(`https://cfg-bad-${key}.example/api/v1`, fetchImpl), (e: unknown) => e instanceof ApiError && e.code === "invalid_config", `${key} = ${JSON.stringify(value)}`);
+    }
+    const { fetchImpl } = recorder(() => Response.json({ ...instanceConfig, max_blob_bytes: 2 ** 50, regions: undefined }));
+    const config = await getConfig("https://cfg-clamp.example/api/v1", fetchImpl);
+    assert.equal(config.max_blob_bytes, DEFAULT_MAX_BLOB_BYTES);
+    assert.deepEqual(config.regions, []);
+  });
+
+  it("invalidateConfig drops the cached answer for one base", async () => {
+    let version = "1.0.0";
+    const { calls, fetchImpl } = recorder(() => Response.json({ ...instanceConfig, server_version: version }));
+    assert.equal((await getConfig("https://cfg-inv.example/api/v1", fetchImpl)).server_version, "1.0.0");
+    version = "1.1.0";
+    assert.equal((await getConfig("https://cfg-inv.example/api/v1", fetchImpl)).server_version, "1.0.0", "cached");
+    invalidateConfig("https://cfg-inv.example/api/v1/", fetchImpl);
+    assert.equal((await getConfig("https://cfg-inv.example/api/v1", fetchImpl)).server_version, "1.1.0");
     assert.equal(calls.length, 2);
   });
 

@@ -32,8 +32,11 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
   const { t } = options;
   const settings = pageSettings(page, options);
   const api = new Api(settings.apiBase);
-  // The option or the page's attribute; otherwise `/config`, read after the press.
-  const pageMaxBlobBytes = settings.maxBlobBytes;
+  // The cap is the instance's own `max_blob_bytes`, read from `/config` after the press, or a
+  // smaller one the caller asks for. The page's attribute is not used here: it was rendered
+  // when the page loaded and can be staler than `/config`, and a cap below the real size
+  // costs a single-view secret (the claim comes before the body).
+  const optionMaxBlobBytes = options.maxBlobBytes;
   const armed = $<HTMLFormElement>("[data-shh-form=reveal]", page);
   const armedStatus = $("[data-shh-status]", armed);
   const passForm = $<HTMLFormElement>("[data-shh-form=passphrase]", page);
@@ -127,7 +130,7 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
         button.disabled = false;
         return;
       }
-      const maxBlobBytes = pageMaxBlobBytes ?? config.max_blob_bytes;
+      const maxBlobBytes = Math.min(optionMaxBlobBytes ?? Infinity, config.max_blob_bytes);
       const revealed = await api.reveal(lookupValue, claimToken, maxBlobBytes);
       if (revealed.claimToken) {
         claimToken = revealed.claimToken;
