@@ -31,7 +31,7 @@ use shhnote_core::{
 use shhnote_server::{
     api::{ApiState, CLAIM_TOKEN_HEADER, now},
     app, scheduler,
-    storage::Blobs,
+    storage::{Blobs, object_bytes},
 };
 use shhnote_store::{Scope, Store, sqlite_path_for_tests};
 use tower::ServiceExt;
@@ -653,16 +653,19 @@ async fn local_srv(name: &str, ceiling: &str) -> (Srv, PathBuf) {
 }
 
 // A client that disconnects right after its upload completes cancels the handler between the
-// object write and the row write. Whatever is left behind is collected when the tier is next
-// opened, and the ceiling then counts exactly what is on disk.
+// object write and the row write. The object is removed as soon as the write has settled, so
+// at every moment the tier holds only what the rows account for, and the ceiling (room for two
+// objects here) still bounds what an honest create can add; no restart is needed (R-1).
 #[tokio::test]
 async fn spec_disconnect_after_upload_leaves_no_uncounted_object() {
-    let (s, root) = local_srv("h-zombie", "300000").await;
+    let ceiling = 300_000u64;
+    let (s, root) = local_srv("h-zombie", &ceiling.to_string()).await;
+    let blobs = s.blobs.clone().unwrap();
     let blobs_dir = root.join("blobs");
-    let mut zombies = 0;
+    let bucket = 131_072u64;
     for _ in 0..10 {
         let before = dir_stats(&blobs_dir).0;
-        let body = multipart(&meta(&keys(), "ttl", 3600), &raw_blob(131_072));
+        let body = multipart(&meta(&keys(), "ttl", 3600), &raw_blob(bucket));
         let app = s.app.clone();
         let task = tokio::spawn(async move { send(&app, create_req_sized(body)).await });
         // The moment the object lands, the client is gone (hyper drops the handler future).
@@ -674,33 +677,49 @@ async fn spec_disconnect_after_upload_leaves_no_uncounted_object() {
             tokio::task::yield_now().await;
         }
         let _ = task.await;
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        let on_disk = dir_stats(&blobs_dir).0;
-        let counted = (s.store.external_bytes().await.unwrap() / 131_072) as usize;
-        if on_disk > counted {
-            zombies = on_disk - counted;
-        }
+        // The cleanup runs as its own task; give it a moment, then nothing may be uncounted.
+        let settled = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let on_disk = dir_stats(&blobs_dir).1;
+                let counted = s.store.external_bytes().await.unwrap();
+                if on_disk == counted {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        let on_disk = dir_stats(&blobs_dir);
+        let counted = s.store.external_bytes().await.unwrap();
+        assert!(
+            settled.is_ok(),
+            "{} objects ({} bytes) on disk, rows account for {counted}",
+            on_disk.0,
+            on_disk.1
+        );
     }
-    // A restart (re-opening the tier) collects whatever a disconnect left behind.
-    let _ = zombies;
-    let config = Config::from_vars(&map(&[
-        ("SHH_ENV", "local"),
-        ("SHH_URL", "http://localhost:3000"),
-        ("SHH_SECRET_KEY", &"s".repeat(44)),
-        ("SHH_DB", "sqlite"),
-        ("SHH_STORAGE", "local"),
-        ("SHH_LOCAL_PATH", root.to_str().unwrap()),
-        ("SHH_LOCAL_MAX_TOTAL_BYTES", "300000"),
-        ("SHH_INLINE_MAX", "65536"),
-    ]))
-    .unwrap();
-    let reopened = Blobs::open(config.storage.external.as_ref().unwrap())
-        .await
-        .unwrap();
-    reopened.collect_orphans(&s.store).await.unwrap();
-    let on_disk = dir_stats(&blobs_dir);
+    // The ledger agrees with the disk: exactly the free room can still be reserved.
     let counted = s.store.external_bytes().await.unwrap();
-    assert_eq!(on_disk.1, counted, "{} objects on disk", on_disk.0);
+    let free = ceiling - counted;
+    assert!(blobs.reserve(&s.store, free + 1).await.unwrap().is_none());
+    let room = blobs.reserve(&s.store, free).await.unwrap();
+    assert!(room.is_some(), "the ledger holds bytes no object backs");
+    drop(room);
+    // And honest creates fill exactly the room that is left, then get 507.
+    let fits = (free / object_bytes(bucket)) as usize;
+    for _ in 0..fits {
+        let r = create(&s.app, &meta(&keys(), "ttl", 3600), &raw_blob(bucket)).await;
+        assert_eq!(r.status, StatusCode::CREATED);
+    }
+    let r = create(&s.app, &meta(&keys(), "ttl", 3600), &raw_blob(bucket)).await;
+    assert_eq!(r.status, StatusCode::INSUFFICIENT_STORAGE);
+    let on_disk = dir_stats(&blobs_dir);
+    assert!(
+        on_disk.1 <= ceiling,
+        "{} bytes on disk over the ceiling",
+        on_disk.1
+    );
+    assert_eq!(on_disk.1, s.store.external_bytes().await.unwrap());
 }
 
 // ============================================================================================

@@ -1,4 +1,5 @@
 use std::{
+    io,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -24,11 +25,11 @@ use shhnote_core::{
     settings::{Region, Settings, SettingsCell},
 };
 use shhnote_store::{Lifetime, NewSecret, Served, Store};
-use tokio::sync::Semaphore;
+use tokio::{sync::Semaphore, task::JoinHandle};
 
 use crate::{
     ratelimit::{Endpoint, RateLimiter, limit},
-    storage::{Blobs, Spool, object_bytes},
+    storage::{Blobs, Reservation, Spool, Spooled, object_bytes},
 };
 
 pub const CLAIM_TOKEN_HEADER: HeaderName = HeaderName::from_static("x-shh-claim-token");
@@ -479,25 +480,16 @@ async fn create(
             reservation.shrink_to(object_bytes(bucket));
             let spooled = spool.finish().await.map_err(ApiError::internal)?;
             let key = Blobs::new_key().map_err(ApiError::internal)?;
-            storage
-                .put(&key, spooled)
-                .await
-                .map_err(ApiError::internal)?;
-            // Only an active row makes the object reachable; without one it is garbage, and
-            // the guard removes it if the request is cancelled before the row is written.
-            let guard = OrphanGuard {
-                storage: storage.clone(),
-                key: key.clone(),
-                armed: true,
-            };
-            match state
-                .store
-                .create(&secret(None, Some(key.clone())), now)
-                .await
-            {
+            // Only an active row makes the object reachable; without one it is garbage. The
+            // guard is armed before the object is written and owns the reservation: if the
+            // request is dropped at any point from here on (the client went away while the
+            // store was acknowledging), the object is removed once the write has settled and
+            // only then are its bytes given back to the ceiling (SPEC §6.1, D-20).
+            let mut guard = OrphanGuard::new(storage.clone(), key.clone(), reservation, spooled);
+            guard.stored().await.map_err(ApiError::internal)?;
+            match state.store.create(&secret(None, Some(key)), now).await {
                 Ok(true) => {
-                    guard.disarm();
-                    reservation.commit();
+                    guard.commit();
                     Ok(StatusCode::CREATED)
                 }
                 // Duplicate (D-21): the object goes, the reservation is given back, and the
@@ -520,31 +512,73 @@ enum Sink {
     Spool(Spool),
 }
 
-// Deletes a freshly written object unless the row for it was written. Dropping a request
-// mid-way (the client went away) runs this like any other error path.
+// Writes an object and deletes it again unless the row for it was written. Dropping a request
+// mid-way (the client went away) runs the cleanup like any other error path. The write runs
+// as its own task so that dropping the request cannot leave it half done or racing the delete;
+// the ceiling reservation stays held until the object is confirmed gone.
 struct OrphanGuard {
     storage: Arc<Blobs>,
     key: String,
-    armed: bool,
+    reservation: Option<Reservation>,
+    put: Option<JoinHandle<io::Result<()>>>,
 }
 
 impl OrphanGuard {
-    fn disarm(mut self) {
-        self.armed = false;
+    fn new(storage: Arc<Blobs>, key: String, reservation: Reservation, spooled: Spooled) -> Self {
+        let put = tokio::spawn({
+            let storage = storage.clone();
+            let key = key.clone();
+            async move { storage.put(&key, spooled).await }
+        });
+        Self {
+            storage,
+            key,
+            reservation: Some(reservation),
+            put: Some(put),
+        }
+    }
+
+    // Waits for the write. The task keeps running if this future is dropped, so the drop path
+    // waits for it too before deleting.
+    async fn stored(&mut self) -> io::Result<()> {
+        let Some(handle) = &mut self.put else {
+            return Ok(());
+        };
+        let result = handle.await.map_err(io::Error::other)?;
+        self.put = None;
+        result
+    }
+
+    // The row is written: the object is a secret now and its bytes are stored, not reserved.
+    fn commit(mut self) {
+        if let Some(reservation) = self.reservation.take() {
+            reservation.commit();
+        }
     }
 }
 
 impl Drop for OrphanGuard {
     fn drop(&mut self) {
-        if self.armed {
-            let storage = self.storage.clone();
-            let key = std::mem::take(&mut self.key);
-            tokio::spawn(async move {
-                if let Err(e) = storage.delete(&key).await {
+        let Some(reservation) = self.reservation.take() else {
+            return;
+        };
+        let storage = self.storage.clone();
+        let key = std::mem::take(&mut self.key);
+        let put = self.put.take();
+        tokio::spawn(async move {
+            if let Some(put) = put {
+                let _ = put.await;
+            }
+            match storage.delete(&key).await {
+                // Gone: the bytes are free again.
+                Ok(()) => drop(reservation),
+                // Still there, so it keeps counting until the next startup sweep removes it.
+                Err(e) => {
                     crate::log_error!("storage: could not remove orphaned object: {e}");
+                    reservation.commit();
                 }
-            });
-        }
+            }
+        });
     }
 }
 
