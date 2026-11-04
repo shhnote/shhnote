@@ -31,6 +31,11 @@ async fn build_unconfigured(name: &str, extra: &[(&str, &str)]) -> Router {
 }
 
 async fn build_with(name: &str, extra: &[(&str, &str)], configured: bool) -> Router {
+    let (config, state) = parts(name, extra, configured).await;
+    app::router(&config, state)
+}
+
+async fn parts(name: &str, extra: &[(&str, &str)], configured: bool) -> (Config, ApiState) {
     let mut vars: HashMap<String, String> = [
         ("SHH_ENV", "local"),
         ("SHH_URL", "http://localhost:3000"),
@@ -63,7 +68,8 @@ async fn build_with(name: &str, extra: &[(&str, &str)], configured: bool) -> Rou
         settings.site_name = "Test".into();
         settings.contact_email = "ops@example.test".into();
     }
-    app::router(&config, ApiState::new(store, settings, &config, None))
+    let state = ApiState::new(store, settings, &config, None);
+    (config, state)
 }
 
 struct Seen {
@@ -303,6 +309,42 @@ async fn spec_headers_every_api_response_is_no_store() {
         "no `no-store` on:\n{}",
         missing.join("\n")
     );
+}
+
+// Revision 3, D2: once a stop has begun, the "shutting down" 503 is never cached either, on
+// a page or on the API, and still carries the security headers.
+#[tokio::test]
+async fn spec_headers_shutdown_answer_is_no_store() {
+    use std::{sync::Arc, time::Duration};
+    let (config, state) = parts("spec-web-drain", &[], true).await;
+    let drain = Arc::new(shhnote_server::drain::Drain::default());
+    let app = app::router_with_drain(&config, state, drain.clone());
+    // Nothing is in flight, so the drain starts and returns at once.
+    drain.wait_for(async {}, Duration::from_secs(1)).await;
+    let seen = [
+        fetch(&app, "localhost", Method::GET, "/en", None, None, "").await,
+        fetch(
+            &app,
+            "localhost",
+            Method::GET,
+            "/api/v1/config",
+            None,
+            None,
+            "",
+        )
+        .await,
+    ];
+    for s in &seen {
+        assert_eq!(s.status, StatusCode::SERVICE_UNAVAILABLE, "{}", s.label);
+        assert_eq!(
+            s.headers.get(header::CACHE_CONTROL).map(|v| v.as_bytes()),
+            Some(&b"no-store"[..]),
+            "{}",
+            s.label
+        );
+    }
+    let missing = missing_headers(&seen, false);
+    assert!(missing.is_empty(), "{}", missing.join("\n"));
 }
 
 // Revision 3, C4: the admin API's and the panel login's 429s say when to come back, with the

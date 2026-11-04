@@ -223,7 +223,7 @@ Every negative outcome on an endpoint that takes a secret credential returns the
 
 Rate limiting is per endpoint and per client: a token bucket keyed by `HMAC-SHA256(salt, ip)` (IPv6 by /64), where the salt rotates every `salt_rotation_secs` and rotation clears every bucket, so nothing before a rotation can be linked to anything after. Only the socket peer is trusted unless it is listed in `SHH_TRUSTED_PROXIES`, in which case the nearest untrusted `X-Forwarded-For` hop is used. Peer addresses are canonicalised (IPv4-mapped IPv6 is treated as IPv4) before bucketing or proxy matching. All `X-Forwarded-For` header lines are joined before the walk from the right. When the bucket table is full, individual subjects are evicted; the table is never cleared except by salt rotation. The limit is answered with a generic `429` and a `Retry-After` that reveals no threshold. Requests may carry `Authorization: Bearer <api key>`; a `user` key switches rate limiting from the IP-derived key to `SHA-256(api key)` with the limits multiplied by `rate_user_multiplier`. Admin endpoints live under `/{locale}/admin` (pages, §8) and `/api/v1/admin/*` (JSON, `admin` scope). API keys never appear in `secrets` rows or in any join.
 
-The §11 security headers are applied to every response, API and drain responses included.
+The §11 security headers are applied to every response, API and drain responses included. The drain's `503` (sent while the server stops) is also `no-store`, on pages and API alike.
 
 ---
 

@@ -55,9 +55,10 @@ impl Drop for InFlight {
 pub async fn track(State(drain): State<Arc<Drain>>, req: Request, next: Next) -> Response {
     if drain.stopping.load(Ordering::SeqCst) {
         let mut response = (StatusCode::SERVICE_UNAVAILABLE, "shutting down").into_response();
-        response
-            .headers_mut()
-            .insert(header::CONNECTION, HeaderValue::from_static("close"));
+        let headers = response.headers_mut();
+        headers.insert(header::CONNECTION, HeaderValue::from_static("close"));
+        // A cache must not keep serving this after the server is back.
+        headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
         return response;
     }
     drain.in_flight.fetch_add(1, Ordering::SeqCst);
