@@ -994,6 +994,205 @@ async fn spec_orphan_sweep_ignores_stray_files() {
     assert_eq!(referenced, StatusCode::OK, "the referenced object went");
 }
 
+// --- revision 3, D5: a fake S3, so the S3 tier's own code runs without a bucket
+
+// Unlike `fake_s3` above, which only answers or hangs, an in-memory bucket behind an axum router: path-style addressing, as with
+// `SHH_S3_ENDPOINT`. It answers what the tier sends (the versioning check, ListObjectsV2,
+// PUT, GET and DELETE of an object) and records every request. It checks that requests are
+// signed, not that the signatures are right: `signs_like_the_aws_example` in `storage.rs`
+// pins those.
+#[derive(Default)]
+struct FakeBucket {
+    objects: std::sync::Mutex<std::collections::BTreeMap<String, Vec<u8>>>,
+    requests: std::sync::Mutex<Vec<String>>,
+}
+
+const FAKE_BUCKET: &str = "fake";
+// Small pages, so a listing has to follow continuation tokens.
+const FAKE_PAGE: usize = 2;
+
+async fn fake_bucket() -> (Arc<FakeBucket>, SocketAddr) {
+    let state = Arc::new(FakeBucket::default());
+    let app = Router::new()
+        .fallback(fake_bucket_request)
+        .with_state(state.clone());
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (state, addr)
+}
+
+async fn fake_bucket_request(
+    axum::extract::State(s3): axum::extract::State<Arc<FakeBucket>>,
+    method: axum::http::Method,
+    uri: axum::http::Uri,
+    axum::extract::Query(query): axum::extract::Query<HashMap<String, String>>,
+    headers: axum::http::HeaderMap,
+    body: Bytes,
+) -> axum::response::Response {
+    use axum::{http::Method, response::IntoResponse};
+    s3.requests
+        .lock()
+        .unwrap()
+        .push(format!("{method} {}", uri.path_and_query().unwrap()));
+    let signed = headers
+        .get(header::AUTHORIZATION)
+        .is_some_and(|v| v.as_bytes().starts_with(b"AWS4-HMAC-SHA256 Credential="));
+    if !signed {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let Some(key) = uri.path().strip_prefix(&format!("/{FAKE_BUCKET}/")) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let mut objects = s3.objects.lock().unwrap();
+    match (method, key) {
+        (Method::GET, "") if query.contains_key("versioning") => {
+            "<VersioningConfiguration></VersioningConfiguration>".into_response()
+        }
+        (Method::GET, "") => {
+            let prefix = query.get("prefix").map_or("", String::as_str);
+            let keys: Vec<&String> = objects.keys().filter(|k| k.starts_with(prefix)).collect();
+            // The token is "page/<start>+=", so it only survives if the client encodes it; a
+            // mangled one is refused rather than restarting the listing (which would loop).
+            let start = match query.get("continuation-token") {
+                None => 0,
+                Some(token) => match token
+                    .strip_prefix("page/")
+                    .and_then(|t| t.strip_suffix("+="))
+                    .and_then(|t| t.parse().ok())
+                {
+                    Some(start) => start,
+                    None => return StatusCode::BAD_REQUEST.into_response(),
+                },
+            };
+            let end = (start + FAKE_PAGE).min(keys.len());
+            let mut xml = String::from("<ListBucketResult>");
+            for key in &keys[start..end] {
+                xml.push_str(&format!("<Contents><Key>{key}</Key></Contents>"));
+            }
+            if end < keys.len() {
+                xml.push_str(&format!(
+                    "<IsTruncated>true</IsTruncated><NextContinuationToken>page/{end}+=</NextContinuationToken>"
+                ));
+            } else {
+                xml.push_str("<IsTruncated>false</IsTruncated>");
+            }
+            xml.push_str("</ListBucketResult>");
+            xml.into_response()
+        }
+        (Method::PUT, key) => {
+            objects.insert(key.to_string(), body.to_vec());
+            StatusCode::OK.into_response()
+        }
+        (Method::GET, key) => match objects.get(key) {
+            Some(bytes) => bytes.clone().into_response(),
+            None => StatusCode::NOT_FOUND.into_response(),
+        },
+        (Method::DELETE, key) => {
+            objects.remove(key);
+            StatusCode::NO_CONTENT.into_response()
+        }
+        _ => StatusCode::BAD_REQUEST.into_response(),
+    }
+}
+
+// SPEC §6.1 (revision 3, C2) on S3: the same sweep as on disk, through a listing that spans
+// several pages. A secret stored through the tier round-trips, the orphans go, and every key
+// that is not of our shape stays.
+#[tokio::test]
+async fn spec_orphan_sweep_on_s3_follows_pages_and_ignores_strays() {
+    let (s3, addr) = fake_bucket().await;
+    let spool = std::env::temp_dir().join("shhnote-spec-resources-s3-spool");
+    let _ = tokio::fs::remove_dir_all(&spool).await;
+    let endpoint = format!("http://{addr}");
+    let (app, store, blobs) = build(
+        "s3-orphans",
+        &[
+            ("SHH_STORAGE", "s3"),
+            ("SHH_S3_BUCKET", FAKE_BUCKET),
+            ("SHH_S3_REGION", "us-east-1"),
+            ("SHH_S3_ENDPOINT", &endpoint),
+            ("SHH_S3_ACCESS_KEY_ID", "test-access-key"),
+            ("SHH_S3_SECRET_ACCESS_KEY", "test-secret-key"),
+            ("SHH_S3_MAX_TOTAL_BYTES", "1000000000"),
+            ("SHH_SPOOL_PATH", spool.to_str().unwrap()),
+        ],
+    )
+    .await;
+    let blobs = blobs.unwrap();
+    let k = keys();
+    assert_eq!(
+        create(&app, &k, "ttl", &raw_blob(LARGE)).await.status,
+        StatusCode::CREATED
+    );
+    {
+        let mut objects = s3.objects.lock().unwrap();
+        assert_eq!(objects.len(), 1, "the secret did not reach the bucket");
+        for orphan in [
+            "blobs/AAAAAAAAAAAAAAAAAAAAAA",
+            "blobs/zzzzzzzzzzzzzzzzzzzzzz",
+        ] {
+            objects.insert(orphan.to_string(), vec![0u8; 1000]);
+        }
+        for stray in [
+            "blobs/notes.txt",
+            "blobs/a/b",
+            "blobs/AAAAAAAAAAAAAAAAAAAA.x",
+        ] {
+            objects.insert(stray.to_string(), b"not ours".to_vec());
+        }
+        // Outside the prefix: never listed, so never counted.
+        objects.insert(
+            "other/AAAAAAAAAAAAAAAAAAAAAA".to_string(),
+            b"not ours".to_vec(),
+        );
+    }
+
+    let sweep = blobs.collect_orphans(&store).await;
+    let left: Vec<String> = s3.objects.lock().unwrap().keys().cloned().collect();
+    let requests = s3.requests.lock().unwrap().clone();
+    let referenced = reveal(&app, &k).await;
+    let _ = tokio::fs::remove_dir_all(&spool).await;
+
+    let sweep = sweep.expect("the sweep failed");
+    assert_eq!((sweep.removed, sweep.ignored), (2, 3), "{sweep:?}");
+    assert!(
+        !left.iter().any(
+            |k| k.ends_with("AAAAAAAAAAAAAAAAAAAAAA") && k.starts_with("blobs/")
+                || k == "blobs/zzzzzzzzzzzzzzzzzzzzzz"
+        ),
+        "an orphan survived: {left:?}"
+    );
+    for kept in [
+        "blobs/notes.txt",
+        "blobs/a/b",
+        "blobs/AAAAAAAAAAAAAAAAAAAA.x",
+        "other/AAAAAAAAAAAAAAAAAAAAAA",
+    ] {
+        assert!(
+            left.iter().any(|k| k == kept),
+            "{kept} was deleted: {left:?}"
+        );
+    }
+    // Six keys under the prefix in pages of two: three list requests, the later two with
+    // the token encoded.
+    let lists: Vec<&String> = requests
+        .iter()
+        .filter(|r| r.contains("list-type=2"))
+        .collect();
+    assert_eq!(lists.len(), 3, "{lists:?}");
+    assert!(
+        lists[1].contains("continuation-token=page%2F2%2B%3D"),
+        "{lists:?}"
+    );
+    assert_eq!(
+        referenced.status,
+        StatusCode::OK,
+        "the referenced object went"
+    );
+    assert_eq!(referenced.body.len() as u64, blob_len(LARGE));
+}
+
 // --- item 10: shutdown
 
 // SPEC §7.1: shutdown is bounded; a stalled upload cannot keep the process alive past the

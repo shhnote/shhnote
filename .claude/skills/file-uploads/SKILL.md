@@ -36,7 +36,7 @@ The server never sees a file. It receives one opaque encrypted blob per secret (
 - `crates/shhnote-server/src/storage.rs`: `Blobs` (a struct over a private `Tier` enum of `Local` and `S3`, plus the in-memory ceiling ledger) with `spool`, `put`, `get`, `delete`, `new_key`, `reserve`, `max_total_bytes`, `collect_orphans`; `Blobs::open` runs the startup checks. `Spool` receives a blob chunk by chunk; `finish` turns it into a `Spooled` that removes its file on drop.
 - `api.rs` `create`: `Sink::Memory` until the bytes outgrow `blob_len(inline_max)`, then `Sink::Spool`. Ceiling check via `store.external_bytes()`, `ApiError::StorageFull` is `507 storage_full`. `blob_response` streams external objects.
 - `scheduler::scrub` deletes parked objects, then their rows; tests call it directly.
-- Tests: `tests/api.rs` runs the tier flow on local disk always and on S3 when `SHH_TEST_S3_ENDPOINT`, `SHH_TEST_S3_BUCKET`, `SHH_TEST_S3_REGION`, `SHH_TEST_S3_ACCESS_KEY_ID` and `SHH_TEST_S3_SECRET_ACCESS_KEY` are set.
+- Tests: `tests/api.rs` runs the tier flow on local disk always and on S3 when `SHH_TEST_S3_ENDPOINT`, `SHH_TEST_S3_BUCKET`, `SHH_TEST_S3_REGION`, `SHH_TEST_S3_ACCESS_KEY_ID` and `SHH_TEST_S3_SECRET_ACCESS_KEY` are set. Without a bucket, `tests/spec_resources.rs` still covers the S3 client: `fake_bucket` (in-memory, path-style, paged listings) for storing, listing and the orphan sweep, and `fake_s3` (answers or hangs) for the timeouts.
 
 ## Backends
 
