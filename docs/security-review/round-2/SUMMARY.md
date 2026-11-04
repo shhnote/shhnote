@@ -243,7 +243,61 @@ For the security page or threat model. Each was exercised by a review test this 
 | C-2, C-38 | code or wording (either closes them) | C-38: `chars().count()` vs "80 bytes" |
 | the other 53 pass-0 rows | wording | proposed text is in each row's Fix column |
 
-## Review files left in the tree (all `review_r2_*`, none committed)
+## 9. Resolution (revision 4, 2026-11-04)
+
+Every item below is fixed by the listed commit(s) on `main`, or recorded as an accepted
+residual in `SPEC.md`. The regression tests are the `spec_r2_*` files (converted from the
+review files in `e31ef09`) next to the `spec_*` files from round 1.
+
+### Findings
+
+| id | fixed by | notes |
+|---|---|---|
+| R-1 | `01f0c44` | guard armed before the write; reservation released after the delete |
+| R-2 | `f6d6169` | rolling 32 KiB/s deadline; slot taken after the first 64 KiB |
+| R-3 | `a997993` | every S3 body read through the idle adapter |
+| R-4 | `b3ebfac` (§6.1), `a8706e7` | one process per tier stated; sweep and spool cleanup age-gated, rows re-read |
+| R-5 | **accepted residual** (`b3ebfac`, SPEC §4 under D-21) | duplicate-create and `/reports` work differences recorded; no equalising write |
+| R-6 | `b3ebfac` (§4, §10), `a8706e7` (body limit), `2497f59` (client) | `max_blob_bytes` is a bucket on both sides |
+| R-7 | `a8706e7` | `delete_api_key` records the bootstrap cut-off |
+| R-8 | `a8706e7` | placeholders HTML-escaped |
+| R-9 | `a8706e7` | `init --env` parses like dotenvy; duplicates and unjudgeable forms are errors |
+| R-10 | `a8706e7` (warning, docs), `b3ebfac` (§8) | mode kept, warned about; `umask 077` / `chmod 600` in the guides |
+| R-11 | `14fad04` | gate opens the panel's exact routes |
+| R-12 | `14fad04` | `Ctx::admin_url` on the setup page |
+| R-13 | `14fad04` | no trailing-slash 308 for public paths in `api` mode |
+| R-14 | `3826646` | `pending_deletes_after` with a cursor in `Blobs` |
+| R-15 | `3826646` | negative gate answer cached until an admin write or a second; bounded acquire |
+| R-16 | `3826646` | files-off ladder combination refused and corrected |
+| R-17 | `3826646` | `invalid_query` |
+| R-18 | `2497f59` | reveal page bounds the decoder by the announced length; decoder checks the manifest's sizes against the bound |
+| R-19 | `b9ccae4` | `/config` validated, `max_blob_bytes` clamped, malformed `Content-Length` treated as absent |
+| R-20 | `b9ccae4` | `invalidateConfig`, one retry on a stale policy |
+| R-21 | `2497f59` | `loadArgon2` same-origin |
+| R-22 | `2497f59` | `-0` refused, duplicate unknown keys ignored; reject vector added |
+| R-23 | `b9ccae4` | attribute no longer caps the reveal page |
+| R-24 | `5d39d7f` | passphrase bytes, lookup value and claim token wiped |
+| R-25 | `5d39d7f` | `reveal-error-busy`, `reveal-error-too-large` |
+| R-26 | `e31ef09` (partial) | tag-ruleset note in `release.yml`; the `release` environment waits on the npm staging decision |
+| R-27 | `e31ef09` | weekly `audit`, Dependabot |
+| R-28 | `8b62cfd` | `admin.` block in the bare-metal Caddyfile |
+| R-29 | `e31ef09` | databases under `target/tmp`, named by test |
+
+Suspicions taken up: 4 (`padding_min` ceiling, `a8706e7`), 7 (database error at the gate), 8 (`touch_api_key` reads first), 9 (sweep continues past a failed delete), all `3826646`; 10 (bfcache reload), 11 (template checked at wire time), 12 (file type cleaned and isolated, `createT` and `null`), all `5d39d7f`; 15 (Postgres run of the store suite, with a cursor-order test for R-14, `e31ef09`). Left as suspicions: 1 (`/reports` row-size timing, now part of the D-21 residual), 2 (SQLite write lock across the S3 open on a claim), 3 (one-chunk spool overshoot), 5 (CORS `Max-Age` after an origin's removal), 6 (forged `Host`, a deployment matter), 13 (GitHub-side release gates), 14 (Caddy double slash, `deny.toml` musl targets).
+
+### Claims
+
+| ids | fixed by | notes |
+|---|---|---|
+| C-2 | `5d39d7f` | the create page enforces `text_max_bytes` |
+| C-3, C-41 | `d797367` (pages and strings) | "sends nothing about the secret"; the SPEC §5/§10 sentences still say "fetches nothing" (open, wording) |
+| C-5, C-10, C-11, C-12, C-13, C-14, C-15, C-16, C-17, C-18, C-19, C-20, C-21, C-22, C-24 | `8b62cfd` | D-8, CLAUDE.md and the five skills |
+| C-25, C-43 | `b3ebfac` (conformance items 8 and 10) | item 8 is exact since `e2a8bd4` |
+| C-27, C-49 | `b3ebfac`, `d797367`, `a8706e7`, `2497f59` | bucket semantics (= R-6) |
+| C-36, C-37, C-39, C-48, C-52, C-56 | `d797367` | privacy page, `site_name` help, interstitial, login bucket, deploy guides, stop budgets |
+| C-1, C-4, C-6, C-7, C-8, C-9, C-23, C-26, C-28 to C-35, C-38, C-40, C-42, C-44 to C-47, C-50, C-51, C-53 to C-55, C-57 | **open (wording)** | not in a revision-4 step; each row's Fix column in `pass0-claims.md` has the proposed text. C-38 may be code (`chars().count()`). |
+
+## Review files left in the tree at the time of the review (all `review_r2_*`; since converted to `spec_r2_*`)
 
 ```
 client/test/review_r2_adversarial.test.ts   (5 pass)

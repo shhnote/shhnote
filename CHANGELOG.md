@@ -11,7 +11,23 @@ the `/ui` controllers in code and bring its own markup, and the reference pages 
 instance's settings. Revision 3 (`docs/security-review/spec-revision-3.md`) has the plan;
 `DISCREPANCIES.md` maps each finding to its commit.
 
+A second security review ran on 2026-11-04 (`docs/security-review/round-2/SUMMARY.md`: one
+High, four Medium, twenty-four Low, and a claims audit of every document). Revision 4
+(`docs/security-review/spec-revision-4.md`) applied the fixes; the summary's closing table
+maps each finding to its commit or to the residual `SPEC.md` now records.
+
 ### Added
+- `invalidateConfig(apiBase, fetch?)` drops the cached `/config`; `createSecret` and the create
+  page use it once when the instance refuses a blob's size (`invalid_blob_length`,
+  `files_disabled`: the padding policy changed since `/config` was read) and pad again
+  (`isStalePolicyError` is exported). `revealErrorKey(e)` from `/ui` names the string a
+  failed reveal shows.
+- New strings: `reveal-error-busy` (a rate limit, a restart or an instance not yet set up),
+  `reveal-error-too-large`, `reveal-single-view-destroyed` (shown once the confirm
+  succeeded; `reveal-single-view` now reads "Revealed") and `create-error-text-too-long`
+  (the create page refuses a note over the instance's `text_max_bytes`).
+- `.github/dependabot.yml` (actions, images, crates and npm packages, weekly, grouped) and a
+  weekly run of CI's `audit` job.
 - `getConfig(apiBase, fetch?)`: `GET /config`, fetched once per API base and shared by
   `createSecret`, `revealSecret` and the controllers; a failed fetch is not kept.
   `InstanceConfig` gains `regions`, `server_version` and `web_mode`.
@@ -29,6 +45,41 @@ instance's settings. Revision 3 (`docs/security-review/spec-revision-3.md`) has 
   words; the lifetime presets are checkboxes. The admin API still takes seconds.
 
 ### Changed
+- `max_blob_bytes` in `/config` is the largest padded size (bucket) the instance accepts, on
+  both sides now: the server's body limit is `blob_len(max_blob_bytes)` plus framing, so the
+  largest advertised bucket is always accepted; the client compares the padded size when
+  creating and caps a reveal at `blobLen(max_blob_bytes)` (or a smaller `maxBlobBytes`, a
+  byte count), bounding the decoder by the announced length. The reveal page no longer uses
+  the `data-shh-max-blob-bytes` attribute for its cap.
+- `/config` is validated before use (shapes and ranges; `ApiError(0, "invalid_config")`
+  otherwise, with `max_blob_bytes` clamped to 4 GiB); `loadArgon2` refuses a module URL on
+  another origin; the manifest parser refuses a file size of `-0` and ignores duplicated
+  unknown keys, as the Rust core does (new reject vector `file-size-negative-zero`).
+- Uploads must keep 32 KiB/s overall after a 60 s grace (the deadline moves with every byte
+  received), and an upload takes an `SHH_MAX_UPLOADS` slot only once 64 KiB of blob has
+  arrived; `docs.md` asks clients to send `Content-Length`.
+- One process owns an external tier: deploys stop before they start (guides updated), and the
+  startup sweep and spool cleanup leave entries younger than the longest possible upload
+  alone, re-checking the rows after listing. The sweep logs and continues past an object it
+  cannot delete. The scrubber walks parked rows in key order from a cursor, so undeletable
+  objects never hide the ones behind them.
+- The setup gate opens exactly the panel's routes; an unconfigured `SHH_WEB=api` instance
+  answers the JSON `not_configured` envelope on every non-admin path; a database error at
+  the gate is a JSON 503 `degraded`, not the setup page; the negative state is cached until an
+  admin write (or a second). In `api` mode a trailing-slash public path is a 404, not a 308.
+  The setup page's login link is absolute to the admin host in subdomain mode.
+- `shhnote init --env` reads lines the way the server does (`export`, spaces around `=`,
+  quoted values): a set value is kept in any form, an empty one is filled, a key set twice or
+  in a form it cannot judge is an error; it warns when the file's mode lets others read it.
+  README, `docker.md` and `.env.example` create `.env` under `umask 077` / `chmod 600`.
+- Deploy artefacts give stops 45 s (30 s drain plus 5 s to close connections); the bare-metal
+  Caddyfile carries the commented `admin.` block; CLAUDE.md and the skills describe the four
+  places a setting lives, the root-level migrations, the `data-shh-*` names and the ledger.
+- `last_used_on` is read before it is written, so a keyed request no longer takes SQLite's
+  write lock for a no-op; `touch_api_key` otherwise unchanged (D-23).
+- Both reference pages reload themselves when restored from the back-forward cache; the
+  reveal page wipes the lookup value and claim token on leave once no confirm is retrying, and
+  checks a caller's `file-card` template when wired, before any secret is shown.
 - `/ui` controller signatures:
   - `wireCreate(root, options)`, `wireReveal(root, options)`, `wireBurn(root, options)` and
     `wireReport(root, options)` take `PageOptions`: `{ t, apiBase?, argon2Url?,
@@ -69,6 +120,28 @@ instance's settings. Revision 3 (`docs/security-review/spec-revision-3.md`) has 
   at `SPEC.md` and `SECURITY.md` (`{{spec_url}}`, `{{security_policy_url}}`).
 
 ### Fixed
+- A create whose client disconnected while the object store was acknowledging the write left
+  an object the ceiling did not count until the next restart; the guard is now armed before
+  the write and the reservation is released only once the object is confirmed gone (R-1).
+- S3 bodies other than downloads (the versioning check, listings, error bodies, the put and
+  delete acknowledgements) had no timeout; a store that stalls after its headers no longer
+  hangs startup, the scrubber or an upload slot (R-3, completing S-12).
+- Deleting the last admin key through the panel or the admin API revived a bootstrap session
+  issued before that key; the deletion now records the cut-off as `reset-admin` does (R-7,
+  reopening S-39).
+- `{{site_name}}` and the other placeholders were substituted into the policy pages' rendered
+  HTML unescaped; every value is HTML-escaped now (R-8).
+- `files_enabled=false` with a bucket ladder too short for a text-only secret refused every
+  create; the combination is refused on save and corrected at startup (R-16). A bad `?days=`
+  on the admin stats endpoint answers the shared JSON error shape (R-17). `padding_min` above
+  the largest blob the instance stores is refused.
+- Website wording: the server never logs addresses (a proxy in front may); the reveal page
+  "sends nothing about the secret" before the press; "Destroyed" is said only after the
+  confirm; deploy guides name what stays open before setup; the proxy guide gives the body
+  limit in padded-size terms and the login bucket's refill rate.
+- The test suite leaked one SQLite file per test per run into the system temp directory;
+  databases now live under `target/tmp/shhnote-tests`, named by the test and replaced on each
+  run (`SHHNOTE_TEST_DB_DIR` moves them). The round-2 review tests are the `spec_r2_*` files.
 - The API docs page gave `lookup_key` and `burn_key` as the raw values; they are
   `SHA-256(lookup)` and `SHA-256(burn_token)`. Its client example used an API base without
   `/v1`.
