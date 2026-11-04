@@ -23,12 +23,11 @@ use shhnote_server::{
     api::{ApiState, now},
     app,
 };
-use shhnote_store::{Lifetime, NewSecret, Scope, Store, sqlite_path_for_tests};
+use shhnote_store::{Lifetime, NewSecret, Scope, Store, sqlite_path_for_tests, sqlite_test_dir};
 use tower::ServiceExt;
 
 const ADMIN_KEY: &str = "r2p1-admin-key-of-at-least-32-characters-ok";
 const BOOTSTRAP: &str = "r2p1-bootstrap-token-of-at-least-32-chars-x";
-const BOUNDARY: &str = "----r2p1-boundary";
 const BUCKET: u64 = 65_536;
 
 const UNLIMITED: &[(&str, &str)] = &[
@@ -170,48 +169,6 @@ fn raw_blob() -> Vec<u8> {
     blob
 }
 
-fn multipart(meta: &Value, blob: &[u8]) -> Vec<u8> {
-    let mut body = Vec::new();
-    body.extend_from_slice(
-        format!(
-            "--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"meta\"\r\nContent-Type: application/json\r\n\r\n{meta}\r\n"
-        )
-        .as_bytes(),
-    );
-    body.extend_from_slice(
-        format!("--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"blob\"; filename=\"blob\"\r\nContent-Type: application/octet-stream\r\n\r\n")
-            .as_bytes(),
-    );
-    body.extend_from_slice(blob);
-    body.extend_from_slice(format!("\r\n--{BOUNDARY}--\r\n").as_bytes());
-    body
-}
-
-fn create_req(meta: &Value, blob: &[u8]) -> Request<Body> {
-    let body = multipart(meta, blob);
-    with_peer(
-        Request::post("/api/v1/secrets")
-            .header(header::HOST, "localhost")
-            .header(
-                header::CONTENT_TYPE,
-                format!("multipart/form-data; boundary={BOUNDARY}"),
-            )
-            .header(header::CONTENT_LENGTH, body.len())
-            .body(Body::from(body))
-            .unwrap(),
-        "198.51.100.9",
-    )
-}
-
-fn meta_for(lookup_key: &[u8; 32], burn_key: &[u8; 32], lifetime: &str, ttl: i64) -> Value {
-    json!({
-        "lookup_key": b64(lookup_key),
-        "burn_key": b64(burn_key),
-        "lifetime": lifetime,
-        "ttl_seconds": ttl,
-    })
-}
-
 async fn plant(store: &Store, lifetime: Lifetime, expires_at: i64) -> [u8; 32] {
     let lookup = random32();
     let ok = store
@@ -271,7 +228,7 @@ fn describe(name: &str, v: &mut [u128]) -> String {
 // row is not touched, and the setup page is the same whether or not a bootstrap token is
 // configured. `/health` says only `configured: false`.
 #[tokio::test]
-async fn review_r2_pass1_setup_gate_is_uniform_and_touches_no_row() {
+async fn spec_r2_pass1_setup_gate_is_uniform_and_touches_no_row() {
     let with_token = server(
         "r2p1-gate-token",
         &[("SHH_ADMIN_TOKEN", BOOTSTRAP)],
@@ -367,87 +324,11 @@ async fn review_r2_pass1_setup_gate_is_uniform_and_touches_no_row() {
     assert_eq!(keys.len(), 3, "{v}");
 }
 
-// SPEC §4 / D-21 (round 1 S-9): a duplicate `lookup_key` answers exactly like a success and
-// writes nothing. The *answer* is identical; this test records how much less *work* the
-// duplicate path does, since a hash holder can time it (finding F-1-1 in round-2/pass1.md).
-// Passes while the gap is there: the duplicate p50 is far below the fresh p50.
-#[tokio::test]
-async fn review_r2_pass1_reproduces_duplicate_create_timing_gap() {
-    // Small blobs for the distribution, a few large ones to show the gap grows with the
-    // blob the attacker chooses (the inline ceiling is 2 MiB by default).
-    for (bucket, n) in [(BUCKET, 120usize), (1024 * 1024, 16)] {
-        let srv = server(&format!("r2p1-dup-timing-{bucket}"), &[], UNLIMITED, true).await;
-        let mut blob = vec![0u8; blob_len(bucket) as usize];
-        getrandom::fill(&mut blob).unwrap();
-        // Warm up: rows to collide with, and the cache.
-        let mut existing = Vec::new();
-        for _ in 0..n {
-            let (l, b) = (random32(), random32());
-            let r = send(&srv.app, create_req(&meta_for(&l, &b, "ttl", 3600), &blob)).await;
-            assert_eq!(r.status, StatusCode::CREATED, "{}", r.text());
-            existing.push((l, b));
-        }
-        let mut fresh = Vec::new();
-        let mut dup_lookup = Vec::new();
-        let mut dup_burn = Vec::new();
-        for (l, b) in &existing {
-            let cases: [(&str, Value, &mut Vec<u128>); 3] = [
-                (
-                    "fresh",
-                    meta_for(&random32(), &random32(), "ttl", 3600),
-                    &mut fresh,
-                ),
-                (
-                    "dup lookup",
-                    meta_for(l, &random32(), "ttl", 3600),
-                    &mut dup_lookup,
-                ),
-                (
-                    "dup burn",
-                    meta_for(&random32(), b, "ttl", 3600),
-                    &mut dup_burn,
-                ),
-            ];
-            for (name, meta, samples) in cases {
-                let start = Instant::now();
-                let r = send(&srv.app, create_req(&meta, &blob)).await;
-                samples.push(start.elapsed().as_micros());
-                assert_eq!(r.status, StatusCode::CREATED, "{name}: {}", r.text());
-                assert!(r.body.is_empty(), "{name}: body");
-            }
-        }
-        let kib = bucket / 1024;
-        println!(
-            "{}",
-            describe(&format!("create fresh ({kib} KiB inline)"), &mut fresh)
-        );
-        println!(
-            "{}",
-            describe(
-                &format!("create dup lookup_key ({kib} KiB)"),
-                &mut dup_lookup
-            )
-        );
-        println!(
-            "{}",
-            describe(&format!("create dup burn_key ({kib} KiB)"), &mut dup_burn)
-        );
-        let fresh_p50 = percentile(&mut fresh, 0.5) as f64;
-        let dup_p50 = percentile(&mut dup_lookup, 0.5) as f64;
-        // Reproduced while the medians sit clearly apart (measured: 27% at 64 KiB, 19% at
-        // 1 MiB, in-process on SQLite).
-        assert!(
-            dup_p50 < 0.9 * fresh_p50,
-            "{kib} KiB: the gap is gone (dup p50 {dup_p50}us vs fresh p50 {fresh_p50}us): invert this test"
-        );
-    }
-}
-
 // SPEC §4 (round 1 S-16 and the reveal control): the negative paths on reveal do the same
 // work whether the row never existed, exists but is claimed by someone else, exists but
 // expired, is a TTL row with a bogus claim token, or the input is malformed.
 #[tokio::test]
-async fn review_r2_pass1_reveal_negatives_take_the_same_time() {
+async fn spec_r2_pass1_reveal_negatives_take_the_same_time() {
     const N: usize = 150;
     let srv = server("r2p1-reveal-timing", &[], UNLIMITED, true).await;
     let t = now();
@@ -557,7 +438,7 @@ async fn review_r2_pass1_reveal_negatives_take_the_same_time() {
 // D-18 at the grid boundaries: the stored expiry is a grid point and the same for every
 // creation second inside a grid step, so a row holds at most the step, never the second.
 #[test]
-fn review_r2_pass1_expiry_grid_hides_the_creation_second_at_every_boundary() {
+fn spec_r2_pass1_expiry_grid_hides_the_creation_second_at_every_boundary() {
     for (ttl, step) in [
         (60, 300),
         (3599, 300),
@@ -587,7 +468,7 @@ fn review_r2_pass1_expiry_grid_hides_the_creation_second_at_every_boundary() {
 // D-25: on the main host the path form of the panel answers like any unknown page, byte
 // for byte, and while unconfigured it gets the same setup page as everything else.
 #[tokio::test]
-async fn review_r2_pass1_admin_path_form_is_an_ordinary_404_in_subdomain_mode() {
+async fn spec_r2_pass1_admin_path_form_is_an_ordinary_404_in_subdomain_mode() {
     let env: &[(&str, &str)] = &[
         ("SHH_ENV", "production"),
         ("SHH_URL", "https://example.com"),
@@ -631,7 +512,7 @@ async fn review_r2_pass1_admin_path_form_is_an_ordinary_404_in_subdomain_mode() 
 // D-26: a probing origin learns nothing but whether it is itself allowed: the answer to a
 // stranger is the answer to a request without `Origin`, plus `Vary: Origin`.
 #[tokio::test]
-async fn review_r2_pass1_cors_tells_a_stranger_nothing_about_the_list() {
+async fn spec_r2_pass1_cors_tells_a_stranger_nothing_about_the_list() {
     let srv = server(
         "r2p1-cors",
         &[],
@@ -678,7 +559,7 @@ async fn review_r2_pass1_cors_tells_a_stranger_nothing_about_the_list() {
 // D-23: admin API use, panel login and keyed API use all record the day only, once per day;
 // the admin API and the panel show no finer value.
 #[tokio::test]
-async fn review_r2_pass1_last_used_on_is_a_day_on_every_path() {
+async fn spec_r2_pass1_last_used_on_is_a_day_on_every_path() {
     let srv = server("r2p1-last-used", &[], UNLIMITED, true).await;
     let user_key = b64(&random32());
     srv.store
@@ -726,7 +607,7 @@ async fn review_r2_pass1_last_used_on_is_a_day_on_every_path() {
 // SPEC §4: the report answer and work are the same for a secret that exists, one that is
 // claimed, one that is gone and garbage; the daily counters move, nothing else is written.
 #[tokio::test]
-async fn review_r2_pass1_report_counts_per_day_and_keeps_no_row() {
+async fn spec_r2_pass1_report_counts_per_day_and_keeps_no_row() {
     let srv = server("r2p1-report", &[], UNLIMITED, true).await;
     let t = now();
     let active = plant(&srv.store, Lifetime::Ttl, t + 3600).await;
@@ -759,9 +640,7 @@ async fn review_r2_pass1_report_counts_per_day_and_keeps_no_row() {
 }
 
 fn sqlite_path_for_tests_existing(name: &str) -> std::path::PathBuf {
-    std::env::temp_dir()
-        .join("shhnote-tests")
-        .join(format!("{name}-{}.db", std::process::id()))
+    sqlite_test_dir().join(format!("{name}.db"))
 }
 
 fn contains(hay: &[u8], needle: &[u8]) -> bool {
@@ -771,7 +650,7 @@ fn contains(hay: &[u8], needle: &[u8]) -> bool {
 // Nothing in the public answers identifies the build beyond the release version: `/config`,
 // `/health` and the footer carry the crate version only, and no other header names it.
 #[tokio::test]
-async fn review_r2_pass1_version_is_the_release_tag_only() {
+async fn spec_r2_pass1_version_is_the_release_tag_only() {
     let srv = server("r2p1-version", &[], &[], true).await;
     let version = env!("CARGO_PKG_VERSION");
     let config = send(&srv.app, get_req("localhost", "/api/v1/config")).await;

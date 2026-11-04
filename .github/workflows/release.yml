@@ -1,5 +1,10 @@
 name: Release
 
+# Whoever can push a `v*` tag publishes the npm package (trusted publishing), the image and
+# the GitHub release, with provenance vouching for them (round 2, R-26). The repository's
+# tag ruleset therefore limits `v*` tag creation to maintainers; it is set on GitHub, not in
+# this tree. A `release` environment with required reviewers is the next step, once npm
+# staging is decided.
 on:
   push:
     tags: ["v*"]

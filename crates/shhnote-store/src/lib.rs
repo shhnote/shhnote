@@ -207,12 +207,28 @@ fn percent_encode(value: &str) -> String {
     out
 }
 
+// A SQLite file for one test, under the workspace's `target/tmp` (gone with `cargo clean`,
+// never in the system temp directory) and named by the test alone, so a rerun replaces the
+// last run's file instead of adding to it. The previous file and its journal are removed
+// here; the pool keeps the new one open for the test's life, which is why nothing deletes it
+// on drop (a connection opened later would otherwise create a fresh, unmigrated database).
+// `SHHNOTE_TEST_DB_DIR` moves the files elsewhere, for a checkout on a slow mount (a 9p share
+// under WSL makes every SQLite write cost milliseconds); it is not an `SHH_` variable, so the
+// server's unknown-variable check never sees it.
+pub fn sqlite_test_dir() -> std::path::PathBuf {
+    match std::env::var_os("SHHNOTE_TEST_DB_DIR") {
+        Some(dir) => std::path::PathBuf::from(dir).join("shhnote-tests"),
+        None => Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp/shhnote-tests"),
+    }
+}
+
 pub fn sqlite_path_for_tests(name: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join("shhnote-tests");
-    std::fs::create_dir_all(&dir).expect("temp dir");
-    let path = dir.join(format!("{name}-{}.db", std::process::id()));
-    let _ = std::fs::remove_file(&path);
-    let _ = std::fs::remove_file(Path::new(&format!("{}-wal", path.display())));
+    let dir = sqlite_test_dir();
+    std::fs::create_dir_all(&dir).expect("test database directory");
+    let path = dir.join(format!("{name}.db"));
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+    }
     path
 }
 

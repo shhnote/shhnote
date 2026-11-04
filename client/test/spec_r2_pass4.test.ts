@@ -101,6 +101,24 @@ describe("review r2 pass4: claim store (SPEC §10)", () => {
   });
 });
 
+// What a well-formed `/config` looks like; the client refuses anything else (revision 4, C1).
+const validConfig = {
+  fragment_version: 1,
+  padding: { mode: "padme", min: 65536 },
+  inline_max: 2097152,
+  max_blob_bytes: 2097152,
+  claim_window_secs: 900,
+  min_ttl_secs: 60,
+  max_ttl_secs: 1209600,
+  default_ttl_secs: 86400,
+  ttl_presets: [900, 86400],
+  text_max_bytes: 65536,
+  files_enabled: true,
+  regions: [],
+  server_version: "0.4.0",
+  web_mode: "full",
+};
+
 describe("review r2 pass4: instance config", () => {
   it("getConfig caches per normalised base and per fetch, and a failure is not kept", async () => {
     let calls = 0;
@@ -111,7 +129,7 @@ describe("review r2 pass4: instance config", () => {
     await assert.rejects(getConfig("https://h.example/api/v1/", failing));
     await assert.rejects(getConfig("https://h.example/api/v1", failing));
     assert.equal(calls, 2, "a failed fetch is retried, not cached");
-    const ok = async () => new Response(JSON.stringify({ fragment_version: 1, max_blob_bytes: 1 }), { status: 200 });
+    const ok = async () => new Response(JSON.stringify(validConfig), { status: 200 });
     const a = await getConfig("https://h.example/api/v1/", ok);
     const b = await getConfig("https://h.example/api/v1", ok);
     assert.equal(a, b, "one object for both spellings");
@@ -139,7 +157,7 @@ describe("review r2 pass4: instance config", () => {
     let init: RequestInit | undefined;
     const api = new Api("https://h.example/api/v1", async (_url, i) => {
       init = i;
-      return new Response("{}", { status: 200 });
+      return new Response(JSON.stringify(validConfig), { status: 200 });
     });
     await api.config();
     assert.equal(init?.credentials, "omit");

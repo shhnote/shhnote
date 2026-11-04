@@ -357,7 +357,7 @@ async fn fake_s3(mode: Arc<AtomicU8>) -> SocketAddr {
 // whose headers arrive but whose body does not must not hang startup, the scrubber or an
 // upload slot. `RESPONSE_TIMEOUT` is 10 s, so a bounded client returns well within 20 s.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn review_r2_pass2_s3_headers_only_body_hangs_open_scrub_and_create() {
+async fn spec_r2_pass2_s3_headers_only_body_hangs_open_scrub_and_create() {
     let mode = Arc::new(AtomicU8::new(MODE_OK));
     let addr = fake_s3(mode.clone()).await;
     let spool = scratch("s3-headers-only-spool");
@@ -419,7 +419,7 @@ async fn review_r2_pass2_s3_headers_only_body_hangs_open_scrub_and_create() {
 // processes on one tier, the new one's sweep deletes an object the old one has stored but
 // not yet referenced, and its `clear_parts` removes the old one's in-flight spool files.
 #[tokio::test]
-async fn review_r2_pass2_second_process_startup_destroys_in_flight_objects_and_spools() {
+async fn spec_r2_pass2_second_process_startup_destroys_in_flight_objects_and_spools() {
     let root = scratch("rolling-deploy");
     let external = shhnote_core::config::ExternalStorage::Local {
         path: root.clone(),
@@ -486,10 +486,10 @@ async fn review_r2_pass2_second_process_startup_destroys_in_flight_objects_and_s
 // F-2-3: the scrubber starves behind SCRUB_BATCH persistently failing deletes
 
 // SPEC §5 / file-uploads skill: parked objects are retried on every pass "until each is
-// confirmed gone". `pending_deletes_sized(200)` has no ordering and no skip, so once 200 rows
+// confirmed gone". `pending_deletes_after` walks the set in key order with a cursor, so 200 rows that
 // fail every tick (an object that cannot be removed), every row behind them is never visited.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn review_r2_pass2_scrubber_starves_behind_200_failing_deletes() {
+async fn spec_r2_pass2_scrubber_starves_behind_200_failing_deletes() {
     let (built, root) = local("scrub-starve", 1_000_000_000, &[]).await;
     let app = built.app.clone();
     let blob = raw_blob(SMALL_EXTERNAL);
@@ -581,7 +581,7 @@ async fn page_within(app: &Router, path: &str, limit: Duration) -> Option<Status
 // index on `scopes`, on a pool connection acquired with sqlx's 30 s default and outside the
 // 30 s request timeout. Observable here as the cost of the 503 growing with the table.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn review_r2_pass2_half_configured_gate_queries_per_request() {
+async fn spec_r2_pass2_half_configured_gate_queries_per_request() {
     const KEYS: usize = 30_000;
     const REQUESTS: usize = 100;
     // Site name and contact set (the defaults of `build_with`), no admin key.
@@ -603,15 +603,22 @@ async fn review_r2_pass2_half_configured_gate_queries_per_request() {
                 .unwrap();
         }
     }
+    // Per-request medians, not totals: one scan or a slow disk's hiccup must not decide this.
     let time = |app: Router| async move {
-        let started = std::time::Instant::now();
+        // One request first: the pool's first connection and the gate's first derivation are
+        // start-up costs, not the per-request cost under test.
+        page_within(&app, "/en", Duration::from_secs(30)).await;
+        let mut samples = Vec::with_capacity(REQUESTS);
         for _ in 0..REQUESTS {
+            let started = std::time::Instant::now();
             assert_eq!(
                 page_within(&app, "/en", Duration::from_secs(30)).await,
                 Some(StatusCode::SERVICE_UNAVAILABLE)
             );
+            samples.push(started.elapsed());
         }
-        started.elapsed()
+        samples.sort_unstable();
+        samples[REQUESTS / 2]
     };
     let none_time = time(none.app.clone()).await;
     let half_time = time(half.app.clone()).await;
@@ -631,9 +638,16 @@ async fn review_r2_pass2_half_configured_gate_queries_per_request() {
         );
     }
     let preflight_time = started.elapsed();
+    // R-15: the count runs once per admin write or per second, not per request, so the
+    // half-configured run may cost a few scans on top of the unconfigured one, never a
+    // hundred.
+    let started = std::time::Instant::now();
+    half.store.admin_key_count().await.unwrap();
+    let one_scan = started.elapsed();
     assert!(
-        half_time < none_time * 3,
-        "{REQUESTS} gated page requests: unconfigured {none_time:?}, half-configured {half_time:?} (preflights {preflight_time:?}) with {KEYS} user keys: the gate scans api_keys per request"
+        half_time < none_time * 3 + Duration::from_millis(1)
+            && half_time < one_scan.max(Duration::from_millis(1)),
+        "{REQUESTS} gated page requests: median unconfigured {none_time:?}, half-configured {half_time:?} (preflights {preflight_time:?}, one scan {one_scan:?}) with {KEYS} user keys: the gate scans api_keys per request"
     );
 }
 
@@ -644,7 +658,7 @@ async fn review_r2_pass2_half_configured_gate_queries_per_request() {
 // blob whose bucket is at most that. The route's body limit is `max_blob_bytes + 16 KiB`, but
 // a 64 MiB bucket needs 16 KiB of tags plus the header and the multipart framing.
 #[tokio::test]
-async fn review_r2_pass2_largest_advertised_bucket_is_accepted() {
+async fn spec_r2_pass2_largest_advertised_bucket_is_accepted() {
     const MAX: u64 = 64 * 1024 * 1024;
     let (built, root) = local(
         "max-bucket",
@@ -682,7 +696,7 @@ async fn review_r2_pass2_largest_advertised_bucket_is_accepted() {
 // client that trickles one byte every 29 s. Two such uploads here hold 88 % of the ceiling
 // after sending 128 KiB each, and a complete small create is refused meanwhile.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn review_r2_pass2_stalled_declared_uploads_hold_the_ceiling() {
+async fn spec_r2_pass2_stalled_declared_uploads_hold_the_ceiling() {
     const CEILING: u64 = 1_000_000;
     const DECLARED: u64 = 450_000;
     let (built, root) = local("declared-hold", CEILING, &[]).await;
@@ -733,7 +747,7 @@ async fn review_r2_pass2_stalled_declared_uploads_hold_the_ceiling() {
 // S-4/S-5: a reservation is given back on the duplicate path (D-21) and on a disconnect, so
 // neither leaks room from the ceiling.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn review_r2_pass2_reservation_is_released_on_duplicate_and_disconnect() {
+async fn spec_r2_pass2_reservation_is_released_on_duplicate_and_disconnect() {
     // Room for exactly two objects.
     let ceiling = 2 * blob_len(LARGE) + 100;
     let (built, root) = local("reservation-release", ceiling, &[]).await;
@@ -788,7 +802,7 @@ async fn review_r2_pass2_reservation_is_released_on_duplicate_and_disconnect() {
 
 // S-16 / D-19: concurrent reports all succeed and the daily counter is exact.
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-async fn review_r2_pass2_fifty_concurrent_reports_count_fifty() {
+async fn spec_r2_pass2_fifty_concurrent_reports_count_fifty() {
     let built = build_with("reports-race", &[], &[], true).await;
     let app = built.app.clone();
     let existing = keys();
@@ -826,7 +840,7 @@ async fn review_r2_pass2_fifty_concurrent_reports_count_fifty() {
 // D-18: the grid never puts an expiry before `now + ttl`, never a full grid step past it, and
 // a claim window is never empty.
 #[test]
-fn review_r2_pass2_expiry_grid_bounds() {
+fn spec_r2_pass2_expiry_grid_bounds() {
     let nows = [
         0i64,
         1,
@@ -860,7 +874,7 @@ fn review_r2_pass2_expiry_grid_bounds() {
 
 // D-23: two keyed requests on the same day write the day once; the second is a no-op.
 #[tokio::test]
-async fn review_r2_pass2_last_used_on_is_the_day_and_idempotent() {
+async fn spec_r2_pass2_last_used_on_is_the_day_and_idempotent() {
     let built = build_with("last-used", &[], &[], true).await;
     let key = random32();
     let hash = credential_hash(&key);
@@ -884,7 +898,7 @@ async fn review_r2_pass2_last_used_on_is_the_day_and_idempotent() {
 // that announces a huge body costs nothing; the unread body is not drained and the
 // connection is closed after the answer.
 #[tokio::test]
-async fn review_r2_pass2_preflight_with_a_huge_body_is_answered_at_once() {
+async fn spec_r2_pass2_preflight_with_a_huge_body_is_answered_at_once() {
     use shhnote_server::drain::{Drain, track};
     let built = build_with("preflight-body", &[], &[], true).await;
     let drain = Arc::new(Drain::default());

@@ -187,12 +187,11 @@ fn scratch(name: &str) -> std::path::PathBuf {
     dir
 }
 
-// FINDING F-3-1 (part 1): with the default external cap (64 MiB) the top bucket's blob is
-// `blob_len(64 MiB) = 64 MiB + 16 479` bytes, which is already past the route's body limit
-// of `max_blob_bytes + 16 KiB` before any multipart framing. A client that pads to the
-// bucket the instance advertises as its maximum gets 413, never 201.
+// R-6 (round 2): with the default external cap (64 MiB) the top bucket's blob is
+// `blob_len(64 MiB) = 64 MiB + 16 479` bytes; the route's body limit is `blob_len(max)` plus
+// the framing slack, so a client that pads to the bucket the instance advertises gets 201.
 #[tokio::test]
-async fn review_r2_pass3_top_bucket_of_default_external_tier_is_unreachable() {
+async fn spec_r2_pass3_top_bucket_of_default_external_tier_is_accepted() {
     let root = scratch("top-bucket-64");
     let (app, _, _) = configured(
         "review-r2-pass3-top-bucket-64",
@@ -207,7 +206,7 @@ async fn review_r2_pass3_top_bucket_of_default_external_tier_is_unreachable() {
     let config = get(&app, Some("localhost"), "/api/v1/config").await.json();
     let max = config["max_blob_bytes"].as_u64().unwrap();
     assert_eq!(max, 64 << 20, "default SHH_EXTERNAL_MAX_OBJECT");
-    // The arithmetic the finding rests on.
+    // The arithmetic the old limit tripped over: the tags alone exceed 16 KiB here.
     assert!(
         blob_len(max) > max + 16 * 1024,
         "{} vs {}",
@@ -216,24 +215,15 @@ async fn review_r2_pass3_top_bucket_of_default_external_tier_is_unreachable() {
     );
 
     let reply = create(&app, blob_len(max) as usize).await;
-    assert_eq!(
-        reply.status,
-        StatusCode::PAYLOAD_TOO_LARGE,
-        "{}",
-        reply.text()
-    );
-    assert_eq!(reply.json()["error"]["code"], "too_large");
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.text());
     let _ = fs::remove_dir_all(&root);
 }
 
-// FINDING F-3-1 (part 2): where the framing slack does cover the tags (every cap below
-// about 63 MiB), the server stores a blob at the top bucket and then serves it with a
-// Content-Length above the `max_blob_bytes` it advertises. The reference client caps the
-// body it reads at `max_blob_bytes` (client/src/client.ts:62, lib/api.ts:148), so such a
-// secret is claimed and then refused with `too_large`: a single-view secret made by a
-// conforming third-party client at the top bucket is destroyed unread by the built-in page.
+// R-6 (round 2): `max_blob_bytes` is a bucket (SPEC §4). The server stores a blob at the top
+// bucket and serves it with a Content-Length of `blob_len(max_blob_bytes)`, above the number
+// itself; the client caps the body at that length, not at the bucket.
 #[tokio::test]
-async fn review_r2_pass3_server_serves_blobs_longer_than_advertised_max_blob_bytes() {
+async fn spec_r2_pass3_server_serves_blobs_longer_than_advertised_max_blob_bytes() {
     let root = scratch("top-bucket-1m");
     let (app, _, _) = configured(
         "review-r2-pass3-top-bucket-1m",
@@ -275,14 +265,12 @@ async fn review_r2_pass3_server_serves_blobs_longer_than_advertised_max_blob_byt
     let _ = fs::remove_dir_all(&root);
 }
 
-// FINDING F-3-2: `shhnote init --env` looks for a line that starts with `KEY=` exactly. The
-// `.env` reader (dotenvy) also accepts `export KEY=value` and `KEY = value`, so for those
-// forms `init` appends a second `KEY=<new>` line; dotenvy keeps the last value, and the
-// operator's own value is overridden although the spec promises it is never overwritten.
-// Observed through `shhnote check`: a deliberately too-short key makes `check` fail before
-// `init`, and succeed after it, so the appended key is the one the server uses.
+// R-9 (round 2): `shhnote init --env` reads a line the way the server's `.env` reader does,
+// so `export KEY=value` and `KEY = value` count as set and are kept. Observed through
+// `shhnote check`: a deliberately too-short key makes `check` fail before `init` and still
+// after it, since the operator's line is the only one.
 #[test]
-fn review_r2_pass3_init_env_overrides_values_set_with_export_or_spaces() {
+fn spec_r2_pass3_init_env_keeps_values_set_with_export_or_spaces() {
     let dir = std::env::temp_dir().join(format!(
         "shhnote-review-r2-pass3-init-{}",
         std::process::id()
@@ -322,32 +310,33 @@ fn review_r2_pass3_init_env_overrides_values_set_with_export_or_spaces() {
         let report = String::from_utf8_lossy(&init.stdout);
         assert!(init.status.success(), "{label}: {report}");
         assert!(
-            report.contains("SHH_SECRET_KEY: appended"),
+            report.contains("SHH_SECRET_KEY: already set, kept"),
             "{label}: init did not see the set key: {report}"
         );
         let text = fs::read_to_string(dir.join(".env")).unwrap();
         assert_eq!(
             text.matches("SHH_SECRET_KEY").count(),
-            2,
-            "{label}: two SHH_SECRET_KEY lines now: {text}"
+            1,
+            "{label}: a second SHH_SECRET_KEY line: {text}"
         );
-        // After init: the server starts with the appended key, so the operator's value was
-        // overridden in effect.
+        assert!(
+            text.contains(line),
+            "{label}: the operator's line changed: {text}"
+        );
+        // After init: the server still reads the operator's own value.
         let after = shhnote().arg("check").output().unwrap();
         assert!(
-            after.status.success(),
-            "{label}: {}",
-            String::from_utf8_lossy(&after.stderr)
+            !after.status.success(),
+            "{label}: the server reads a value the operator did not set"
         );
     }
     let _ = fs::remove_dir_all(&dir);
 }
 
-// Companion to F-3-2: a value that dotenvy reads as empty (`KEY=""`, `KEY= # comment`) is
-// reported as "already set, kept", so the file is left without a usable key and the server
-// refuses to start. Safe (nothing is overwritten), but the report is wrong.
+// R-9 (round 2): a value the server's reader takes as empty (`KEY=""`, `KEY= # comment`) is
+// empty to `init` too, and is filled in.
 #[test]
-fn review_r2_pass3_init_env_keeps_values_dotenvy_reads_as_empty() {
+fn spec_r2_pass3_init_env_fills_values_dotenvy_reads_as_empty() {
     let dir = std::env::temp_dir().join(format!(
         "shhnote-review-r2-pass3-init-empty-{}",
         std::process::id()
@@ -364,58 +353,64 @@ fn review_r2_pass3_init_env_keeps_values_dotenvy_reads_as_empty() {
         .unwrap();
     let report = String::from_utf8_lossy(&out.stdout);
     assert!(out.status.success(), "{report}");
-    assert!(
-        report.contains("SHH_SECRET_KEY: already set, kept"),
-        "{report}"
-    );
-    assert!(
-        report.contains("SHH_ADMIN_TOKEN: already set, kept"),
-        "{report}"
-    );
-    assert_eq!(
-        fs::read_to_string(&env).unwrap(),
-        "SHH_SECRET_KEY=\"\"\nSHH_ADMIN_TOKEN= # fill me in\n"
-    );
+    assert!(report.contains("SHH_SECRET_KEY: filled in"), "{report}");
+    assert!(report.contains("SHH_ADMIN_TOKEN: filled in"), "{report}");
+    let text = fs::read_to_string(&env).unwrap();
+    assert!(!text.contains("SHH_SECRET_KEY=\"\""), "{text}");
+    assert!(!text.contains("# fill me in"), "{text}");
+    assert_eq!(text.matches("SHH_SECRET_KEY=").count(), 1, "{text}");
+    assert_eq!(text.matches("SHH_ADMIN_TOKEN=").count(), 1, "{text}");
     let _ = fs::remove_dir_all(&dir);
 }
 
-// FINDING F-3-3: before setup (D-29) the gate opens `/{locale}/admin` and everything under
-// it, but an unknown path there is answered by the website's 404 page, not by the setup
-// page: a public page with the full layout leaks through the gate.
+// R-11 (round 2): before setup (D-29) the gate opens exactly the panel's routes; an unknown
+// path under `/{locale}/admin` is a public page and gets the setup page like any other.
 #[tokio::test]
-async fn review_r2_pass3_setup_gate_unknown_admin_path_renders_the_public_error_page() {
+async fn spec_r2_pass3_setup_gate_unknown_admin_path_gets_the_setup_page() {
     let app = unconfigured("review-r2-pass3-gate-admin-404", &[]).await;
     let gated = get(&app, Some("localhost"), "/en/s").await;
     assert_eq!(gated.status, StatusCode::SERVICE_UNAVAILABLE);
-    let leak = get(&app, Some("localhost"), "/en/admin/no-such-page").await;
-    assert_eq!(leak.status, StatusCode::NOT_FOUND);
-    let body = leak.text();
-    assert!(!body.contains("not set up yet"), "{body}");
-    assert!(body.contains("</html>") && body.contains("<nav"), "{body}");
+    let unknown = get(&app, Some("localhost"), "/en/admin/no-such-page").await;
+    assert_eq!(unknown.status, StatusCode::SERVICE_UNAVAILABLE);
+    let body = unknown.text();
+    assert!(body.contains("not set up yet"), "{body}");
     // The login page itself is rightly open.
     let login = get(&app, Some("localhost"), "/en/admin/login").await;
     assert_eq!(login.status, StatusCode::OK);
 }
 
-// FINDING F-3-4: with files switched off the accepted size is `padded_size(2 × text_max +
-// 1 KiB)`, and `padded_size` is `None` when the ladder has no rung that big; the cap then
-// becomes `blob_len(0)` and every create, text-only ones included, is refused.
+// R-16 (round 2): with files switched off the accepted size is `padded_size(2 × text_max +
+// 1 KiB)`; a ladder with no rung that big is refused on save and corrected at startup (back
+// to Padmé), so a text secret is always accepted.
 #[tokio::test]
-async fn review_r2_pass3_files_disabled_with_a_short_ladder_refuses_every_text_secret() {
+async fn spec_r2_pass3_files_disabled_with_a_short_ladder_still_accepts_text() {
+    let (_, warnings) = Settings::with_overrides(
+        &[
+            ("padding_mode", "buckets"),
+            ("padding_ladder", "65536"),
+            ("files_enabled", "false"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect(),
+        shhnote_core::config::AppEnv::Local,
+    );
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains("files_enabled"), "{warnings:?}");
+
     let (app, _, _) = configured(
         "review-r2-pass3-text-only-cap",
         &[],
         &[
             ("padding_mode", "buckets"),
-            ("padding_ladder", "65536"),
+            ("padding_ladder", "65536,262144"),
             ("files_enabled", "false"),
         ],
     )
     .await;
     // The smallest blob the instance can store at all: a text secret padded to 64 KiB.
     let reply = create(&app, blob_len(65536) as usize).await;
-    assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{}", reply.text());
-    assert_eq!(reply.json()["error"]["code"], "files_disabled");
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.text());
 }
 
 // Host matching under subdomain routing (D-11, D-25): no panic on any Host shape, and the
@@ -423,7 +418,7 @@ async fn review_r2_pass3_files_disabled_with_a_short_ladder_refuses_every_text_s
 // would send. Behaviour pinned here; none of it is a bypass, since the admin router still
 // demands a session.
 #[tokio::test]
-async fn review_r2_pass3_host_matching_edge_cases_do_not_panic_or_cross_routers() {
+async fn spec_r2_pass3_host_matching_edge_cases_do_not_panic_or_cross_routers() {
     let (app, _, _) = configured(
         "review-r2-pass3-hosts",
         &[
@@ -510,7 +505,7 @@ async fn review_r2_pass3_host_matching_edge_cases_do_not_panic_or_cross_routers(
 // CORS (D-26): `null`, malformed and unlisted origins get no allow-origin header, the
 // preflight still answers (without one), `Vary: Origin` is always there and nothing panics.
 #[tokio::test]
-async fn review_r2_pass3_cors_rejects_null_and_malformed_origins() {
+async fn spec_r2_pass3_cors_rejects_null_and_malformed_origins() {
     let (app, _, _) = configured(
         "review-r2-pass3-cors",
         &[
@@ -586,10 +581,9 @@ async fn review_r2_pass3_cors_rejects_null_and_malformed_origins() {
     }
 }
 
-// Low: the admin API's `?days=` query is parsed by axum's `Query`, whose rejection is a
-// plain-text 400 instead of the shared JSON error shape (api-endpoint skill).
+// R-17 (round 2): a bad `?days=` on the admin API gets the shared JSON error shape.
 #[tokio::test]
-async fn review_r2_pass3_admin_stats_query_rejection_is_not_the_shared_error_shape() {
+async fn spec_r2_pass3_admin_stats_query_rejection_uses_the_shared_error_shape() {
     let (app, _, _) = configured("review-r2-pass3-admin-query", &[], &[]).await;
     let req = Request::get("/api/v1/admin/stats?days=abc")
         .header(header::HOST, "localhost")
@@ -598,24 +592,18 @@ async fn review_r2_pass3_admin_stats_query_rejection_is_not_the_shared_error_sha
         .unwrap();
     let reply = send(&app, req).await;
     assert_eq!(reply.status, StatusCode::BAD_REQUEST);
-    assert_eq!(reply.json(), Value::Null, "{}", reply.text());
-    assert!(
-        reply
-            .headers
-            .get(header::CONTENT_TYPE)
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .starts_with("text/plain"),
-        "{:?}",
-        reply.headers.get(header::CONTENT_TYPE)
+    assert_eq!(
+        reply.json()["error"]["code"],
+        "invalid_query",
+        "{}",
+        reply.text()
     );
 }
 
 // Round-1 regression check (S-6, S-18 analogue for the drain): the drain's 503 carries
 // `no-store`, `Connection: close` and the SPEC §11 headers.
 #[tokio::test]
-async fn review_r2_pass3_drain_503_carries_no_store_and_security_headers() {
+async fn spec_r2_pass3_drain_503_carries_no_store_and_security_headers() {
     let config = Config::from_vars(&base_vars(&[])).unwrap();
     let store = store("review-r2-pass3-drain").await;
     let drain = Arc::new(shhnote_server::drain::Drain::default());

@@ -10,7 +10,7 @@ fn with_manifest(json: &str) -> Vec<u8> {
 }
 
 #[test]
-fn f_5_5_file_size_negative_zero_is_refused_here_and_accepted_in_typescript() {
+fn spec_r2_f_5_5_file_size_negative_zero_is_refused_here_and_accepted_in_typescript() {
     let bytes = with_manifest(r#"{"v":1,"text":"t","files":[{"name":"a","type":"","size":-0}]}"#);
     assert!(
         matches!(Payload::decode(&bytes), Err(Error::Manifest(_))),
@@ -31,9 +31,10 @@ fn deep_nesting_in_an_ignored_key_is_accepted_on_both_sides() {
 }
 
 #[test]
-fn f_5_5_duplicated_unknown_key_is_accepted_here_and_refused_in_typescript() {
+fn spec_r2_f_5_5_duplicated_unknown_key_is_accepted_here_and_refused_in_typescript() {
     let bytes = with_manifest(r#"{"v":1,"text":"t","files":[],"x":1,"x":2}"#);
-    let payload = Payload::decode(&bytes).expect("serde_json ignores unknown fields, duplicated or not");
+    let payload =
+        Payload::decode(&bytes).expect("serde_json ignores unknown fields, duplicated or not");
     assert_eq!(payload.text.as_deref(), Some("t"));
 }
 
@@ -47,6 +48,12 @@ fn the_parity_cases_the_vectors_pin_still_hold() {
         r#"{"v":1,"text":"\ud800","files":[]}"#,
         r#"{"v":1,"text":"t","files":[null]}"#,
     ] {
-        assert!(matches!(Payload::decode(&with_manifest(json)), Err(Error::Manifest(_))), "{json}");
+        assert!(
+            matches!(
+                Payload::decode(&with_manifest(json)),
+                Err(Error::Manifest(_))
+            ),
+            "{json}"
+        );
     }
 }

@@ -9,7 +9,7 @@ use shhnote_core::{
 // D-18: the grid boundaries are exactly 1 h and 3 days; rounding is always up, never past
 // one grid step, and extreme inputs saturate instead of overflowing.
 #[test]
-fn review_r2_pass3_expiry_grid_boundaries_and_extremes() {
+fn spec_r2_pass3_expiry_grid_boundaries_and_extremes() {
     assert_eq!(grid(0), 300);
     assert_eq!(grid(60), 300);
     assert_eq!(grid(3599), 300);
@@ -52,7 +52,7 @@ fn review_r2_pass3_expiry_grid_boundaries_and_extremes() {
 
 // The padded-size helpers at the ends of their domains: no panic, no wrap.
 #[test]
-fn review_r2_pass3_padding_helpers_on_extreme_sizes() {
+fn spec_r2_pass3_padding_helpers_on_extreme_sizes() {
     for size in [
         0u64,
         1,
@@ -96,7 +96,7 @@ fn review_r2_pass3_padding_helpers_on_extreme_sizes() {
 // blob at the top bucket is `blob_len(max_blob_bytes)`. From 1019 chunks on, the tags and
 // header alone exceed the 16 KiB slack, so the advertised maximum cannot be uploaded.
 #[test]
-fn review_r2_pass3_top_bucket_exceeds_the_framing_slack_from_64_mib() {
+fn spec_r2_pass3_top_bucket_exceeds_the_framing_slack_from_64_mib() {
     let slack = 16 * 1024;
     assert!(blob_len(2 << 20) <= (2 << 20) + slack);
     assert!(blob_len(62 << 20) <= (62 << 20) + slack);

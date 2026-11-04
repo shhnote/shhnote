@@ -101,7 +101,7 @@ fn allow_origin(seen: &Seen) -> Option<String> {
 // exactly (scheme, host, port; no trailing slash, no `null`, no look-alike host), and no
 // response ever allows credentials.
 #[tokio::test]
-async fn review_r2_pass6_cors_is_api_only_and_exact() {
+async fn spec_r2_pass6_cors_is_api_only_and_exact() {
     let app = build(
         "review-r2-pass6-cors",
         &[("SHH_API_ROUTING", "subdomain")],
@@ -175,7 +175,7 @@ async fn review_r2_pass6_cors_is_api_only_and_exact() {
 // the panel on the main host is refused (503, never the panel), `/static/*` stays, and in
 // `api` mode the root is the gate's 503 rather than the mode's 404.
 #[tokio::test]
-async fn review_r2_pass6_setup_gate_under_subdomain_routing() {
+async fn spec_r2_pass6_setup_gate_under_subdomain_routing() {
     let app = build(
         "review-r2-pass6-gate",
         &[
@@ -255,7 +255,7 @@ async fn review_r2_pass6_setup_gate_under_subdomain_routing() {
 // D-27: the public version is the crate version and nothing else: no git hash, no build
 // metadata, no dirty marker, the same string on /config, /health and the footer.
 #[tokio::test]
-async fn review_r2_pass6_version_is_the_crate_version_only() {
+async fn spec_r2_pass6_version_is_the_crate_version_only() {
     let version = env!("CARGO_PKG_VERSION");
     assert!(
         !version.contains('+') && version.split('.').count() >= 3,
@@ -293,7 +293,7 @@ async fn review_r2_pass6_version_is_the_crate_version_only() {
 // owner-only, and the printing form writes the two lines to stdout and nothing to stderr.
 #[cfg(unix)]
 #[test]
-fn review_r2_pass6_init_env_modes() {
+fn spec_r2_pass6_init_env_modes() {
     use std::os::unix::fs::PermissionsExt;
 
     let dir = std::env::temp_dir().join(format!("review-r2-pass6-init-{}", std::process::id()));

@@ -375,6 +375,59 @@ async fn external_rows_park_in_pending_delete() {
     }
 }
 
+// Round 2, R-14: the scrubber walks parked rows in key order from a cursor, so a batch of
+// rows that will not go never hides the ones behind them, on either engine.
+#[tokio::test]
+async fn pending_deletes_walk_in_key_order_from_a_cursor() {
+    for (backend, store) in backends("pending-cursor").await {
+        let _guard = fresh(backend, &store).await;
+        let now = 6_000_000;
+        let mut keys = Vec::new();
+        for i in 0..5u8 {
+            let mut s = secret(Lifetime::Ttl, now + 3600);
+            s.lookup_key = key(10 + i);
+            s.burn_key = key(40 + i);
+            s.blob = None;
+            s.external_ref = Some(format!("blobs/{i}"));
+            store.create(&s, now).await.unwrap();
+            assert!(store.burn(&s.burn_key, now).await.unwrap(), "{backend}");
+            keys.push(s.lookup_key.to_vec());
+        }
+        keys.sort();
+        let first = store.pending_deletes_after(None, 2).await.unwrap();
+        let got: Vec<Vec<u8>> = first.iter().map(|(k, _, _)| k.clone()).collect();
+        assert_eq!(
+            got,
+            keys[..2].to_vec(),
+            "{backend}: first batch in key order"
+        );
+        let second = store
+            .pending_deletes_after(Some(&keys[1]), 2)
+            .await
+            .unwrap();
+        let got: Vec<Vec<u8>> = second.iter().map(|(k, _, _)| k.clone()).collect();
+        assert_eq!(
+            got,
+            keys[2..4].to_vec(),
+            "{backend}: next batch after the cursor"
+        );
+        let last = store
+            .pending_deletes_after(Some(&keys[3]), 2)
+            .await
+            .unwrap();
+        assert_eq!(last.len(), 1, "{backend}: the tail is short");
+        assert_eq!(last[0].0, keys[4], "{backend}");
+        assert!(
+            store
+                .pending_deletes_after(Some(&keys[4]), 2)
+                .await
+                .unwrap()
+                .is_empty(),
+            "{backend}: nothing after the last key"
+        );
+    }
+}
+
 #[tokio::test]
 async fn settings_overrides_round_trip() {
     for (backend, store) in backends("settings").await {

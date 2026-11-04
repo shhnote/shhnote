@@ -6,6 +6,10 @@ on:
   pull_request:
   # Release runs this workflow first, so nothing ships that CI has not passed.
   workflow_call:
+  # Once a week the `audit` job alone runs again (round 2, R-27): an advisory published
+  # while nothing is pushed still shows up against what is deployed.
+  schedule:
+    - cron: "17 6 * * 1"
 
 # Nothing by default; each job asks for what it needs. Actions are pinned to commits.
 permissions: {}
@@ -15,6 +19,7 @@ env:
 
 jobs:
   test:
+    if: github.event_name != 'schedule'
     permissions:
       contents: read
     strategy:
@@ -104,6 +109,7 @@ jobs:
 
   image:
     # Proves the Dockerfile still builds; the real image is published by release.yml.
+    if: github.event_name != 'schedule'
     permissions:
       contents: read
     runs-on: ubuntu-24.04

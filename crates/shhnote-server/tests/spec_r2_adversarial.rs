@@ -349,7 +349,7 @@ fn dir_entries(dir: &Path) -> Vec<String> {
 // kind (reveal, burn, report). At most one of them gets anything.
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-async fn r2_a_mixed_concurrent_takers_at_most_one_wins() {
+async fn spec_r2_a_mixed_concurrent_takers_at_most_one_wins() {
     for tier in ["inline", "local"] {
         let root = scratch(&format!("a-{tier}"));
         let env: Vec<(&str, &str)> = if tier == "local" {
@@ -374,7 +374,14 @@ async fn r2_a_mixed_concurrent_takers_at_most_one_wins() {
                 tasks.push(tokio::spawn(async move {
                     let r = match i % 3 {
                         0 => reveal(&app, &b64(&k.lookup), None).await,
-                        1 => post(&app, "/api/v1/secrets/burn", json!({"burn_token": b64(&k.burn)})).await,
+                        1 => {
+                            post(
+                                &app,
+                                "/api/v1/secrets/burn",
+                                json!({"burn_token": b64(&k.burn)}),
+                            )
+                            .await
+                        }
                         _ => post(&app, "/api/v1/reports", json!({"lookup": b64(&k.lookup)})).await,
                     };
                     (i % 3, r)
@@ -415,7 +422,7 @@ async fn r2_a_mixed_concurrent_takers_at_most_one_wins() {
 // the hashes a dump holds, and a token after confirm all get the uniform negative.
 
 #[tokio::test]
-async fn r2_b_redownload_refuses_every_token_but_its_own() {
+async fn spec_r2_b_redownload_refuses_every_token_but_its_own() {
     let s = srv("b-tokens", &[], NO_LIMITS).await;
     let (k1, k2) = (keys(), keys());
     make(&s.app, &k1, "single_view", 65536).await;
@@ -426,11 +433,11 @@ async fn r2_b_redownload_refuses_every_token_but_its_own() {
     assert_ne!(t1, t2);
 
     let wrong: Vec<String> = vec![
-        t2.clone(),                                   // the sibling's token
-        b64(&credential_hash(&k1.lookup)),            // the lookup hash (dump column)
-        b64(&credential_hash(t1.as_bytes())),         // SHA-256 of the token as text
+        t2.clone(),                                                       // the sibling's token
+        b64(&credential_hash(&k1.lookup)), // the lookup hash (dump column)
+        b64(&credential_hash(t1.as_bytes())), // SHA-256 of the token as text
         b64(&credential_hash(&URL_SAFE_NO_PAD.decode(&t1).unwrap())), // claim_key column
-        b64(&k1.burn),                                // the burn token
+        b64(&k1.burn),                     // the burn token
         t1[..42].to_string() + if t1.ends_with('A') { "B" } else { "A" }, // one char off
         String::new(),
         "A".repeat(43),
@@ -438,14 +445,27 @@ async fn r2_b_redownload_refuses_every_token_but_its_own() {
     for w in &wrong {
         let r = reveal(&s.app, &b64(&k1.lookup), Some(w)).await;
         assert!(uniform(&r), "token {w:?} answered {:?}", r.status);
-        let c = post(&s.app, "/api/v1/secrets/confirm", json!({"lookup": b64(&k1.lookup), "claim_token": w})).await;
+        let c = post(
+            &s.app,
+            "/api/v1/secrets/confirm",
+            json!({"lookup": b64(&k1.lookup), "claim_token": w}),
+        )
+        .await;
         assert!(uniform(&c), "confirm with {w:?} answered {:?}", c.status);
     }
     // The real one still works, the sibling's lookup with this token does not.
-    assert_eq!(reveal(&s.app, &b64(&k1.lookup), Some(&t1)).await.status, StatusCode::OK);
+    assert_eq!(
+        reveal(&s.app, &b64(&k1.lookup), Some(&t1)).await.status,
+        StatusCode::OK
+    );
     assert!(uniform(&reveal(&s.app, &b64(&k2.lookup), Some(&t1)).await));
     // After confirm nothing is left, for anyone.
-    let c = post(&s.app, "/api/v1/secrets/confirm", json!({"lookup": b64(&k1.lookup), "claim_token": t1})).await;
+    let c = post(
+        &s.app,
+        "/api/v1/secrets/confirm",
+        json!({"lookup": b64(&k1.lookup), "claim_token": t1}),
+    )
+    .await;
     assert_eq!(c.status, StatusCode::NO_CONTENT);
     assert!(uniform(&reveal(&s.app, &b64(&k1.lookup), Some(&t1)).await));
     assert!(uniform(&reveal(&s.app, &b64(&k1.lookup), None).await));
@@ -458,7 +478,7 @@ async fn r2_b_redownload_refuses_every_token_but_its_own() {
 // identical for every target; timing is measured and reported, not asserted (see pass7.md).
 
 #[tokio::test]
-async fn r2_c_report_answer_identical_for_every_target() {
+async fn spec_r2_c_report_answer_identical_for_every_target() {
     let s = srv("c-report", &[], NO_LIMITS).await;
     let live = keys();
     make(&s.app, &live, "ttl", 65536).await;
@@ -467,7 +487,12 @@ async fn r2_c_report_answer_identical_for_every_target() {
     reveal(&s.app, &b64(&claimed.lookup), None).await;
     let burned = keys();
     make(&s.app, &burned, "ttl", 65536).await;
-    post(&s.app, "/api/v1/secrets/burn", json!({"burn_token": b64(&burned.burn)})).await;
+    post(
+        &s.app,
+        "/api/v1/secrets/burn",
+        json!({"burn_token": b64(&burned.burn)}),
+    )
+    .await;
     let targets: Vec<Value> = vec![
         json!({"lookup": b64(&live.lookup)}),
         json!({"lookup": b64(&random32())}),
@@ -498,7 +523,11 @@ async fn r2_c_report_answer_identical_for_every_target() {
         assert_eq!(sh, &shapes[0]);
     }
     let st = stats(&s.store).await;
-    assert_eq!(st.reports, shapes.len() as i64, "every report counts, malformed ones too");
+    assert_eq!(
+        st.reports,
+        shapes.len() as i64,
+        "every report counts, malformed ones too"
+    );
     assert_eq!(st.removed, 1, "only the live secret was removed");
     assert!(uniform(&reveal(&s.app, &b64(&live.lookup), None).await));
 }
@@ -506,7 +535,7 @@ async fn r2_c_report_answer_identical_for_every_target() {
 // Timing side: a report that removes a large inline row does more database work than one
 // that removes nothing. Prints the medians; the write-up decides.
 #[tokio::test]
-async fn r2_c_report_timing_live_vs_missing_measured() {
+async fn spec_r2_c_report_timing_live_vs_missing_measured() {
     let s = srv("c-timing", &[], NO_LIMITS).await;
     let bucket = 1 << 20;
     let mut live = Vec::new();
@@ -518,7 +547,12 @@ async fn r2_c_report_timing_live_vs_missing_measured() {
         post(&s.app, "/api/v1/reports", json!({"lookup": b64(&k.lookup)})).await;
         live.push(t.elapsed());
         let t = Instant::now();
-        post(&s.app, "/api/v1/reports", json!({"lookup": b64(&random32())})).await;
+        post(
+            &s.app,
+            "/api/v1/reports",
+            json!({"lookup": b64(&random32())}),
+        )
+        .await;
         missing.push(t.elapsed());
     }
     live.sort();
@@ -535,7 +569,7 @@ async fn r2_c_report_timing_live_vs_missing_measured() {
 // claimed secret (whose claimant keeps re-downloading) and with the share seed as the token.
 
 #[tokio::test]
-async fn r2_d_wrong_burn_learns_and_changes_nothing() {
+async fn spec_r2_d_wrong_burn_learns_and_changes_nothing() {
     let s = srv("d-burn", &[], NO_LIMITS).await;
     let k = keys();
     make(&s.app, &k, "single_view", 65536).await;
@@ -543,10 +577,10 @@ async fn r2_d_wrong_burn_learns_and_changes_nothing() {
     let token = claim_token(&claimed);
     let before = stats(&s.store).await;
     let bad: Vec<String> = vec![
-        b64(&k.lookup),                       // the share secret as a burn token
-        b64(&credential_hash(&k.burn)),       // the stored hash
-        b64(&credential_hash(&k.lookup)),     // the lookup hash
-        b64(&k.burn),                         // the right token, but the secret is claimed
+        b64(&k.lookup),                   // the share secret as a burn token
+        b64(&credential_hash(&k.burn)),   // the stored hash
+        b64(&credential_hash(&k.lookup)), // the lookup hash
+        b64(&k.burn),                     // the right token, but the secret is claimed
         b64(&random32()),
         "".into(),
         "x".repeat(43),
@@ -561,9 +595,16 @@ async fn r2_d_wrong_burn_learns_and_changes_nothing() {
     for sh in &shapes {
         assert_eq!(sh, &shapes[0]);
     }
-    assert_eq!(stats(&s.store).await, before, "a failed burn moved a counter");
+    assert_eq!(
+        stats(&s.store).await,
+        before,
+        "a failed burn moved a counter"
+    );
     // The claimant is unaffected.
-    assert_eq!(reveal(&s.app, &b64(&k.lookup), Some(&token)).await.status, StatusCode::OK);
+    assert_eq!(
+        reveal(&s.app, &b64(&k.lookup), Some(&token)).await.status,
+        StatusCode::OK
+    );
 }
 
 // ============================================================================================
@@ -571,7 +612,7 @@ async fn r2_d_wrong_burn_learns_and_changes_nothing() {
 // in the dump opens, consumes, destroys, reports or administers anything.
 
 #[tokio::test]
-async fn r2_e_dump_contents_open_nothing_including_admin() {
+async fn spec_r2_e_dump_contents_open_nothing_including_admin() {
     let s = srv("e-dump", &[], NO_LIMITS).await;
     let k = keys();
     make(&s.app, &k, "single_view", 65536).await;
@@ -585,10 +626,22 @@ async fn r2_e_dump_contents_open_nothing_including_admin() {
     let contains = |needle: &[u8]| dump.windows(needle.len()).any(|w| w == needle);
     // What is there, and what is not.
     for (name, raw, hashed) in [
-        ("lookup", k.lookup.to_vec(), credential_hash(&k.lookup).to_vec()),
+        (
+            "lookup",
+            k.lookup.to_vec(),
+            credential_hash(&k.lookup).to_vec(),
+        ),
         ("burn", k.burn.to_vec(), credential_hash(&k.burn).to_vec()),
-        ("claim", token_raw.clone(), credential_hash(&token_raw).to_vec()),
-        ("admin key", ADMIN_KEY.as_bytes().to_vec(), credential_hash(ADMIN_KEY.as_bytes()).to_vec()),
+        (
+            "claim",
+            token_raw.clone(),
+            credential_hash(&token_raw).to_vec(),
+        ),
+        (
+            "admin key",
+            ADMIN_KEY.as_bytes().to_vec(),
+            credential_hash(ADMIN_KEY.as_bytes()).to_vec(),
+        ),
     ] {
         assert!(contains(&hashed), "{name}: hash missing from the dump");
         assert!(!contains(&raw), "{name}: raw credential in the dump");
@@ -605,13 +658,30 @@ async fn r2_e_dump_contents_open_nothing_including_admin() {
         credential_hash(ADMIN_KEY.as_bytes()),
     ]
     .iter()
-    .flat_map(|h| [b64(h), h.iter().map(|b| format!("{b:02x}")).collect::<String>()])
+    .flat_map(|h| {
+        [
+            b64(h),
+            h.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+        ]
+    })
     .collect();
     for h in &hashes {
         assert!(uniform(&reveal(&s.app, h, None).await), "{h}");
-        assert!(uniform(&reveal(&s.app, &b64(&k.lookup), Some(h)).await), "{h}");
-        assert!(uniform(&post(&s.app, "/api/v1/secrets/confirm", json!({"lookup": b64(&k.lookup), "claim_token": h})).await));
-        assert!(uniform(&post(&s.app, "/api/v1/secrets/burn", json!({"burn_token": h})).await));
+        assert!(
+            uniform(&reveal(&s.app, &b64(&k.lookup), Some(h)).await),
+            "{h}"
+        );
+        assert!(uniform(
+            &post(
+                &s.app,
+                "/api/v1/secrets/confirm",
+                json!({"lookup": b64(&k.lookup), "claim_token": h})
+            )
+            .await
+        ));
+        assert!(uniform(
+            &post(&s.app, "/api/v1/secrets/burn", json!({"burn_token": h})).await
+        ));
         let a = admin(&s.app, "GET", "/api/v1/admin/stats", h, None).await;
         assert_eq!(a.status, StatusCode::UNAUTHORIZED, "{h}");
         let page = send(
@@ -629,8 +699,14 @@ async fn r2_e_dump_contents_open_nothing_including_admin() {
     for h in &hashes {
         post(&s.app, "/api/v1/reports", json!({"lookup": h})).await;
     }
-    assert_eq!(reveal(&s.app, &b64(&t.lookup), None).await.status, StatusCode::OK);
-    assert_eq!(reveal(&s.app, &b64(&k.lookup), Some(&token)).await.status, StatusCode::OK);
+    assert_eq!(
+        reveal(&s.app, &b64(&t.lookup), None).await.status,
+        StatusCode::OK
+    );
+    assert_eq!(
+        reveal(&s.app, &b64(&k.lookup), Some(&token)).await.status,
+        StatusCode::OK
+    );
     assert_eq!(stats(&s.store).await.removed, 0);
 }
 
@@ -640,13 +716,20 @@ async fn r2_e_dump_contents_open_nothing_including_admin() {
 // get a passphrase signal from anything it sees.
 
 #[tokio::test]
-async fn r2_fg_wire_shape_same_for_every_content_and_mode() {
+async fn spec_r2_fg_wire_shape_same_for_every_content_and_mode() {
     let s = srv("fg-wire", &[], NO_LIMITS).await;
     let policy = PaddingPolicy::Padme { min: 65536 };
-    let text = Payload { text: Some("x".repeat(3000)), files: vec![] };
+    let text = Payload {
+        text: Some("x".repeat(3000)),
+        files: vec![],
+    };
     let file = Payload {
         text: None,
-        files: vec![File { name: "a.bin".into(), mime: "image/png".into(), bytes: vec![7; 3000] }],
+        files: vec![File {
+            name: "a.bin".into(),
+            mime: "image/png".into(),
+            bytes: vec![7; 3000],
+        }],
     };
     let mut made = Vec::new();
     for (payload, pass, lifetime) in [
@@ -657,13 +740,25 @@ async fn r2_fg_wire_shape_same_for_every_content_and_mode() {
         (&text, None, "single_view"),
         (&file, Some("pass phrase"), "single_view"),
     ] {
-        let e = secret::encrypt(&Randomness::generate().unwrap(), payload, pass, Argon2Params::DEFAULT, &policy).unwrap();
+        let e = secret::encrypt(
+            &Randomness::generate().unwrap(),
+            payload,
+            pass,
+            Argon2Params::DEFAULT,
+            &policy,
+        )
+        .unwrap();
         let m = json!({"lookup_key": b64(&e.lookup_key), "burn_key": b64(&e.burn_key), "lifetime": lifetime, "ttl_seconds": 3600});
         let body = multipart(&m, &e.blob);
         let r = send(&s.app, create_req_sized(body)).await;
         assert_eq!(r.status, StatusCode::CREATED);
-        assert_eq!((r.body.len(), header_shape(&r.headers)), (0, header_shape(&r.headers)));
-        let seed = shhnote_core::fragment::Fragment::decode(&e.fragment).unwrap().bytes;
+        assert_eq!(
+            (r.body.len(), header_shape(&r.headers)),
+            (0, header_shape(&r.headers))
+        );
+        let seed = shhnote_core::fragment::Fragment::decode(&e.fragment)
+            .unwrap()
+            .bytes;
         let rv = reveal(&s.app, &b64(&secret::lookup(&seed)), None).await;
         assert_eq!(rv.status, StatusCode::OK);
         assert_eq!(rv.body, e.blob);
@@ -678,9 +773,16 @@ async fn r2_fg_wire_shape_same_for_every_content_and_mode() {
     };
     for (lifetime, e, rv) in &made {
         assert_eq!(e.blob.len(), made[0].1.blob.len());
-        assert_eq!(e.blob[16..28], made[0].1.blob[16..28], "argon fields differ");
+        assert_eq!(
+            e.blob[16..28],
+            made[0].1.blob[16..28],
+            "argon fields differ"
+        );
         assert_eq!(strip(&rv.headers), strip(&made[0].2.headers));
-        assert_eq!(rv.headers.contains_key(CLAIM_TOKEN_HEADER), *lifetime == "single_view");
+        assert_eq!(
+            rv.headers.contains_key(CLAIM_TOKEN_HEADER),
+            *lifetime == "single_view"
+        );
     }
 }
 
@@ -698,8 +800,13 @@ struct SlowBucket {
 const FAKE_BUCKET: &str = "fake";
 
 async fn slow_bucket(put_delay: Duration) -> (Arc<SlowBucket>, SocketAddr) {
-    let state = Arc::new(SlowBucket { objects: Mutex::default(), put_delay: Mutex::new(put_delay) });
-    let app = Router::new().fallback(slow_bucket_request).with_state(state.clone());
+    let state = Arc::new(SlowBucket {
+        objects: Mutex::default(),
+        put_delay: Mutex::new(put_delay),
+    });
+    let app = Router::new()
+        .fallback(slow_bucket_request)
+        .with_state(state.clone());
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -732,7 +839,10 @@ async fn slow_bucket_request(
         }
         (Method::PUT, key) => {
             // Like S3: the object exists the moment the body is in; the 200 follows later.
-            s3.objects.lock().unwrap().insert(key.to_string(), body.to_vec());
+            s3.objects
+                .lock()
+                .unwrap()
+                .insert(key.to_string(), body.to_vec());
             let delay = *s3.put_delay.lock().unwrap();
             tokio::time::sleep(delay).await;
             StatusCode::OK.into_response()
@@ -750,7 +860,7 @@ async fn slow_bucket_request(
 }
 
 #[tokio::test]
-async fn r2_h_request_dropped_during_put_leaves_uncounted_object_and_breaks_ceiling() {
+async fn spec_r2_h_request_dropped_during_put_leaves_uncounted_object_and_breaks_ceiling() {
     let (s3, addr) = slow_bucket(Duration::from_millis(400)).await;
     let spool = scratch("h-spool");
     let endpoint = format!("http://{addr}");
@@ -780,23 +890,45 @@ async fn r2_h_request_dropped_during_put_leaves_uncounted_object_and_breaks_ceil
     let task = tokio::spawn(async move { send(&app, create_req_sized(body)).await });
     let started = Instant::now();
     while s3.objects.lock().unwrap().is_empty() {
-        assert!(started.elapsed() < Duration::from_secs(10), "the PUT never happened");
-        assert!(!task.is_finished(), "the create finished before the object landed");
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "the PUT never happened"
+        );
+        assert!(
+            !task.is_finished(),
+            "the create finished before the object landed"
+        );
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
     task.abort();
     let _ = task.await;
     tokio::time::sleep(Duration::from_millis(800)).await;
 
-    let held: u64 = s3.objects.lock().unwrap().values().map(|v| v.len() as u64).sum();
+    let held: u64 = s3
+        .objects
+        .lock()
+        .unwrap()
+        .values()
+        .map(|v| v.len() as u64)
+        .sum();
     let counted = s.store.external_bytes().await.unwrap();
-    assert_eq!(dir_entries(&spool), Vec::<String>::new(), "spool left behind");
+    assert_eq!(
+        dir_entries(&spool),
+        Vec::<String>::new(),
+        "spool left behind"
+    );
     eprintln!("r2_h: tier holds {held} bytes, rows account for {counted}");
 
     // What the spec promises: the tier holds nothing the rows do not account for, and the
     // ceiling bounds what it holds. An honest create of one more object must therefore fail.
     let honest = create(&s.app, &meta(&keys(), "ttl", 3600), &raw_blob(bucket)).await;
-    let held_after: u64 = s3.objects.lock().unwrap().values().map(|v| v.len() as u64).sum();
+    let held_after: u64 = s3
+        .objects
+        .lock()
+        .unwrap()
+        .values()
+        .map(|v| v.len() as u64)
+        .sum();
     let reservation = blobs.reserve(&s.store, 1).await.unwrap();
     assert!(
         held_after <= object_bytes(bucket) && reservation.is_none(),
@@ -814,7 +946,7 @@ async fn r2_h_request_dropped_during_put_leaves_uncounted_object_and_breaks_ceil
 // handful of trickling connections hold every slot and every other create gets 503.
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn r2_h_trickle_uploads_hold_every_slot() {
+async fn spec_r2_h_trickle_uploads_hold_every_slot() {
     let s = srv("h-trickle", &[("SHH_MAX_UPLOADS", "2")], NO_LIMITS).await;
     let bucket = 65_536u64;
     let total = multipart(&meta(&keys(), "ttl", 3600), &raw_blob(bucket)).len();
@@ -823,10 +955,13 @@ async fn r2_h_trickle_uploads_hold_every_slot() {
     for _ in 0..2 {
         let (tx, rx) = tokio::sync::mpsc::channel::<Bytes>(4);
         let stream = futures_util::stream::unfold(rx, |mut rx| async move {
-            rx.recv().await.map(|b| (Ok::<Bytes, std::io::Error>(b), rx))
+            rx.recv()
+                .await
+                .map(|b| (Ok::<Bytes, std::io::Error>(b), rx))
         });
         let mut req = create_req(Body::from_stream(stream));
-        req.headers_mut().insert(header::CONTENT_LENGTH, total.into());
+        req.headers_mut()
+            .insert(header::CONTENT_LENGTH, total.into());
         let app = s.app.clone();
         holders.push(tokio::spawn(async move { send(&app, req).await }));
         let head = multipart_head(&meta(&keys(), "ttl", 3600));
@@ -859,11 +994,16 @@ async fn r2_h_trickle_uploads_hold_every_slot() {
 // I. No request may panic the server, answer 500 with a non-uniform body, or hang.
 
 #[tokio::test]
-async fn r2_i_malformed_requests_never_500_or_hang() {
+async fn spec_r2_i_malformed_requests_never_500_or_hang() {
     let s = srv("i-fuzz", &[], NO_LIMITS).await;
     let deep = "[".repeat(100_000) + &"]".repeat(100_000);
     let mut reqs: Vec<Request<Body>> = Vec::new();
-    let paths = ["/api/v1/secrets/reveal", "/api/v1/secrets/confirm", "/api/v1/secrets/burn", "/api/v1/reports"];
+    let paths = [
+        "/api/v1/secrets/reveal",
+        "/api/v1/secrets/confirm",
+        "/api/v1/secrets/burn",
+        "/api/v1/reports",
+    ];
     for p in paths {
         for body in [
             deep.clone(),
@@ -873,10 +1013,30 @@ async fn r2_i_malformed_requests_never_500_or_hang() {
             "{\"lookup\": \"".to_string() + &"A".repeat(1_000_000) + "\"}",
             String::from_utf8_lossy(&[0xff, 0xfe, 0x00, 0x7b]).into_owned(),
         ] {
-            reqs.push(Request::post(p).header(header::HOST, "localhost").header(header::CONTENT_TYPE, "application/json").body(Body::from(body)).unwrap());
+            reqs.push(
+                Request::post(p)
+                    .header(header::HOST, "localhost")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            );
         }
-        reqs.push(Request::post(p).header(header::HOST, "localhost").header(header::CONTENT_TYPE, "text/plain").header(header::CONTENT_LENGTH, "5").body(Body::from("ab")).unwrap());
-        reqs.push(Request::builder().method("PUT").uri(p).header(header::HOST, "localhost").body(Body::empty()).unwrap());
+        reqs.push(
+            Request::post(p)
+                .header(header::HOST, "localhost")
+                .header(header::CONTENT_TYPE, "text/plain")
+                .header(header::CONTENT_LENGTH, "5")
+                .body(Body::from("ab"))
+                .unwrap(),
+        );
+        reqs.push(
+            Request::builder()
+                .method("PUT")
+                .uri(p)
+                .header(header::HOST, "localhost")
+                .body(Body::empty())
+                .unwrap(),
+        );
     }
     // Create: broken multipart of every kind.
     let m = meta(&keys(), "ttl", 3600);
@@ -893,13 +1053,17 @@ async fn r2_i_malformed_requests_never_500_or_hang() {
         (None, multipart(&json!({"lookup_key": b64(&random32()), "burn_key": b64(&random32()), "lifetime": "ttl", "ttl_seconds": -9223372036854775808i64}), &raw_blob(65536)), "multipart/form-data; boundary=----r2-adversarial"),
         (None, multipart(&json!({"lookup_key": "A".repeat(43), "burn_key": b64(&random32()), "lifetime": "ttl", "ttl_seconds": 60}), &[]), "multipart/form-data; boundary=----r2-adversarial"),
         (None, multipart(&json!({"lookup_key": "=".repeat(43), "burn_key": b64(&random32()), "lifetime": "ttl", "ttl_seconds": 60}), &raw_blob(65536)), "multipart/form-data; boundary=----r2-adversarial"),
-        (None, { let mut b = multipart_head(&m).into_bytes(); b.extend_from_slice(&vec![0u8; 95]); b.extend_from_slice(multipart_tail().as_bytes()); b }, "multipart/form-data; boundary=----r2-adversarial"),
+        (None, { let mut b = multipart_head(&m).into_bytes(); b.extend_from_slice(&[0u8; 95]); b.extend_from_slice(multipart_tail().as_bytes()); b }, "multipart/form-data; boundary=----r2-adversarial"),
         (None, { let mut b = multipart_head(&json!({"lookup_key": b64(&random32()), "burn_key": b64(&random32()), "lifetime": "ttl", "ttl_seconds": 60})).into_bytes(); b.extend_from_slice(&[0u8; 0]); b.extend_from_slice(multipart_tail().as_bytes()); b }, "multipart/form-data; boundary=----r2-adversarial"),
         (None, { let mut b = format!("--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"blob\"; filename=\"blob\"\r\n\r\n").into_bytes(); b.extend_from_slice(&raw_blob(65536)); b.extend_from_slice(multipart_tail().as_bytes()); b }, "multipart/form-data; boundary=----r2-adversarial"),
         (None, format!("--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"meta\"\r\n\r\n{}\r\n--{BOUNDARY}--\r\n", "{".repeat(5000)).into_bytes(), "multipart/form-data; boundary=----r2-adversarial"),
     ];
     for (len, body, ct) in variants {
-        let mut req = Request::post("/api/v1/secrets").header(header::HOST, "localhost").header(header::CONTENT_TYPE, ct).body(Body::from(body)).unwrap();
+        let mut req = Request::post("/api/v1/secrets")
+            .header(header::HOST, "localhost")
+            .header(header::CONTENT_TYPE, ct)
+            .body(Body::from(body))
+            .unwrap();
         if let Some(len) = len {
             req.headers_mut().insert(header::CONTENT_LENGTH, len.into());
         }
@@ -907,32 +1071,90 @@ async fn r2_i_malformed_requests_never_500_or_hang() {
     }
     // Pages and odd URIs.
     for p in [
-        "/en/s?%00", "/en/%ff", "/en/../../etc/passwd", "/s?x=%0d%0aSet-Cookie:a=b", "/en/admin/login?new=%ff%fe",
-        "/en/admin/settings?saved=" , "/api/v1/admin/stats?days=-9223372036854775808", "/api/v1/admin/stats?days=abc",
-        "/static/../Cargo.toml", "/en/s/", "/%2e%2e/", "/en/admin/keys?new=" ,
+        "/en/s?%00",
+        "/en/%ff",
+        "/en/../../etc/passwd",
+        "/s?x=%0d%0aSet-Cookie:a=b",
+        "/en/admin/login?new=%ff%fe",
+        "/en/admin/settings?saved=",
+        "/api/v1/admin/stats?days=-9223372036854775808",
+        "/api/v1/admin/stats?days=abc",
+        "/static/../Cargo.toml",
+        "/en/s/",
+        "/%2e%2e/",
+        "/en/admin/keys?new=",
     ] {
-        reqs.push(Request::get(p).header(header::HOST, "localhost").header(header::ACCEPT_LANGUAGE, "x".repeat(100_000)).body(Body::empty()).unwrap());
-        reqs.push(Request::get(p).header(header::HOST, "evil.com:99999").header(header::AUTHORIZATION, "Bearer ".to_string() + &"%".repeat(43)).body(Body::empty()).unwrap());
+        reqs.push(
+            Request::get(p)
+                .header(header::HOST, "localhost")
+                .header(header::ACCEPT_LANGUAGE, "x".repeat(100_000))
+                .body(Body::empty())
+                .unwrap(),
+        );
+        reqs.push(
+            Request::get(p)
+                .header(header::HOST, "evil.com:99999")
+                .header(
+                    header::AUTHORIZATION,
+                    "Bearer ".to_string() + &"%".repeat(43),
+                )
+                .body(Body::empty())
+                .unwrap(),
+        );
     }
     // Admin API with the real key and hostile bodies.
-    for body in ["{\"days\": 1}", &deep, "{\"name\": \"\u{0}\", \"scope\": \"admin\"}", "{\"id\": \"zz\"}", "[]"] {
-        for (m, p) in [("POST", "/api/v1/admin/keys"), ("PATCH", "/api/v1/admin/settings"), ("POST", "/api/v1/admin/keys/delete")] {
-            reqs.push(Request::builder().method(m).uri(p).header(header::HOST, "localhost").header(header::AUTHORIZATION, format!("Bearer {ADMIN_KEY}")).header(header::CONTENT_TYPE, "application/json").body(Body::from(body.to_string())).unwrap());
+    for body in [
+        "{\"days\": 1}",
+        &deep,
+        "{\"name\": \"\u{0}\", \"scope\": \"admin\"}",
+        "{\"id\": \"zz\"}",
+        "[]",
+    ] {
+        for (m, p) in [
+            ("POST", "/api/v1/admin/keys"),
+            ("PATCH", "/api/v1/admin/settings"),
+            ("POST", "/api/v1/admin/keys/delete"),
+        ] {
+            reqs.push(
+                Request::builder()
+                    .method(m)
+                    .uri(p)
+                    .header(header::HOST, "localhost")
+                    .header(header::AUTHORIZATION, format!("Bearer {ADMIN_KEY}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            );
         }
     }
     let mut n = 0;
     for req in reqs {
         n += 1;
         let desc = format!("{} {}", req.method(), req.uri());
-        let r = tokio::time::timeout(Duration::from_secs(20), send(&s.app, req)).await.unwrap_or_else(|_| panic!("hang: {desc}"));
-        assert!(r.status.as_u16() < 500 || r.status == StatusCode::SERVICE_UNAVAILABLE, "{desc}: {:?} {}", r.status, r.text());
+        let r = tokio::time::timeout(Duration::from_secs(20), send(&s.app, req))
+            .await
+            .unwrap_or_else(|_| panic!("hang: {desc}"));
+        assert!(
+            r.status.as_u16() < 500 || r.status == StatusCode::SERVICE_UNAVAILABLE,
+            "{desc}: {:?} {}",
+            r.status,
+            r.text()
+        );
         if desc.starts_with("POST /api/v1/secrets/") || desc.starts_with("POST /api/v1/reports") {
-            assert!(r.status == StatusCode::OK || uniform(&r), "{desc}: {:?} {}", r.status, r.text());
+            assert!(
+                r.status == StatusCode::OK || uniform(&r),
+                "{desc}: {:?} {}",
+                r.status,
+                r.text()
+            );
         }
     }
     assert!(n > 60);
     // Still alive and consistent.
-    assert_eq!(get(&s.app, "localhost", "/api/v1/config").await.status, StatusCode::OK);
+    assert_eq!(
+        get(&s.app, "localhost", "/api/v1/config").await.status,
+        StatusCode::OK
+    );
 }
 
 // ============================================================================================
@@ -940,20 +1162,37 @@ async fn r2_i_malformed_requests_never_500_or_hang() {
 // X-Forwarded-For, rotating garbage bearer tokens or an admin key on the public API.
 
 #[tokio::test]
-async fn r2_j_anonymous_limit_holds_against_every_disguise() {
+async fn spec_r2_j_anonymous_limit_holds_against_every_disguise() {
     let s = srv("j-limit", &[], &[("rate_reveal_per_hour", "5")]).await;
     let user = {
-        let r = admin(&s.app, "POST", "/api/v1/admin/keys", ADMIN_KEY, Some(json!({"name": "u", "scope": "user"}))).await;
+        let r = admin(
+            &s.app,
+            "POST",
+            "/api/v1/admin/keys",
+            ADMIN_KEY,
+            Some(json!({"name": "u", "scope": "user"})),
+        )
+        .await;
         r.json()["key"].as_str().unwrap().to_string()
     };
     let disguises: Vec<(String, Vec<(String, String)>)> = (0..20)
         .map(|i| {
-            let ip = if i % 2 == 0 { format!("2001:db8:1:2::{:x}", i + 1) } else { "203.0.113.9".to_string() };
+            let ip = if i % 2 == 0 {
+                format!("2001:db8:1:2::{:x}", i + 1)
+            } else {
+                "203.0.113.9".to_string()
+            };
             let mut hdr = vec![("x-forwarded-for".to_string(), format!("198.51.100.{i}"))];
             match i % 5 {
-                0 => hdr.push(("authorization".into(), format!("Bearer {}", b64(&random32())))),
+                0 => hdr.push((
+                    "authorization".into(),
+                    format!("Bearer {}", b64(&random32())),
+                )),
                 1 => hdr.push(("authorization".into(), format!("Bearer {ADMIN_KEY}"))),
-                2 => hdr.push(("authorization".into(), "Bearer ".to_string() + &"x".repeat(43))),
+                2 => hdr.push((
+                    "authorization".into(),
+                    "Bearer ".to_string() + &"x".repeat(43),
+                )),
                 3 => hdr.push(("forwarded".into(), format!("for=198.51.100.{i}"))),
                 _ => {}
             }
@@ -963,30 +1202,69 @@ async fn r2_j_anonymous_limit_holds_against_every_disguise() {
     let mut v6_ok = 0;
     let mut v4_ok = 0;
     for (ip, hdrs) in &disguises {
-        let mut req = json_req("/api/v1/secrets/reveal", &json!({"lookup": b64(&random32())}));
+        let mut req = json_req(
+            "/api/v1/secrets/reveal",
+            &json!({"lookup": b64(&random32())}),
+        );
         for (k, v) in hdrs {
-            req.headers_mut().insert(axum::http::HeaderName::from_bytes(k.as_bytes()).unwrap(), v.parse().unwrap());
+            req.headers_mut().insert(
+                axum::http::HeaderName::from_bytes(k.as_bytes()).unwrap(),
+                v.parse().unwrap(),
+            );
         }
         let r = send(&s.app, with_peer(req, ip)).await;
         if r.status != StatusCode::TOO_MANY_REQUESTS {
-            if ip.starts_with("2001") { v6_ok += 1 } else { v4_ok += 1 }
+            if ip.starts_with("2001") {
+                v6_ok += 1
+            } else {
+                v4_ok += 1
+            }
         } else {
             assert_eq!(r.headers[header::RETRY_AFTER], "60");
         }
     }
-    assert_eq!((v6_ok, v4_ok), (5, 5), "one /64 and one IPv4 each got exactly their 5");
+    assert_eq!(
+        (v6_ok, v4_ok),
+        (5, 5),
+        "one /64 and one IPv4 each got exactly their 5"
+    );
     // The mapped form of the IPv4 shares its bucket.
-    let r = send(&s.app, with_peer(json_req("/api/v1/secrets/reveal", &json!({"lookup": b64(&random32())})), "::ffff:203.0.113.9")).await;
+    let r = send(
+        &s.app,
+        with_peer(
+            json_req(
+                "/api/v1/secrets/reveal",
+                &json!({"lookup": b64(&random32())}),
+            ),
+            "::ffff:203.0.113.9",
+        ),
+    )
+    .await;
     assert_eq!(r.status, StatusCode::TOO_MANY_REQUESTS);
     // A real user key is its own bucket, ten times larger, and does not spend the IP's.
     for _ in 0..50 {
-        let mut req = json_req("/api/v1/secrets/reveal", &json!({"lookup": b64(&random32())}));
-        req.headers_mut().insert(header::AUTHORIZATION, format!("Bearer {user}").parse().unwrap());
+        let mut req = json_req(
+            "/api/v1/secrets/reveal",
+            &json!({"lookup": b64(&random32())}),
+        );
+        req.headers_mut().insert(
+            header::AUTHORIZATION,
+            format!("Bearer {user}").parse().unwrap(),
+        );
         assert!(uniform(&send(&s.app, with_peer(req, "203.0.113.9")).await));
     }
-    let mut req = json_req("/api/v1/secrets/reveal", &json!({"lookup": b64(&random32())}));
-    req.headers_mut().insert(header::AUTHORIZATION, format!("Bearer {user}").parse().unwrap());
-    assert_eq!(send(&s.app, with_peer(req, "203.0.113.9")).await.status, StatusCode::TOO_MANY_REQUESTS);
+    let mut req = json_req(
+        "/api/v1/secrets/reveal",
+        &json!({"lookup": b64(&random32())}),
+    );
+    req.headers_mut().insert(
+        header::AUTHORIZATION,
+        format!("Bearer {user}").parse().unwrap(),
+    );
+    assert_eq!(
+        send(&s.app, with_peer(req, "203.0.113.9")).await.status,
+        StatusCode::TOO_MANY_REQUESTS
+    );
 }
 
 // ============================================================================================
@@ -994,37 +1272,81 @@ async fn r2_j_anonymous_limit_holds_against_every_disguise() {
 // and a secret created with it.
 
 #[tokio::test]
-async fn r2_k_nothing_links_a_user_key_to_its_secret() {
+async fn spec_r2_k_nothing_links_a_user_key_to_its_secret() {
     let s = srv("k-link", &[], NO_LIMITS).await;
-    let r = admin(&s.app, "POST", "/api/v1/admin/keys", ADMIN_KEY, Some(json!({"name": "integration", "scope": "user"}))).await;
+    let r = admin(
+        &s.app,
+        "POST",
+        "/api/v1/admin/keys",
+        ADMIN_KEY,
+        Some(json!({"name": "integration", "scope": "user"})),
+    )
+    .await;
     let user = r.json()["key"].as_str().unwrap().to_string();
     let k = keys();
     let mut req = create_req_sized(multipart(&meta(&k, "ttl", 7200), &raw_blob(65536)));
-    req.headers_mut().insert(header::AUTHORIZATION, format!("Bearer {user}").parse().unwrap());
+    req.headers_mut().insert(
+        header::AUTHORIZATION,
+        format!("Bearer {user}").parse().unwrap(),
+    );
     assert_eq!(send(&s.app, req).await.status, StatusCode::CREATED);
     let anon = keys();
     make(&s.app, &anon, "ttl", 65536).await;
     s.store.checkpoint().await.unwrap();
 
-    let keys_out = admin(&s.app, "GET", "/api/v1/admin/keys", ADMIN_KEY, None).await.json();
-    let st = admin(&s.app, "GET", "/api/v1/admin/stats", ADMIN_KEY, None).await.json();
+    let keys_out = admin(&s.app, "GET", "/api/v1/admin/keys", ADMIN_KEY, None)
+        .await
+        .json();
+    let st = admin(&s.app, "GET", "/api/v1/admin/stats", ADMIN_KEY, None)
+        .await
+        .json();
     let text = format!("{keys_out}{st}");
     // Only day-granular facts about the key; no secret identifier anywhere.
-    let entry = keys_out["keys"].as_array().unwrap().iter().find(|e| e["name"] == "integration").unwrap().clone();
-    assert_eq!(entry["last_used_on"].as_i64().unwrap() % 86_400, 0, "last use is a day");
-    for needle in [b64(&k.lookup), b64(&credential_hash(&k.lookup)), b64(&k.burn), b64(&credential_hash(&k.burn))] {
+    let entry = keys_out["keys"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["name"] == "integration")
+        .unwrap()
+        .clone();
+    assert_eq!(
+        entry["last_used_on"].as_i64().unwrap() % 86_400,
+        0,
+        "last use is a day"
+    );
+    for needle in [
+        b64(&k.lookup),
+        b64(&credential_hash(&k.lookup)),
+        b64(&k.burn),
+        b64(&credential_hash(&k.burn)),
+    ] {
         assert!(!text.contains(&needle));
     }
     // The dump: the key's hash appears only in api_keys; no secrets column carries anything
     // but hashes, status, lifetime, bucket, blob and a grid expiry.
-    let idle = admin(&s.app, "POST", "/api/v1/admin/keys", ADMIN_KEY, Some(json!({"name": "idle", "scope": "user"}))).await.json()["key"].as_str().unwrap().to_string();
+    let idle = admin(
+        &s.app,
+        "POST",
+        "/api/v1/admin/keys",
+        ADMIN_KEY,
+        Some(json!({"name": "idle", "scope": "user"})),
+    )
+    .await
+    .json()["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
     s.store.checkpoint().await.unwrap();
     let dump = std::fs::read(&s.db).unwrap();
     let count = |key: &str| {
         let h = credential_hash(key.as_bytes());
         dump.windows(32).filter(|w| *w == h).count()
     };
-    assert_eq!(count(&user), count(&idle), "the creating key's hash is stored no more often than an idle key's (table and index only)");
+    assert_eq!(
+        count(&user),
+        count(&idle),
+        "the creating key's hash is stored no more often than an idle key's (table and index only)"
+    );
     assert!(count(&user) >= 1);
     assert!(st["days"].as_array().unwrap().len() <= 1);
 }
@@ -1033,33 +1355,75 @@ async fn r2_k_nothing_links_a_user_key_to_its_secret() {
 // L. §2.2 / §11: the locale redirect never leaves the site and never carries a fragment.
 
 #[tokio::test]
-async fn r2_l_locale_redirect_targets_stay_relative_to_the_site() {
+async fn spec_r2_l_locale_redirect_targets_stay_relative_to_the_site() {
     let s = srv("l-redirect", &[], &[]).await;
     let s_api = srv("l-redirect-api", &[("SHH_WEB", "api")], &[]).await;
     for path in [
-        "/", "/s", "/burn", "//evil.com", "//evil.com/", "/\\evil.com", "/\\\\evil.com/", "/de//evil.com", "/fr/s",
-        "/en//evil.com", "/s?next=//evil.com", "/s?x=%2F%2Fevil.com", "/%5Cevil.com", "/en\\evil.com", "/..//evil.com",
-        "/s%23AQAA", "/s?#x", "/xx/../s", "/./s", "/s/", "/en/", "/de/s/", "/report", "/how-it-works",
+        "/",
+        "/s",
+        "/burn",
+        "//evil.com",
+        "//evil.com/",
+        "/\\evil.com",
+        "/\\\\evil.com/",
+        "/de//evil.com",
+        "/fr/s",
+        "/en//evil.com",
+        "/s?next=//evil.com",
+        "/s?x=%2F%2Fevil.com",
+        "/%5Cevil.com",
+        "/en\\evil.com",
+        "/..//evil.com",
+        "/s%23AQAA",
+        "/s?#x",
+        "/xx/../s",
+        "/./s",
+        "/s/",
+        "/en/",
+        "/de/s/",
+        "/report",
+        "/how-it-works",
     ] {
-        for al in ["de", "en-US,en;q=0.9", "", "zz, de;q=inf", "en;q=nan", "../../x"] {
+        for al in [
+            "de",
+            "en-US,en;q=0.9",
+            "",
+            "zz, de;q=inf",
+            "en;q=nan",
+            "../../x",
+        ] {
             for host in ["localhost", "evil.com", "localhost:3000", "", "[::1]:3000"] {
                 let r = send(
                     &s.app,
-                    Request::get(path).header(header::HOST, host).header(header::ACCEPT_LANGUAGE, al).body(Body::empty()).unwrap(),
+                    Request::get(path)
+                        .header(header::HOST, host)
+                        .header(header::ACCEPT_LANGUAGE, al)
+                        .body(Body::empty())
+                        .unwrap(),
                 )
                 .await;
                 if let Some(loc) = r.headers.get(header::LOCATION) {
                     let loc = loc.to_str().unwrap();
                     // On-site means one leading slash and nothing a browser reads as a host.
-                    assert!(loc.starts_with('/') && !loc.starts_with("//") && !loc.starts_with("/\\"), "{path} -> {loc}");
-                    assert!(!loc.contains('#') && !loc.contains("://"), "{path} -> {loc}");
+                    assert!(
+                        loc.starts_with('/') && !loc.starts_with("//") && !loc.starts_with("/\\"),
+                        "{path} -> {loc}"
+                    );
+                    assert!(
+                        !loc.contains('#') && !loc.contains("://"),
+                        "{path} -> {loc}"
+                    );
                 }
                 assert!(r.status.as_u16() < 500);
             }
         }
         // api mode: no locale redirect, the spec says 404 for every public route.
         let r = get(&s_api.app, "localhost", path).await;
-        assert!(r.status == StatusCode::NOT_FOUND || r.status == StatusCode::PERMANENT_REDIRECT, "{path} -> {:?}", r.status);
+        assert!(
+            r.status == StatusCode::NOT_FOUND || r.status == StatusCode::PERMANENT_REDIRECT,
+            "{path} -> {:?}",
+            r.status
+        );
     }
 }
 
@@ -1067,7 +1431,11 @@ async fn r2_l_locale_redirect_targets_stay_relative_to_the_site() {
 // M. §8: the panel without a valid session.
 
 async fn form(app: &Router, path: &str, cookie: &str, fields: &[(&str, &str)]) -> Reply {
-    let body: String = fields.iter().map(|(k, v)| format!("{k}={}", urlencode(v))).collect::<Vec<_>>().join("&");
+    let body: String = fields
+        .iter()
+        .map(|(k, v)| format!("{k}={}", urlencode(v)))
+        .collect::<Vec<_>>()
+        .join("&");
     let mut req = Request::post(path)
         .header(header::HOST, "localhost")
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
@@ -1081,7 +1449,9 @@ fn urlencode(v: &str) -> String {
     let mut out = String::new();
     for b in v.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }
@@ -1098,7 +1468,11 @@ async fn page(app: &Router, path: &str, cookie: &str) -> Reply {
 
 fn cookie_of(r: &Reply) -> String {
     let sc = r.headers[header::SET_COOKIE].to_str().unwrap();
-    sc.split(';').next().unwrap().trim_start_matches("shh_admin=").to_string()
+    sc.split(';')
+        .next()
+        .unwrap()
+        .trim_start_matches("shh_admin=")
+        .to_string()
 }
 
 fn csrf_of(r: &Reply) -> String {
@@ -1110,7 +1484,7 @@ fn csrf_of(r: &Reply) -> String {
 }
 
 #[tokio::test]
-async fn r2_m_panel_refuses_forged_stale_and_cross_scope_sessions() {
+async fn spec_r2_m_panel_refuses_forged_stale_and_cross_scope_sessions() {
     let s = srv_unconfigured("m-panel", &[], &[]).await;
     // Bootstrap login, mint the first admin key: the bootstrap session ends with it.
     let login = form(&s.app, "/en/admin/login", "", &[("credential", BOOTSTRAP)]).await;
@@ -1119,37 +1493,107 @@ async fn r2_m_panel_refuses_forged_stale_and_cross_scope_sessions() {
     let dash = page(&s.app, "/en/admin", &boot).await;
     assert_eq!(dash.status, StatusCode::OK);
     let csrf = csrf_of(&dash);
-    let minted = form(&s.app, "/en/admin/keys", &boot, &[("csrf", &csrf), ("name", "first"), ("scope", "admin")]).await;
+    let minted = form(
+        &s.app,
+        "/en/admin/keys",
+        &boot,
+        &[("csrf", &csrf), ("name", "first"), ("scope", "admin")],
+    )
+    .await;
     assert_eq!(minted.status, StatusCode::SEE_OTHER);
-    let loc = minted.headers[header::LOCATION].to_str().unwrap().to_string();
+    let loc = minted.headers[header::LOCATION]
+        .to_str()
+        .unwrap()
+        .to_string();
     let nonce = loc.split("new=").nth(1).unwrap().to_string();
     // The fresh key is handed over only to the minting session's cookie, once.
     let stranger = page(&s.app, &format!("/en/admin/login?new={nonce}"), "").await;
     assert!(!stranger.text().contains("data-shh-new-key") || !stranger.text().contains(&nonce));
     let shown = page(&s.app, &format!("/en/admin/login?new={nonce}"), &boot).await;
     let html = shown.text();
-    let key = html.split("<code").nth(1).and_then(|p| p.split('>').nth(1)).and_then(|p| p.split('<').next()).map(|k| k.trim().to_string()).expect("the key is shown once");
+    let key = html
+        .split("<code")
+        .nth(1)
+        .and_then(|p| p.split('>').nth(1))
+        .and_then(|p| p.split('<').next())
+        .map(|k| k.trim().to_string())
+        .expect("the key is shown once");
     assert_eq!(key.len(), 43, "{key}");
     let again = page(&s.app, &format!("/en/admin/login?new={nonce}"), &boot).await;
     assert!(!again.text().contains(&key), "the key was shown twice");
     // Bootstrap is retired: its cookie, the token on the form and the token on the API.
-    assert_eq!(page(&s.app, "/en/admin", &boot).await.status, StatusCode::SEE_OTHER);
-    assert_eq!(form(&s.app, "/en/admin/login", "", &[("credential", BOOTSTRAP)]).await.status, StatusCode::UNAUTHORIZED);
-    assert_eq!(admin(&s.app, "GET", "/api/v1/admin/stats", BOOTSTRAP, None).await.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        page(&s.app, "/en/admin", &boot).await.status,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        form(&s.app, "/en/admin/login", "", &[("credential", BOOTSTRAP)])
+            .await
+            .status,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        admin(&s.app, "GET", "/api/v1/admin/stats", BOOTSTRAP, None)
+            .await
+            .status,
+        StatusCode::UNAUTHORIZED
+    );
     // A user-scope key cannot log in to the panel or use the admin API.
-    let user = admin(&s.app, "POST", "/api/v1/admin/keys", &key, Some(json!({"name": "u", "scope": "user"}))).await.json()["key"].as_str().unwrap().to_string();
-    assert_eq!(form(&s.app, "/en/admin/login", "", &[("credential", &user)]).await.status, StatusCode::UNAUTHORIZED);
-    assert_eq!(admin(&s.app, "GET", "/api/v1/admin/keys", &user, None).await.status, StatusCode::UNAUTHORIZED);
+    let user = admin(
+        &s.app,
+        "POST",
+        "/api/v1/admin/keys",
+        &key,
+        Some(json!({"name": "u", "scope": "user"})),
+    )
+    .await
+    .json()["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        form(&s.app, "/en/admin/login", "", &[("credential", &user)])
+            .await
+            .status,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        admin(&s.app, "GET", "/api/v1/admin/keys", &user, None)
+            .await
+            .status,
+        StatusCode::UNAUTHORIZED
+    );
     // A real session: forged variants of its cookie, forms without CSRF, logout without CSRF.
     let login = form(&s.app, "/en/admin/login", "", &[("credential", &key)]).await;
     let cookie = cookie_of(&login);
-    assert!(login.headers[header::SET_COOKIE].to_str().unwrap().contains("HttpOnly"));
-    assert!(!login.headers[header::SET_COOKIE].to_str().unwrap().contains("Domain="));
+    assert!(
+        login.headers[header::SET_COOKIE]
+            .to_str()
+            .unwrap()
+            .contains("HttpOnly")
+    );
+    assert!(
+        !login.headers[header::SET_COOKIE]
+            .to_str()
+            .unwrap()
+            .contains("Domain=")
+    );
     let (payload, tag) = cookie.split_once('.').unwrap();
     let mut flipped = payload.to_string();
     flipped.replace_range(0..1, if payload.starts_with('A') { "B" } else { "A" });
-    for forged in [format!("{flipped}.{tag}"), format!("{payload}.{}", "A".repeat(43)), format!("{payload}."), payload.to_string(), format!("{tag}.{payload}"), cookie.to_uppercase()] {
-        assert_eq!(page(&s.app, "/en/admin", &forged).await.status, StatusCode::SEE_OTHER, "{forged}");
+    for forged in [
+        format!("{flipped}.{tag}"),
+        format!("{payload}.{}", "A".repeat(43)),
+        format!("{payload}."),
+        payload.to_string(),
+        format!("{tag}.{payload}"),
+        cookie.to_uppercase(),
+    ] {
+        assert_eq!(
+            page(&s.app, "/en/admin", &forged).await.status,
+            StatusCode::SEE_OTHER,
+            "{forged}"
+        );
     }
     let dash = page(&s.app, "/en/admin", &cookie).await;
     assert_eq!(dash.status, StatusCode::OK);
@@ -1158,28 +1602,64 @@ async fn r2_m_panel_refuses_forged_stale_and_cross_scope_sessions() {
         ("/en/admin/settings", vec![("site_name", "pwned")]),
         ("/en/admin/keys", vec![("name", "x"), ("scope", "admin")]),
         ("/en/admin/keys/delete", vec![("key_hash", &"0".repeat(64))]),
-        ("/en/admin/keys/sessions", vec![("key_hash", &"0".repeat(64))]),
+        (
+            "/en/admin/keys/sessions",
+            vec![("key_hash", &"0".repeat(64))],
+        ),
         ("/en/admin/logout", vec![]),
     ] {
         let mut wrong = fields.clone();
         wrong.push(("csrf", "not-the-token"));
-        assert_eq!(form(&s.app, path, &cookie, &fields).await.status, StatusCode::FORBIDDEN, "{path} without csrf");
-        assert_eq!(form(&s.app, path, &cookie, &wrong).await.status, StatusCode::FORBIDDEN, "{path} wrong csrf");
-        assert_eq!(form(&s.app, path, "", &[("csrf", &csrf)]).await.status, StatusCode::SEE_OTHER, "{path} without cookie");
+        assert_eq!(
+            form(&s.app, path, &cookie, &fields).await.status,
+            StatusCode::FORBIDDEN,
+            "{path} without csrf"
+        );
+        assert_eq!(
+            form(&s.app, path, &cookie, &wrong).await.status,
+            StatusCode::FORBIDDEN,
+            "{path} wrong csrf"
+        );
+        assert_eq!(
+            form(&s.app, path, "", &[("csrf", &csrf)]).await.status,
+            StatusCode::SEE_OTHER,
+            "{path} without cookie"
+        );
     }
     // Ending the key's sessions kills this cookie; the key itself still works on the API.
-    let key_hash: String = credential_hash(key.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
+    let key_hash: String = credential_hash(key.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     tokio::time::sleep(Duration::from_millis(1100)).await;
-    assert_eq!(form(&s.app, "/en/admin/keys/sessions", &cookie, &[("csrf", &csrf), ("key_hash", &key_hash)]).await.status, StatusCode::SEE_OTHER);
-    assert_eq!(page(&s.app, "/en/admin", &cookie).await.status, StatusCode::SEE_OTHER);
-    assert_eq!(admin(&s.app, "GET", "/api/v1/admin/stats", &key, None).await.status, StatusCode::OK);
+    assert_eq!(
+        form(
+            &s.app,
+            "/en/admin/keys/sessions",
+            &cookie,
+            &[("csrf", &csrf), ("key_hash", &key_hash)]
+        )
+        .await
+        .status,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        page(&s.app, "/en/admin", &cookie).await.status,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        admin(&s.app, "GET", "/api/v1/admin/stats", &key, None)
+            .await
+            .status,
+        StatusCode::OK
+    );
 }
 
 // ============================================================================================
 // N. §7.2 / D-7 / §6.2: no PATCH lets the instance accept what the policy should reject.
 
 #[tokio::test]
-async fn r2_n_settings_patch_cannot_widen_policy() {
+async fn spec_r2_n_settings_patch_cannot_widen_policy() {
     let s = srv("n-patch", &[], NO_LIMITS).await;
     let before = get(&s.app, "localhost", "/api/v1/config").await.json();
     let bad: Vec<Value> = vec![
@@ -1219,27 +1699,90 @@ async fn r2_n_settings_patch_cannot_widen_policy() {
         json!({"source_url": "ftp://x"}),
     ];
     for b in &bad {
-        let r = admin(&s.app, "PATCH", "/api/v1/admin/settings", ADMIN_KEY, Some(b.clone())).await;
-        assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{b} -> {:?} {}", r.status, r.text());
+        let r = admin(
+            &s.app,
+            "PATCH",
+            "/api/v1/admin/settings",
+            ADMIN_KEY,
+            Some(b.clone()),
+        )
+        .await;
+        assert_eq!(
+            r.status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{b} -> {:?} {}",
+            r.status,
+            r.text()
+        );
     }
-    assert_eq!(get(&s.app, "localhost", "/api/v1/config").await.json(), before, "a refused patch changed the policy");
+    assert_eq!(
+        get(&s.app, "localhost", "/api/v1/config").await.json(),
+        before,
+        "a refused patch changed the policy"
+    );
     // The ceiling itself is accepted, and a create one second over it is refused; the
     // stored expiry never exceeds 14 days plus the day grid.
-    let r = admin(&s.app, "PATCH", "/api/v1/admin/settings", ADMIN_KEY, Some(json!({"max_ttl_secs": 14 * 86400, "ttl_presets": [14 * 86400]}))).await;
+    let r = admin(
+        &s.app,
+        "PATCH",
+        "/api/v1/admin/settings",
+        ADMIN_KEY,
+        Some(json!({"max_ttl_secs": 14 * 86400, "ttl_presets": [14 * 86400]})),
+    )
+    .await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.text());
     let k = keys();
-    assert_eq!(create(&s.app, &meta(&k, "ttl", 14 * 86400 + 1), &raw_blob(65536)).await.status, StatusCode::BAD_REQUEST);
-    assert_eq!(create(&s.app, &meta(&k, "ttl", 14 * 86400), &raw_blob(65536)).await.status, StatusCode::CREATED);
+    assert_eq!(
+        create(&s.app, &meta(&k, "ttl", 14 * 86400 + 1), &raw_blob(65536))
+            .await
+            .status,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        create(&s.app, &meta(&k, "ttl", 14 * 86400), &raw_blob(65536))
+            .await
+            .status,
+        StatusCode::CREATED
+    );
     // Lowering max_ttl applies live: the next create at the old maximum is refused.
-    let r = admin(&s.app, "PATCH", "/api/v1/admin/settings", ADMIN_KEY, Some(json!({"max_ttl_secs": 3600, "ttl_presets": [900], "default_ttl_secs": 900}))).await;
+    let r = admin(
+        &s.app,
+        "PATCH",
+        "/api/v1/admin/settings",
+        ADMIN_KEY,
+        Some(json!({"max_ttl_secs": 3600, "ttl_presets": [900], "default_ttl_secs": 900})),
+    )
+    .await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.text());
-    assert_eq!(create(&s.app, &meta(&keys(), "ttl", 3601), &raw_blob(65536)).await.status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        create(&s.app, &meta(&keys(), "ttl", 3601), &raw_blob(65536))
+            .await
+            .status,
+        StatusCode::BAD_REQUEST
+    );
     // Padding floor raised to 128 KiB: a 64 KiB bucket is now refused, nothing below the
     // floor sneaks in.
-    let r = admin(&s.app, "PATCH", "/api/v1/admin/settings", ADMIN_KEY, Some(json!({"padding_min": 131072}))).await;
+    let r = admin(
+        &s.app,
+        "PATCH",
+        "/api/v1/admin/settings",
+        ADMIN_KEY,
+        Some(json!({"padding_min": 131072})),
+    )
+    .await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.text());
-    assert_eq!(create(&s.app, &meta(&keys(), "ttl", 900), &raw_blob(65536)).await.status, StatusCode::BAD_REQUEST);
-    assert_eq!(create(&s.app, &meta(&keys(), "ttl", 900), &raw_blob(131072)).await.status, StatusCode::CREATED);
+    assert_eq!(
+        create(&s.app, &meta(&keys(), "ttl", 900), &raw_blob(65536))
+            .await
+            .status,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        create(&s.app, &meta(&keys(), "ttl", 900), &raw_blob(131072))
+            .await
+            .status,
+        StatusCode::CREATED
+    );
 }
 
 // ============================================================================================
@@ -1247,7 +1790,7 @@ async fn r2_n_settings_patch_cannot_widen_policy() {
 // same backlog count every row exactly once.
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn r2_o_two_sweepers_count_each_row_once_and_parked_rows_stay_dark() {
+async fn spec_r2_o_two_sweepers_count_each_row_once_and_parked_rows_stay_dark() {
     let root = scratch("o-local");
     let s = srv(
         "o-sched",
@@ -1265,22 +1808,34 @@ async fn r2_o_two_sweepers_count_each_row_once_and_parked_rows_stay_dark() {
     let t = now();
     for _ in 0..450 {
         let k = keys();
-        let created = s.store.create(&NewSecret {
-            lookup_key: credential_hash(&k.lookup),
-            burn_key: credential_hash(&k.burn),
-            lifetime: Lifetime::Ttl,
-            bucket: 65536,
-            blob: Some(vec![0u8; 100]),
-            external_ref: None,
-            expires_at: t - 10,
-        }, t - 100).await.unwrap();
+        let created = s
+            .store
+            .create(
+                &NewSecret {
+                    lookup_key: credential_hash(&k.lookup),
+                    burn_key: credential_hash(&k.burn),
+                    lifetime: Lifetime::Ttl,
+                    bucket: 65536,
+                    blob: Some(vec![0u8; 100]),
+                    external_ref: None,
+                    expires_at: t - 10,
+                },
+                t - 100,
+            )
+            .await
+            .unwrap();
         assert!(created);
     }
     let mut parked = Vec::new();
     for _ in 0..3 {
         let k = keys();
         make(&s.app, &k, "ttl", 131072).await;
-        let r = post(&s.app, "/api/v1/secrets/burn", json!({"burn_token": b64(&k.burn)})).await;
+        let r = post(
+            &s.app,
+            "/api/v1/secrets/burn",
+            json!({"burn_token": b64(&k.burn)}),
+        )
+        .await;
         assert_eq!(r.status, StatusCode::NO_CONTENT);
         parked.push(k);
     }
@@ -1288,14 +1843,41 @@ async fn r2_o_two_sweepers_count_each_row_once_and_parked_rows_stay_dark() {
     let sv = keys();
     make(&s.app, &sv, "single_view", 131072).await;
     let token = claim_token(&reveal(&s.app, &b64(&sv.lookup), None).await);
-    assert!(uniform(&post(&s.app, "/api/v1/secrets/burn", json!({"burn_token": b64(&sv.burn)})).await));
-    assert_eq!(post(&s.app, "/api/v1/secrets/confirm", json!({"lookup": b64(&sv.lookup), "claim_token": token})).await.status, StatusCode::NO_CONTENT);
+    assert!(uniform(
+        &post(
+            &s.app,
+            "/api/v1/secrets/burn",
+            json!({"burn_token": b64(&sv.burn)})
+        )
+        .await
+    ));
+    assert_eq!(
+        post(
+            &s.app,
+            "/api/v1/secrets/confirm",
+            json!({"lookup": b64(&sv.lookup), "claim_token": token})
+        )
+        .await
+        .status,
+        StatusCode::NO_CONTENT
+    );
     for k in &parked {
         assert!(uniform(&reveal(&s.app, &b64(&k.lookup), None).await));
-        assert!(uniform(&reveal(&s.app, &b64(&k.lookup), Some(&token)).await));
-        assert!(uniform(&post(&s.app, "/api/v1/secrets/burn", json!({"burn_token": b64(&k.burn)})).await));
+        assert!(uniform(
+            &reveal(&s.app, &b64(&k.lookup), Some(&token)).await
+        ));
+        assert!(uniform(
+            &post(
+                &s.app,
+                "/api/v1/secrets/burn",
+                json!({"burn_token": b64(&k.burn)})
+            )
+            .await
+        ));
     }
-    assert!(uniform(&reveal(&s.app, &b64(&sv.lookup), Some(&token)).await));
+    assert!(uniform(
+        &reveal(&s.app, &b64(&sv.lookup), Some(&token)).await
+    ));
     let before = stats(&s.store).await;
     // Expired rows the sweeper has not reached yet still count as active (status is what counts).
     assert_eq!((before.burned, before.viewed, before.active), (3, 1, 450));
@@ -1322,14 +1904,25 @@ async fn r2_o_two_sweepers_count_each_row_once_and_parked_rows_stay_dark() {
     tokio::join!(
         tokio::spawn(async move { scheduler::scrub(&c, Some(&b1)).await }),
         tokio::spawn(async move { scheduler::scrub(&d, Some(&b2)).await })
-    ).0.unwrap();
+    )
+    .0
+    .unwrap();
     let end = stats(&s.store).await;
-    assert_eq!((end.burned, end.viewed, end.removed, end.expired, end.active), (3, 1, 0, 450, 0));
+    assert_eq!(
+        (end.burned, end.viewed, end.removed, end.expired, end.active),
+        (3, 1, 0, 450, 0)
+    );
     assert_eq!(s.store.pending_deletes().await.unwrap().len(), 0);
     assert_eq!(dir_entries(&root.join("blobs")), Vec::<String>::new());
     assert_eq!(s.store.external_bytes().await.unwrap(), 0);
     // The ledger agrees: the whole ceiling is free again.
-    assert!(blobs.reserve(&s.store, 100_000_000).await.unwrap().is_some());
+    assert!(
+        blobs
+            .reserve(&s.store, 100_000_000)
+            .await
+            .unwrap()
+            .is_some()
+    );
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -1337,13 +1930,26 @@ async fn r2_o_two_sweepers_count_each_row_once_and_parked_rows_stay_dark() {
 // R. D-29: the setup gate. Nothing public and no create before setup; the gate never re-arms.
 
 #[tokio::test]
-async fn r2_r_setup_gate_blocks_everything_public_and_never_rearms() {
+async fn spec_r2_r_setup_gate_blocks_everything_public_and_never_rearms() {
     let s = srv_unconfigured("r-gate", &[], &[]).await;
-    assert_eq!(get(&s.app, "localhost", "/api/v1/health").await.json()["configured"], false);
+    assert_eq!(
+        get(&s.app, "localhost", "/api/v1/health").await.json()["configured"],
+        false
+    );
     for (path, expect) in [
-        ("/en", 503), ("/", 503), ("/en/s", 503), ("/en/terms", 503), ("/api/v1/config", 503), ("/api/v1", 503),
-        ("/en/admin", 303), ("/en/admin/login", 200), ("/static/app.js", 200), ("/api/v1/health", 200),
-        ("/EN/admin", 503), ("/en/admin%2F..%2Fs", 503), ("/en/adminx", 503),
+        ("/en", 503),
+        ("/", 503),
+        ("/en/s", 503),
+        ("/en/terms", 503),
+        ("/api/v1/config", 503),
+        ("/api/v1", 503),
+        ("/en/admin", 303),
+        ("/en/admin/login", 200),
+        ("/static/app.js", 200),
+        ("/api/v1/health", 200),
+        ("/EN/admin", 503),
+        ("/en/admin%2F..%2Fs", 503),
+        ("/en/adminx", 503),
     ] {
         let r = get(&s.app, "localhost", path).await;
         assert_eq!(r.status.as_u16(), expect, "{path}: {}", r.text());
@@ -1352,73 +1958,209 @@ async fn r2_r_setup_gate_blocks_everything_public_and_never_rearms() {
             assert!(r.text().contains("not_configured") || r.text().contains("<html"));
         }
     }
-    assert_eq!(create(&s.app, &meta(&keys(), "ttl", 3600), &raw_blob(65536)).await.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        create(&s.app, &meta(&keys(), "ttl", 3600), &raw_blob(65536))
+            .await
+            .status,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
     // Through the admin prefix: anything under /{locale}/admin/ is open, so an unknown admin
     // path (or one with dot segments nobody normalises) renders a public page.
-    for path in ["/en/admin/nothing-here", "/en/admin/../s", "/en/admin/../../de/terms"] {
+    for path in [
+        "/en/admin/nothing-here",
+        "/en/admin/../s",
+        "/en/admin/../../de/terms",
+    ] {
         let r = get(&s.app, "localhost", path).await;
-        assert_eq!(r.status, StatusCode::SERVICE_UNAVAILABLE, "{path}: {:?}, body starts {}", r.status, &r.text()[..r.text().len().min(200)]);
+        assert_eq!(
+            r.status,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "{path}: {:?}, body starts {}",
+            r.status,
+            &r.text()[..r.text().len().min(200)]
+        );
     }
     // Configure through the API with the bootstrap token.
-    let r = admin(&s.app, "PATCH", "/api/v1/admin/settings", BOOTSTRAP, Some(json!({"site_name": "Site", "contact_email": "ops@example.test"}))).await;
+    let r = admin(
+        &s.app,
+        "PATCH",
+        "/api/v1/admin/settings",
+        BOOTSTRAP,
+        Some(json!({"site_name": "Site", "contact_email": "ops@example.test"})),
+    )
+    .await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.text());
-    assert_eq!(get(&s.app, "localhost", "/en").await.status, StatusCode::SERVICE_UNAVAILABLE, "still no admin key");
-    let r = admin(&s.app, "POST", "/api/v1/admin/keys", BOOTSTRAP, Some(json!({"name": "first", "scope": "admin"}))).await;
+    assert_eq!(
+        get(&s.app, "localhost", "/en").await.status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "still no admin key"
+    );
+    let r = admin(
+        &s.app,
+        "POST",
+        "/api/v1/admin/keys",
+        BOOTSTRAP,
+        Some(json!({"name": "first", "scope": "admin"})),
+    )
+    .await;
     assert_eq!(r.status, StatusCode::CREATED);
     let key = r.json()["key"].as_str().unwrap().to_string();
     let id = r.json()["id"].as_str().unwrap().to_string();
     assert_eq!(get(&s.app, "localhost", "/en").await.status, StatusCode::OK);
-    assert_eq!(get(&s.app, "localhost", "/api/v1/health").await.json()["configured"], true);
+    assert_eq!(
+        get(&s.app, "localhost", "/api/v1/health").await.json()["configured"],
+        true
+    );
     // Cannot be undone through settings...
-    for b in [json!({"site_name": ""}), json!({"site_name": null}), json!({"contact_email": null}), json!({"site_name": " "})] {
-        assert_eq!(admin(&s.app, "PATCH", "/api/v1/admin/settings", &key, Some(b)).await.status, StatusCode::UNPROCESSABLE_ENTITY);
+    for b in [
+        json!({"site_name": ""}),
+        json!({"site_name": null}),
+        json!({"contact_email": null}),
+        json!({"site_name": " "}),
+    ] {
+        assert_eq!(
+            admin(&s.app, "PATCH", "/api/v1/admin/settings", &key, Some(b))
+                .await
+                .status,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
     }
     // ...and deleting the last admin key (the operator's own lockout) does not re-arm it.
-    assert_eq!(admin(&s.app, "POST", "/api/v1/admin/keys/delete", &key, Some(json!({"id": id}))).await.status, StatusCode::NO_CONTENT);
+    assert_eq!(
+        admin(
+            &s.app,
+            "POST",
+            "/api/v1/admin/keys/delete",
+            &key,
+            Some(json!({"id": id}))
+        )
+        .await
+        .status,
+        StatusCode::NO_CONTENT
+    );
     assert_eq!(get(&s.app, "localhost", "/en").await.status, StatusCode::OK);
-    assert_eq!(create(&s.app, &meta(&keys(), "ttl", 3600), &raw_blob(65536)).await.status, StatusCode::CREATED);
-    assert_eq!(get(&s.app, "localhost", "/api/v1/health").await.json()["configured"], true);
+    assert_eq!(
+        create(&s.app, &meta(&keys(), "ttl", 3600), &raw_blob(65536))
+            .await
+            .status,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        get(&s.app, "localhost", "/api/v1/health").await.json()["configured"],
+        true
+    );
 }
 
 // ============================================================================================
 // S. D-24 / D-25: api mode serves nothing public; subdomain admin answers only on its host.
 
 #[tokio::test]
-async fn r2_s_api_mode_and_admin_subdomain_serve_only_their_own() {
+async fn spec_r2_s_api_mode_and_admin_subdomain_serve_only_their_own() {
     let api = srv("s-api", &[("SHH_WEB", "api")], &[]).await;
     for (path, expect) in [
-        ("/", 404), ("/s", 404), ("/en", 404), ("/en/s", 404), ("/en/terms", 404), ("/de/how-it-works", 404), ("/en/report", 404),
-        ("/static/app.js", 200), ("/static/shh.js", 200), ("/static/argon2.wasm", 200), ("/static/nope.js", 404),
-        ("/en/admin/login", 200), ("/api/v1/config", 200), ("/robots.txt", 404), ("/favicon.ico", 404),
+        ("/", 404),
+        ("/s", 404),
+        ("/en", 404),
+        ("/en/s", 404),
+        ("/en/terms", 404),
+        ("/de/how-it-works", 404),
+        ("/en/report", 404),
+        ("/static/app.js", 200),
+        ("/static/shh.js", 200),
+        ("/static/argon2.wasm", 200),
+        ("/static/nope.js", 404),
+        ("/en/admin/login", 200),
+        ("/api/v1/config", 200),
+        ("/robots.txt", 404),
+        ("/favicon.ico", 404),
     ] {
         let r = get(&api.app, "localhost", path).await;
-        assert_eq!(r.status.as_u16(), expect, "{path} answered {:?} {}", r.status, r.headers.get(header::LOCATION).map(|l| l.to_str().unwrap()).unwrap_or(""));
+        assert_eq!(
+            r.status.as_u16(),
+            expect,
+            "{path} answered {:?} {}",
+            r.status,
+            r.headers
+                .get(header::LOCATION)
+                .map(|l| l.to_str().unwrap())
+                .unwrap_or("")
+        );
     }
-    assert_eq!(get(&api.app, "localhost", "/api/v1/config").await.json()["web_mode"], "api");
+    assert_eq!(
+        get(&api.app, "localhost", "/api/v1/config").await.json()["web_mode"],
+        "api"
+    );
 
-    let sub = srv("s-sub", &[("SHH_ENV", "production"), ("SHH_URL", "https://example.com"), ("SHH_ADMIN_ROUTING", "subdomain")], &[]).await;
+    let sub = srv(
+        "s-sub",
+        &[
+            ("SHH_ENV", "production"),
+            ("SHH_URL", "https://example.com"),
+            ("SHH_ADMIN_ROUTING", "subdomain"),
+        ],
+        &[],
+    )
+    .await;
     for (host, path, expect) in [
-        ("example.com", "/en/admin", 404), ("example.com", "/en/admin/login", 404), ("example.com", "/en", 200),
-        ("admin.example.com", "/en", 303), ("admin.example.com", "/en/login", 200), ("admin.example.com", "/en/s", 404),
-        ("admin.example.com", "/en/terms", 404), ("admin.example.com", "/static/app.js", 200), ("ADMIN.example.com", "/en/login", 200),
-        ("admin.example.com:443", "/en/login", 200), ("admin.example.com.evil.com", "/en/login", 404), ("xadmin.example.com", "/en/login", 404),
+        ("example.com", "/en/admin", 404),
+        ("example.com", "/en/admin/login", 404),
+        ("example.com", "/en", 200),
+        ("admin.example.com", "/en", 303),
+        ("admin.example.com", "/en/login", 200),
+        ("admin.example.com", "/en/s", 404),
+        ("admin.example.com", "/en/terms", 404),
+        ("admin.example.com", "/static/app.js", 200),
+        ("ADMIN.example.com", "/en/login", 200),
+        ("admin.example.com:443", "/en/login", 200),
+        ("admin.example.com.evil.com", "/en/login", 404),
+        ("xadmin.example.com", "/en/login", 404),
     ] {
         let r = get(&sub.app, host, path).await;
-        assert_eq!(r.status.as_u16(), expect, "{host}{path} answered {:?}", r.status);
+        assert_eq!(
+            r.status.as_u16(),
+            expect,
+            "{host}{path} answered {:?}",
+            r.status
+        );
     }
     // The cookie is host-only and Secure in production.
     let login = send(
         &sub.app,
-        Request::post("/en/login").header(header::HOST, "admin.example.com").header(header::CONTENT_TYPE, "application/x-www-form-urlencoded").body(Body::from(format!("credential={ADMIN_KEY}"))).unwrap(),
+        Request::post("/en/login")
+            .header(header::HOST, "admin.example.com")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(format!("credential={ADMIN_KEY}")))
+            .unwrap(),
     )
     .await;
     assert_eq!(login.status, StatusCode::SEE_OTHER);
-    let sc = login.headers[header::SET_COOKIE].to_str().unwrap().to_string();
-    assert!(sc.contains("; Secure") && sc.contains("HttpOnly") && sc.contains("SameSite=Strict") && !sc.to_ascii_lowercase().contains("domain="), "{sc}");
+    let sc = login.headers[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        sc.contains("; Secure")
+            && sc.contains("HttpOnly")
+            && sc.contains("SameSite=Strict")
+            && !sc.to_ascii_lowercase().contains("domain="),
+        "{sc}"
+    );
     let cookie = cookie_of(&login);
     // Presented on the main host, the panel path is a plain 404 whatever the cookie says.
-    for (host, path) in [("example.com", "/en/admin"), ("example.com", "/en/admin/settings"), ("example.com", "/en/admin/login")] {
-        let r = send(&sub.app, Request::get(path).header(header::HOST, host).header(header::COOKIE, format!("shh_admin={cookie}")).body(Body::empty()).unwrap()).await;
+    for (host, path) in [
+        ("example.com", "/en/admin"),
+        ("example.com", "/en/admin/settings"),
+        ("example.com", "/en/admin/login"),
+    ] {
+        let r = send(
+            &sub.app,
+            Request::get(path)
+                .header(header::HOST, host)
+                .header(header::COOKIE, format!("shh_admin={cookie}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
         assert_eq!(r.status, StatusCode::NOT_FOUND, "{host}{path}");
     }
 }
@@ -1426,11 +2168,27 @@ async fn r2_s_api_mode_and_admin_subdomain_serve_only_their_own() {
 // D-24 / §7.1: "every other public route is 404" in api mode. A path with a trailing slash
 // is answered with a redirect instead, by the normalisation layer that runs before routing.
 #[tokio::test]
-async fn r2_s_api_mode_serves_no_redirect() {
+async fn spec_r2_s_api_mode_serves_no_redirect() {
     let api = srv("s-api-redirect", &[("SHH_WEB", "api")], &[]).await;
-    for path in ["/en/", "/s/", "/en/s/", "/de/terms/", "/static/", "/anything/"] {
+    for path in [
+        "/en/",
+        "/s/",
+        "/en/s/",
+        "/de/terms/",
+        "/static/",
+        "/anything/",
+    ] {
         let r = get(&api.app, "localhost", path).await;
-        assert_eq!(r.status, StatusCode::NOT_FOUND, "{path} answered {:?} Location: {}", r.status, r.headers.get(header::LOCATION).map(|l| l.to_str().unwrap()).unwrap_or(""));
+        assert_eq!(
+            r.status,
+            StatusCode::NOT_FOUND,
+            "{path} answered {:?} Location: {}",
+            r.status,
+            r.headers
+                .get(header::LOCATION)
+                .map(|l| l.to_str().unwrap())
+                .unwrap_or("")
+        );
     }
 }
 
@@ -1438,35 +2196,80 @@ async fn r2_s_api_mode_serves_no_redirect() {
 // T. D-26 / §4: CORS only for the site and the allow-list; never credentials, never `*`.
 
 #[tokio::test]
-async fn r2_t_cors_answers_only_allowed_origins_without_credentials() {
-    let s = srv("t-cors", &[], &[("allowed_origins", "https://front.example")]).await;
+async fn spec_r2_t_cors_answers_only_allowed_origins_without_credentials() {
+    let s = srv(
+        "t-cors",
+        &[],
+        &[("allowed_origins", "https://front.example")],
+    )
+    .await;
     let origins = [
-        ("http://localhost:3000", true), ("HTTP://LOCALHOST:3000", true), ("https://front.example", true),
-        ("http://localhost:3000/", false), ("http://localhost", false), ("http://localhost:3000.evil.com", false),
-        ("https://front.example:443", false), ("https://evil.example", false), ("null", false), ("", false),
-        ("https://front.example\t", false), ("http://localhost:3000 ", false),
+        ("http://localhost:3000", true),
+        ("HTTP://LOCALHOST:3000", true),
+        ("https://front.example", true),
+        ("http://localhost:3000/", false),
+        ("http://localhost", false),
+        ("http://localhost:3000.evil.com", false),
+        ("https://front.example:443", false),
+        ("https://evil.example", false),
+        ("null", false),
+        ("", false),
+        ("https://front.example\t", false),
+        ("http://localhost:3000 ", false),
     ];
     for (origin, allowed) in origins {
-        for (method, path) in [("OPTIONS", "/api/v1/secrets/reveal"), ("POST", "/api/v1/secrets/reveal"), ("GET", "/api/v1/config"), ("OPTIONS", "/api/v1/admin/settings"), ("GET", "/en/s")] {
-            let mut req = Request::builder().method(method).uri(path).header(header::HOST, "localhost").header(header::ORIGIN, origin).header(header::ACCESS_CONTROL_REQUEST_METHOD, "POST").header(header::ACCESS_CONTROL_REQUEST_HEADERS, "content-type, authorization, cookie, x-custom");
+        for (method, path) in [
+            ("OPTIONS", "/api/v1/secrets/reveal"),
+            ("POST", "/api/v1/secrets/reveal"),
+            ("GET", "/api/v1/config"),
+            ("OPTIONS", "/api/v1/admin/settings"),
+            ("GET", "/en/s"),
+        ] {
+            let mut req = Request::builder()
+                .method(method)
+                .uri(path)
+                .header(header::HOST, "localhost")
+                .header(header::ORIGIN, origin)
+                .header(header::ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                .header(
+                    header::ACCESS_CONTROL_REQUEST_HEADERS,
+                    "content-type, authorization, cookie, x-custom",
+                );
             if method == "POST" {
                 req = req.header(header::CONTENT_TYPE, "application/json");
             }
             let r = send(&s.app, req.body(Body::from("{}")).unwrap()).await;
-            let acao = r.headers.get(header::ACCESS_CONTROL_ALLOW_ORIGIN).map(|v| v.to_str().unwrap().to_string());
+            let acao = r
+                .headers
+                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .map(|v| v.to_str().unwrap().to_string());
             let on_api = path.starts_with("/api/");
-            assert_eq!(acao.is_some(), allowed && on_api, "{method} {path} origin {origin:?}: {acao:?}");
+            assert_eq!(
+                acao.is_some(),
+                allowed && on_api,
+                "{method} {path} origin {origin:?}: {acao:?}"
+            );
             if let Some(acao) = &acao {
                 assert_eq!(acao, origin);
                 assert_ne!(acao, "*");
             }
-            assert!(r.headers.get(header::ACCESS_CONTROL_ALLOW_CREDENTIALS).is_none(), "{method} {path} {origin:?}");
+            assert!(
+                r.headers
+                    .get(header::ACCESS_CONTROL_ALLOW_CREDENTIALS)
+                    .is_none(),
+                "{method} {path} {origin:?}"
+            );
             if let Some(h) = r.headers.get(header::ACCESS_CONTROL_ALLOW_HEADERS) {
                 assert!(!h.to_str().unwrap().to_ascii_lowercase().contains("cookie"));
             }
             if on_api {
                 assert_eq!(r.headers[header::CACHE_CONTROL], "no-store");
-                assert!(r.headers.get_all(header::VARY).iter().any(|v| v == "Origin"));
+                assert!(
+                    r.headers
+                        .get_all(header::VARY)
+                        .iter()
+                        .any(|v| v == "Origin")
+                );
             }
         }
     }
@@ -1476,12 +2279,17 @@ async fn r2_t_cors_answers_only_allowed_origins_without_credentials() {
 // U. §6.1: the startup sweep deletes only our own orphans and stops for nothing.
 
 #[tokio::test]
-async fn r2_u_orphan_sweep_keeps_referenced_and_strange_entries() {
+async fn spec_r2_u_orphan_sweep_keeps_referenced_and_strange_entries() {
     use std::os::unix::ffi::OsStrExt;
     let root = scratch("u-sweep");
     let s = srv(
         "u-sweep",
-        &[("SHH_STORAGE", "local"), ("SHH_LOCAL_PATH", root.to_str().unwrap()), ("SHH_LOCAL_MAX_TOTAL_BYTES", "100000000"), ("SHH_INLINE_MAX", "65536")],
+        &[
+            ("SHH_STORAGE", "local"),
+            ("SHH_LOCAL_PATH", root.to_str().unwrap()),
+            ("SHH_LOCAL_MAX_TOTAL_BYTES", "100000000"),
+            ("SHH_INLINE_MAX", "65536"),
+        ],
         NO_LIMITS,
     )
     .await;
@@ -1489,7 +2297,16 @@ async fn r2_u_orphan_sweep_keeps_referenced_and_strange_entries() {
     make(&s.app, &live, "ttl", 131072).await;
     let parked = keys();
     make(&s.app, &parked, "ttl", 131072).await;
-    assert_eq!(post(&s.app, "/api/v1/secrets/burn", json!({"burn_token": b64(&parked.burn)})).await.status, StatusCode::NO_CONTENT);
+    assert_eq!(
+        post(
+            &s.app,
+            "/api/v1/secrets/burn",
+            json!({"burn_token": b64(&parked.burn)})
+        )
+        .await
+        .status,
+        StatusCode::NO_CONTENT
+    );
     let blobs_dir = root.join("blobs");
     let before = dir_entries(&blobs_dir);
     assert_eq!(before.len(), 2);
@@ -1503,26 +2320,74 @@ async fn r2_u_orphan_sweep_keeps_referenced_and_strange_entries() {
     std::fs::write(blobs_dir.join(".hidden"), b"x").unwrap();
     std::fs::create_dir(blobs_dir.join(valid(2))).unwrap();
     std::fs::write(blobs_dir.join(valid(2)).join(valid(3)), b"nested").unwrap();
-    std::fs::write(blobs_dir.join(std::ffi::OsStr::from_bytes(&[b'Q'; 21].iter().chain([0xffu8].iter()).copied().collect::<Vec<u8>>())), b"not utf-8").unwrap();
+    std::fs::write(
+        blobs_dir.join(std::ffi::OsStr::from_bytes(
+            &[b'Q'; 21]
+                .iter()
+                .chain([0xffu8].iter())
+                .copied()
+                .collect::<Vec<u8>>(),
+        )),
+        b"not utf-8",
+    )
+    .unwrap();
     std::os::unix::fs::symlink("/etc/hostname", blobs_dir.join(valid(4))).unwrap();
     std::os::unix::fs::symlink(root.join("blobs"), blobs_dir.join(valid(5))).unwrap();
 
-    let reopened = Blobs::open(Config::from_vars(&base_vars(&[("SHH_STORAGE", "local"), ("SHH_LOCAL_PATH", root.to_str().unwrap()), ("SHH_LOCAL_MAX_TOTAL_BYTES", "100000000")])).unwrap().storage.external.as_ref().unwrap()).await.unwrap();
-    let sweep = reopened.collect_orphans(&s.store).await.expect("a stray entry stopped the sweep");
+    // No upload window here: the age gate (R-4) has its own test; this one is about the
+    // reference and name-shape rules.
+    let reopened = Blobs::open_with(
+        Config::from_vars(&base_vars(&[
+            ("SHH_STORAGE", "local"),
+            ("SHH_LOCAL_PATH", root.to_str().unwrap()),
+            ("SHH_LOCAL_MAX_TOTAL_BYTES", "100000000"),
+        ]))
+        .unwrap()
+        .storage
+        .external
+        .as_ref()
+        .unwrap(),
+        std::time::Duration::ZERO,
+    )
+    .await
+    .unwrap();
+    let sweep = reopened
+        .collect_orphans(&s.store)
+        .await
+        .expect("a stray entry stopped the sweep");
     let after = dir_entries(&blobs_dir);
-    for kept in ["short", &format!("{}.x", "Q".repeat(20)), &"Q".repeat(23), ".hidden", &valid(2)] {
-        assert!(after.contains(&kept.to_string()), "{kept} was deleted: {after:?}");
+    for kept in [
+        "short",
+        &format!("{}.x", "Q".repeat(20)),
+        &"Q".repeat(23),
+        ".hidden",
+        &valid(2),
+    ] {
+        assert!(
+            after.contains(&kept.to_string()),
+            "{kept} was deleted: {after:?}"
+        );
     }
-    assert!(after.iter().any(|n| n.contains('\u{fffd}')), "the non-UTF-8 entry was deleted");
+    assert!(
+        after.iter().any(|n| n.contains('\u{fffd}')),
+        "the non-UTF-8 entry was deleted"
+    );
     for b in &before {
         assert!(after.contains(b), "referenced object {b} was deleted");
     }
-    assert_eq!(std::fs::read_dir(blobs_dir.join(valid(2))).unwrap().count(), 1, "the nested file was deleted");
+    assert_eq!(
+        std::fs::read_dir(blobs_dir.join(valid(2))).unwrap().count(),
+        1,
+        "the nested file was deleted"
+    );
     for gone in [valid(0), valid(1), valid(4), valid(5)] {
         assert!(!after.contains(&gone), "orphan {gone} survived: {after:?}");
     }
     assert_eq!((sweep.removed, sweep.ignored), (4, 6), "{sweep:?}");
-    assert_eq!(reveal(&s.app, &b64(&live.lookup), None).await.status, StatusCode::OK);
+    assert_eq!(
+        reveal(&s.app, &b64(&live.lookup), None).await.status,
+        StatusCode::OK
+    );
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -1531,11 +2396,16 @@ async fn r2_u_orphan_sweep_keeps_referenced_and_strange_entries() {
 // spool bytes stay within what was reserved.
 
 #[tokio::test]
-async fn r2_v_invalid_declared_lengths_never_touch_disk() {
+async fn spec_r2_v_invalid_declared_lengths_never_touch_disk() {
     let root = scratch("v-spool");
     let s = srv(
         "v-spool",
-        &[("SHH_STORAGE", "local"), ("SHH_LOCAL_PATH", root.to_str().unwrap()), ("SHH_LOCAL_MAX_TOTAL_BYTES", "100000000"), ("SHH_INLINE_MAX", "65536")],
+        &[
+            ("SHH_STORAGE", "local"),
+            ("SHH_LOCAL_PATH", root.to_str().unwrap()),
+            ("SHH_LOCAL_MAX_TOTAL_BYTES", "100000000"),
+            ("SHH_INLINE_MAX", "65536"),
+        ],
         NO_LIMITS,
     )
     .await;
@@ -1544,11 +2414,23 @@ async fn r2_v_invalid_declared_lengths_never_touch_disk() {
     let tail = multipart_tail().len() as u64;
     let valid = blob_len(131072);
     // Declared total lengths (meta + framing + blob) where no valid blob fits.
-    for declared in [95, 96, blob_len(65536) + head + tail - 1 - 16 * 1024 - 1, valid + head + tail + 16 * 1024 + 1 /* too far above */, u64::MAX / 2, 0] {
+    for declared in [
+        95,
+        96,
+        blob_len(65536) + head + tail - 1 - 16 * 1024 - 1,
+        valid + head + tail + 16 * 1024 + 1, /* too far above */
+        u64::MAX / 2,
+        0,
+    ] {
         let (tx, rx) = tokio::sync::mpsc::channel::<Bytes>(1);
-        let stream = futures_util::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|b| (Ok::<Bytes, std::io::Error>(b), rx)) });
+        let stream = futures_util::stream::unfold(rx, |mut rx| async move {
+            rx.recv()
+                .await
+                .map(|b| (Ok::<Bytes, std::io::Error>(b), rx))
+        });
         let mut req = create_req(Body::from_stream(stream));
-        req.headers_mut().insert(header::CONTENT_LENGTH, declared.into());
+        req.headers_mut()
+            .insert(header::CONTENT_LENGTH, declared.into());
         let app = s.app.clone();
         let task = tokio::spawn(async move { send(&app, req).await });
         // Send the head and the first 200 KiB of blob bytes, then look at the spool directory.
@@ -1557,29 +2439,62 @@ async fn r2_v_invalid_declared_lengths_never_touch_disk() {
         tokio::time::sleep(Duration::from_millis(150)).await;
         let spooled = dir_entries(&root.join("tmp"));
         drop(tx);
-        let r = tokio::time::timeout(Duration::from_secs(5), task).await.unwrap().unwrap();
-        assert!(r.status == StatusCode::BAD_REQUEST || r.status == StatusCode::PAYLOAD_TOO_LARGE, "declared {declared}: {:?} {}", r.status, r.text());
-        assert_eq!(spooled, Vec::<String>::new(), "declared {declared}: bytes reached the spool");
+        let r = tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            r.status == StatusCode::BAD_REQUEST || r.status == StatusCode::PAYLOAD_TOO_LARGE,
+            "declared {declared}: {:?} {}",
+            r.status,
+            r.text()
+        );
+        assert_eq!(
+            spooled,
+            Vec::<String>::new(),
+            "declared {declared}: bytes reached the spool"
+        );
     }
     // A plausible declared length whose body is junk: spooled, but never more than reserved,
     // and gone afterwards.
     let (tx, rx) = tokio::sync::mpsc::channel::<Bytes>(1);
-    let stream = futures_util::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|b| (Ok::<Bytes, std::io::Error>(b), rx)) });
+    let stream = futures_util::stream::unfold(rx, |mut rx| async move {
+        rx.recv()
+            .await
+            .map(|b| (Ok::<Bytes, std::io::Error>(b), rx))
+    });
     let mut req = create_req(Body::from_stream(stream));
-    req.headers_mut().insert(header::CONTENT_LENGTH, (valid + head + tail).into());
+    req.headers_mut()
+        .insert(header::CONTENT_LENGTH, (valid + head + tail).into());
     let app = s.app.clone();
     let task = tokio::spawn(async move { send(&app, req).await });
     let _ = tx.send(Bytes::from(multipart_head(&m))).await;
     let _ = tx.send(Bytes::from(vec![1u8; valid as usize + 4096])).await;
     tokio::time::sleep(Duration::from_millis(200)).await;
-    let spool_bytes: u64 = std::fs::read_dir(root.join("tmp")).unwrap().filter_map(|e| e.ok()).map(|e| e.metadata().map(|m| m.len()).unwrap_or(0)).sum();
+    let spool_bytes: u64 = std::fs::read_dir(root.join("tmp"))
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.metadata().map(|m| m.len()).unwrap_or(0))
+        .sum();
     drop(tx);
-    let r = tokio::time::timeout(Duration::from_secs(5), task).await.unwrap().unwrap();
+    let r = tokio::time::timeout(Duration::from_secs(5), task)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(r.status, StatusCode::BAD_REQUEST, "{}", r.text());
     assert!(spool_bytes <= valid + 4096, "spool held {spool_bytes}");
     assert_eq!(dir_entries(&root.join("tmp")), Vec::<String>::new());
     assert_eq!(dir_entries(&root.join("blobs")), Vec::<String>::new());
-    assert!(s.blobs.as_ref().unwrap().reserve(&s.store, 100_000_000).await.unwrap().is_some(), "reservation leaked");
+    assert!(
+        s.blobs
+            .as_ref()
+            .unwrap()
+            .reserve(&s.store, 100_000_000)
+            .await
+            .unwrap()
+            .is_some(),
+        "reservation leaked"
+    );
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -1593,7 +2508,7 @@ fn shhnote(cwd: &Path) -> std::process::Command {
 }
 
 #[test]
-fn r2_x_init_env_never_changes_what_the_server_reads() {
+fn spec_r2_x_init_env_never_changes_what_the_server_reads() {
     let dir = scratch("x-init");
     // Three ways an operator writes a set value that dotenvy (the server's .env reader)
     // accepts: plain, `export`ed, and spaced around `=`. Each must survive `init --env`.
@@ -1612,38 +2527,70 @@ fn r2_x_init_env_never_changes_what_the_server_reads() {
         let env = cwd.join(".env");
         std::fs::write(&env, format!("SHH_ENV=local\nSHH_URL=http://localhost:3000\nSHH_DB=sqlite\nSHH_SQLITE_PATH={}\n{line}\nSHH_ADMIN_TOKEN={}\n", cwd.join("db.sqlite").display(), "t".repeat(40))).unwrap();
         let before = shhnote(&cwd).arg("check").output().unwrap();
-        let out = shhnote(&cwd).args(["init", "--env", env.to_str().unwrap()]).output().unwrap();
-        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let out = shhnote(&cwd)
+            .args(["init", "--env", env.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         let after_text = std::fs::read_to_string(&env).unwrap();
         let after = shhnote(&cwd).arg("check").output().unwrap();
-        let (b, a) = (String::from_utf8_lossy(&before.stdout).to_string(), String::from_utf8_lossy(&after.stdout).to_string());
+        let (b, a) = (
+            String::from_utf8_lossy(&before.stdout).to_string(),
+            String::from_utf8_lossy(&after.stdout).to_string(),
+        );
         let occurrences = after_text.matches("SHH_SECRET_KEY").count();
-        let (eb, ea) = (String::from_utf8_lossy(&before.stderr).trim().to_string(), String::from_utf8_lossy(&after.stderr).trim().to_string());
+        let (eb, ea) = (
+            String::from_utf8_lossy(&before.stderr).trim().to_string(),
+            String::from_utf8_lossy(&after.stderr).trim().to_string(),
+        );
         assert!(
             occurrences == 1 && before.status.code() == after.status.code() && eb == ea,
             "case {i} ({line:?}): the server's view changed.\nfile after init:\n{after_text}\ncheck before: exit {:?} {b:?} {eb:?}\ncheck after: exit {:?} {a:?} {ea:?}",
-            before.status.code(), after.status.code()
+            before.status.code(),
+            after.status.code()
         );
-        assert!(after_text.contains("short-set-value"), "case {i}: the set value was removed");
+        assert!(
+            after_text.contains("short-set-value"),
+            "case {i}: the set value was removed"
+        );
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[cfg(unix)]
 #[test]
-fn r2_x_init_env_does_not_leave_secrets_world_readable() {
+fn spec_r2_x_init_env_does_not_leave_secrets_world_readable() {
     use std::os::unix::fs::PermissionsExt;
     let dir = scratch("x-mode");
     let env = dir.join(".env");
     std::fs::write(&env, "SHH_ENV=production\nSHH_SECRET_KEY=\n").unwrap();
     std::fs::set_permissions(&env, std::fs::Permissions::from_mode(0o644)).unwrap();
-    let out = shhnote(&dir).args(["init", "--env", env.to_str().unwrap()]).output().unwrap();
+    let out = shhnote(&dir)
+        .args(["init", "--env", env.to_str().unwrap()])
+        .output()
+        .unwrap();
     assert!(out.status.success());
     let mode = std::fs::metadata(&env).unwrap().permissions().mode() & 0o777;
     let text = std::fs::read_to_string(&env).unwrap();
     assert!(text.contains("SHH_SECRET_KEY=") && text.len() > 40);
-    let warned = String::from_utf8_lossy(&out.stderr).to_ascii_lowercase().contains("readable") || String::from_utf8_lossy(&out.stdout).to_ascii_lowercase().contains("readable");
-    assert!(mode & 0o044 == 0 || warned, "secrets written into a mode {mode:o} file without a word about it");
-    assert_eq!(dir_entries(&dir), vec![".env".to_string()], "temp file left behind");
+    let warned = String::from_utf8_lossy(&out.stderr)
+        .to_ascii_lowercase()
+        .contains("readable")
+        || String::from_utf8_lossy(&out.stdout)
+            .to_ascii_lowercase()
+            .contains("readable");
+    assert!(
+        mode & 0o044 == 0 || warned,
+        "secrets written into a mode {mode:o} file without a word about it"
+    );
+    assert_eq!(
+        dir_entries(&dir),
+        vec![".env".to_string()],
+        "temp file left behind"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

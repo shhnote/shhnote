@@ -73,8 +73,9 @@ impl Reply {
 }
 
 async fn send(app: &Router, mut req: Request<Body>) -> Reply {
-    req.extensions_mut()
-        .insert(ConnectInfo("192.0.2.9:40000".parse::<SocketAddr>().unwrap()));
+    req.extensions_mut().insert(ConnectInfo(
+        "192.0.2.9:40000".parse::<SocketAddr>().unwrap(),
+    ));
     let res = app.clone().oneshot(req).await.unwrap();
     let status = res.status();
     let headers = res.headers().clone();
@@ -117,7 +118,13 @@ fn b64(bytes: &[u8]) -> String {
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
-async fn create(app: &Router, lookup: &[u8; 32], burn: &[u8; 32], lifetime: &str, auth: Option<&str>) -> Reply {
+async fn create(
+    app: &Router,
+    lookup: &[u8; 32],
+    burn: &[u8; 32],
+    lifetime: &str,
+    auth: Option<&str>,
+) -> Reply {
     let bucket = 65536u64;
     let mut blob = vec![0u8; blob_len(bucket) as usize];
     for chunk in blob.chunks_mut(32) {
@@ -141,7 +148,10 @@ async fn create(app: &Router, lookup: &[u8; 32], burn: &[u8; 32], lifetime: &str
     body.extend_from_slice(format!("\r\n--{BOUNDARY}--\r\n").as_bytes());
     let mut req = Request::post("/api/v1/secrets")
         .header(header::HOST, "localhost")
-        .header(header::CONTENT_TYPE, format!("multipart/form-data; boundary={BOUNDARY}"))
+        .header(
+            header::CONTENT_TYPE,
+            format!("multipart/form-data; boundary={BOUNDARY}"),
+        )
         .header(header::CONTENT_LENGTH, body.len());
     if let Some(a) = auth {
         req = req.header(header::AUTHORIZATION, a);
@@ -151,7 +161,7 @@ async fn create(app: &Router, lookup: &[u8; 32], burn: &[u8; 32], lifetime: &str
 
 // SPEC §4 / D-29: the API root sits behind the setup gate, /health does not and reports the state.
 #[tokio::test]
-async fn review_r2_pass0_setup_gate_and_api_root() {
+async fn spec_r2_pass0_setup_gate_and_api_root() {
     let (app, _) = build("r2p0-gate", false, Settings::default()).await;
     let root = get(&app, "/api/v1", None).await;
     assert_eq!(root.status, StatusCode::SERVICE_UNAVAILABLE);
@@ -167,9 +177,18 @@ async fn review_r2_pass0_setup_gate_and_api_root() {
     assert_eq!(page.status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(page.header("cache-control"), Some("no-store"));
     assert!(page.text().contains("/en/admin/login"), "{}", page.text());
-    assert!(!page.text().to_lowercase().contains("bootstrap token"), "{}", page.text());
+    assert!(
+        !page.text().to_lowercase().contains("bootstrap token"),
+        "{}",
+        page.text()
+    );
     // The admin API answers with the bootstrap token before setup.
-    let keys = get(&app, "/api/v1/admin/keys", Some(&format!("Bearer {BOOTSTRAP}"))).await;
+    let keys = get(
+        &app,
+        "/api/v1/admin/keys",
+        Some(&format!("Bearer {BOOTSTRAP}")),
+    )
+    .await;
     assert_eq!(keys.status, StatusCode::OK, "{}", keys.text());
     assert_eq!(keys.header("cache-control"), Some("no-store"));
 }
@@ -177,7 +196,7 @@ async fn review_r2_pass0_setup_gate_and_api_root() {
 // SPEC §4 table: the API root body, /config fields, /reports fixed body, unknown endpoint,
 // trailing-slash redirect, Retry-After constant, api_key_required.
 #[tokio::test]
-async fn review_r2_pass0_api_shapes() {
+async fn spec_r2_pass0_api_shapes() {
     let settings = Settings {
         rate_limits: RateLimits {
             report_per_hour: 1,
@@ -194,9 +213,20 @@ async fn review_r2_pass0_api_shapes() {
     let config = get(&app, "/api/v1/config", None).await;
     let c = config.json();
     for key in [
-        "fragment_version", "padding", "inline_max", "max_blob_bytes", "claim_window_secs",
-        "min_ttl_secs", "max_ttl_secs", "default_ttl_secs", "ttl_presets", "text_max_bytes",
-        "files_enabled", "regions", "server_version", "web_mode",
+        "fragment_version",
+        "padding",
+        "inline_max",
+        "max_blob_bytes",
+        "claim_window_secs",
+        "min_ttl_secs",
+        "max_ttl_secs",
+        "default_ttl_secs",
+        "ttl_presets",
+        "text_max_bytes",
+        "files_enabled",
+        "regions",
+        "server_version",
+        "web_mode",
     ] {
         assert!(c.get(key).is_some(), "missing {key}");
     }
@@ -231,10 +261,19 @@ async fn review_r2_pass0_api_shapes() {
     // 404 pages and the JSON 404 both carry the security headers.
     for path in ["/en/nope", "/api/v1/nope"] {
         let r = get(&app, path, None).await;
-        for h in ["content-security-policy", "x-frame-options", "x-content-type-options", "referrer-policy", "permissions-policy"] {
+        for h in [
+            "content-security-policy",
+            "x-frame-options",
+            "x-content-type-options",
+            "referrer-policy",
+            "permissions-policy",
+        ] {
             assert!(r.header(h).is_some(), "{path} lacks {h}");
         }
-        assert!(r.header("strict-transport-security").is_none(), "HSTS only in production");
+        assert!(
+            r.header("strict-transport-security").is_none(),
+            "HSTS only in production"
+        );
     }
 }
 
@@ -242,59 +281,138 @@ async fn review_r2_pass0_api_shapes() {
 // bucket, nothing about expiry on a TTL secret; burn/report refuse a claimed row;
 // require_api_key_for_create gives 401 api_key_required.
 #[tokio::test]
-async fn review_r2_pass0_lifecycle_headers() {
+async fn spec_r2_pass0_lifecycle_headers() {
     let (app, store) = build("r2p0-life", true, Settings::default()).await;
     let (lookup, burn) = (random32(), random32());
-    assert_eq!(create(&app, &lookup, &burn, "single_view", None).await.status, StatusCode::CREATED);
+    assert_eq!(
+        create(&app, &lookup, &burn, "single_view", None)
+            .await
+            .status,
+        StatusCode::CREATED
+    );
     // D-21: the duplicate answers 201 and writes nothing.
-    assert_eq!(create(&app, &lookup, &burn, "single_view", None).await.status, StatusCode::CREATED);
+    assert_eq!(
+        create(&app, &lookup, &burn, "single_view", None)
+            .await
+            .status,
+        StatusCode::CREATED
+    );
     assert_eq!(store.stats().await.unwrap().created, 1);
 
-    let reveal = post_raw(&app, "/api/v1/secrets/reveal", &json!({"lookup": b64(&lookup)}).to_string(), None).await;
+    let reveal = post_raw(
+        &app,
+        "/api/v1/secrets/reveal",
+        &json!({"lookup": b64(&lookup)}).to_string(),
+        None,
+    )
+    .await;
     assert_eq!(reveal.status, StatusCode::OK);
     let token = reveal.header("x-shh-claim-token").unwrap().to_string();
     assert_eq!(token.len(), 43);
-    assert_eq!(reveal.header("content-type"), Some("application/octet-stream"));
+    assert_eq!(
+        reveal.header("content-type"),
+        Some("application/octet-stream")
+    );
     assert_eq!(reveal.header("cache-control"), Some("no-store"));
-    assert_eq!(reveal.header("content-length"), Some(blob_len(65536).to_string().as_str()));
+    assert_eq!(
+        reveal.header("content-length"),
+        Some(blob_len(65536).to_string().as_str())
+    );
     assert_eq!(reveal.body.len() as u64, blob_len(65536));
     // The stats active count includes the claimed row (SPEC §3).
     assert_eq!(store.stats().await.unwrap().active, 1);
     // Burn and report against a claimed row: the uniform negative / fixed body, row untouched.
-    let b = post_raw(&app, "/api/v1/secrets/burn", &json!({"burn_token": b64(&burn)}).to_string(), None).await;
+    let b = post_raw(
+        &app,
+        "/api/v1/secrets/burn",
+        &json!({"burn_token": b64(&burn)}).to_string(),
+        None,
+    )
+    .await;
     assert_eq!(b.status, StatusCode::NOT_FOUND);
-    assert_eq!(b.json(), json!({"error": {"code": "not_found", "message": "No secret matches."}}));
-    let r = post_raw(&app, "/api/v1/reports", &json!({"lookup": b64(&lookup)}).to_string(), None).await;
+    assert_eq!(
+        b.json(),
+        json!({"error": {"code": "not_found", "message": "No secret matches."}})
+    );
+    let r = post_raw(
+        &app,
+        "/api/v1/reports",
+        &json!({"lookup": b64(&lookup)}).to_string(),
+        None,
+    )
+    .await;
     assert_eq!(r.status, StatusCode::OK);
     assert_eq!(store.stats().await.unwrap().active, 1);
     // Re-download with the token works; a second claim without it is the uniform negative.
-    let again = post_raw(&app, "/api/v1/secrets/reveal", &json!({"lookup": b64(&lookup), "claim_token": token}).to_string(), None).await;
+    let again = post_raw(
+        &app,
+        "/api/v1/secrets/reveal",
+        &json!({"lookup": b64(&lookup), "claim_token": token}).to_string(),
+        None,
+    )
+    .await;
     assert_eq!(again.status, StatusCode::OK);
     assert!(again.header("x-shh-claim-token").is_none());
-    let other = post_raw(&app, "/api/v1/secrets/reveal", &json!({"lookup": b64(&lookup)}).to_string(), None).await;
+    let other = post_raw(
+        &app,
+        "/api/v1/secrets/reveal",
+        &json!({"lookup": b64(&lookup)}).to_string(),
+        None,
+    )
+    .await;
     assert_eq!(other.status, StatusCode::NOT_FOUND);
     // Confirm: 204, viewed moves, active drops.
-    let confirm = post_raw(&app, "/api/v1/secrets/confirm", &json!({"lookup": b64(&lookup), "claim_token": token}).to_string(), None).await;
+    let confirm = post_raw(
+        &app,
+        "/api/v1/secrets/confirm",
+        &json!({"lookup": b64(&lookup), "claim_token": token}).to_string(),
+        None,
+    )
+    .await;
     assert_eq!(confirm.status, StatusCode::NO_CONTENT);
     let stats = store.stats().await.unwrap();
     assert_eq!((stats.viewed, stats.active), (1, 0));
 
     // TTL: pure read, no claim header, nothing about expiry in any header.
     let (lookup2, burn2) = (random32(), random32());
-    assert_eq!(create(&app, &lookup2, &burn2, "ttl", None).await.status, StatusCode::CREATED);
-    let ttl = post_raw(&app, "/api/v1/secrets/reveal", &json!({"lookup": b64(&lookup2)}).to_string(), None).await;
+    assert_eq!(
+        create(&app, &lookup2, &burn2, "ttl", None).await.status,
+        StatusCode::CREATED
+    );
+    let ttl = post_raw(
+        &app,
+        "/api/v1/secrets/reveal",
+        &json!({"lookup": b64(&lookup2)}).to_string(),
+        None,
+    )
+    .await;
     assert_eq!(ttl.status, StatusCode::OK);
     assert!(ttl.header("x-shh-claim-token").is_none());
     let names: Vec<String> = ttl.headers.keys().map(|k| k.as_str().to_string()).collect();
-    assert!(!names.iter().any(|n| n.contains("expir") || n.contains("ttl")), "{names:?}");
-    assert_eq!(store.stats().await.unwrap().viewed, 1, "a TTL read counts nothing");
-    let burned = post_raw(&app, "/api/v1/secrets/burn", &json!({"burn_token": b64(&burn2)}).to_string(), None).await;
+    assert!(
+        !names
+            .iter()
+            .any(|n| n.contains("expir") || n.contains("ttl")),
+        "{names:?}"
+    );
+    assert_eq!(
+        store.stats().await.unwrap().viewed,
+        1,
+        "a TTL read counts nothing"
+    );
+    let burned = post_raw(
+        &app,
+        "/api/v1/secrets/burn",
+        &json!({"burn_token": b64(&burn2)}).to_string(),
+        None,
+    )
+    .await;
     assert_eq!(burned.status, StatusCode::NO_CONTENT);
     assert_eq!(store.stats().await.unwrap().burned, 1);
 }
 
 #[tokio::test]
-async fn review_r2_pass0_api_key_required_and_admin_api_errors() {
+async fn spec_r2_pass0_api_key_required_and_admin_api_errors() {
     let settings = Settings {
         require_api_key_for_create: true,
         ..Settings::default()
@@ -310,9 +428,20 @@ async fn review_r2_pass0_api_key_required_and_admin_api_errors() {
         .create_api_key(&credential_hash(user_key.as_bytes()), "u", Scope::User, 0)
         .await
         .unwrap();
-    let ok = create(&app, &lookup, &burn, "ttl", Some(&format!("Bearer {user_key}"))).await;
+    let ok = create(
+        &app,
+        &lookup,
+        &burn,
+        "ttl",
+        Some(&format!("Bearer {user_key}")),
+    )
+    .await;
     assert_eq!(ok.status, StatusCode::CREATED, "{}", ok.text());
-    let key = store.find_api_key(&credential_hash(user_key.as_bytes())).await.unwrap().unwrap();
+    let key = store
+        .find_api_key(&credential_hash(user_key.as_bytes()))
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(key.last_used_on.unwrap() % 86_400, 0);
 
     // Admin API: a user key is 401; invalid JSON is 400 invalid_json; a bad id is 400
@@ -320,20 +449,59 @@ async fn review_r2_pass0_api_key_required_and_admin_api_errors() {
     let admin = format!("Bearer {ADMIN_KEY}");
     let user = format!("Bearer {user_key}");
     let r = get(&app, "/api/v1/admin/stats", Some(&user)).await;
-    assert_eq!((r.status, r.json()["error"]["code"].as_str()), (StatusCode::UNAUTHORIZED, Some("unauthorized")));
+    assert_eq!(
+        (r.status, r.json()["error"]["code"].as_str()),
+        (StatusCode::UNAUTHORIZED, Some("unauthorized"))
+    );
     let r = post_raw(&app, "/api/v1/admin/keys", "{", Some(&admin)).await;
-    assert_eq!((r.status, r.json()["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("invalid_json")));
-    let r = post_raw(&app, "/api/v1/admin/keys/delete", r#"{"id":"zz"}"#, Some(&admin)).await;
-    assert_eq!((r.status, r.json()["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("invalid_key")));
-    let r = post_raw(&app, "/api/v1/admin/keys/delete", &json!({"id": "ab".repeat(32)}).to_string(), Some(&admin)).await;
-    assert_eq!((r.status, r.json()["error"]["code"].as_str()), (StatusCode::NOT_FOUND, Some("no_such_key")));
+    assert_eq!(
+        (r.status, r.json()["error"]["code"].as_str()),
+        (StatusCode::BAD_REQUEST, Some("invalid_json"))
+    );
+    let r = post_raw(
+        &app,
+        "/api/v1/admin/keys/delete",
+        r#"{"id":"zz"}"#,
+        Some(&admin),
+    )
+    .await;
+    assert_eq!(
+        (r.status, r.json()["error"]["code"].as_str()),
+        (StatusCode::BAD_REQUEST, Some("invalid_key"))
+    );
+    let r = post_raw(
+        &app,
+        "/api/v1/admin/keys/delete",
+        &json!({"id": "ab".repeat(32)}).to_string(),
+        Some(&admin),
+    )
+    .await;
+    assert_eq!(
+        (r.status, r.json()["error"]["code"].as_str()),
+        (StatusCode::NOT_FOUND, Some("no_such_key"))
+    );
     let r = get(&app, "/api/v1/admin/stats?days=5", Some(&admin)).await;
     assert_eq!(r.status, StatusCode::OK);
     assert!(r.json()["days"].is_array());
     assert_eq!(r.json()["active"], 1);
     // settings PATCH: unknown key → 422 with details; clearing site_name → 422.
-    let r = send(&app, Request::patch("/api/v1/admin/settings").header(header::HOST, "localhost").header(header::AUTHORIZATION, &admin).header(header::CONTENT_TYPE, "application/json").body(Body::from(r#"{"site_name":""}"#)).unwrap()).await;
+    let r = send(
+        &app,
+        Request::patch("/api/v1/admin/settings")
+            .header(header::HOST, "localhost")
+            .header(header::AUTHORIZATION, &admin)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"site_name":""}"#))
+            .unwrap(),
+    )
+    .await;
     assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.text());
     assert_eq!(r.json()["error"]["code"], "invalid_settings");
-    assert!(r.json()["details"].as_array().unwrap().iter().any(|d| d.as_str().unwrap().contains("cannot be cleared")));
+    assert!(
+        r.json()["details"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d.as_str().unwrap().contains("cannot be cleared"))
+    );
 }

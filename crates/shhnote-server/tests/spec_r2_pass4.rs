@@ -284,7 +284,7 @@ fn missing(seen: &[Seen], hsts: bool) -> Vec<String> {
 // Item 1: every route, in every mode, configured and not. Prints the table the findings
 // file carries and asserts the SPEC §11 header set on every response.
 #[tokio::test]
-async fn review_header_walk_every_mode() {
+async fn spec_r2_header_walk_every_mode() {
     #[allow(clippy::type_complexity)]
     let modes: Vec<(&str, Vec<(&str, &str)>, &str, &str, bool)> = vec![
         ("full/path/local", vec![], "localhost", "/api", false),
@@ -389,7 +389,7 @@ async fn review_header_walk_every_mode() {
 // `/static/*` answer; everything else is 503 with `no-store`, the setup page for pages and
 // `not_configured` for the API, whatever the method. Both web modes, both admin routings.
 #[tokio::test]
-async fn review_setup_gate_closed_routes_in_every_mode() {
+async fn spec_r2_setup_gate_closed_routes_in_every_mode() {
     #[allow(clippy::type_complexity)]
     let modes: Vec<(&str, Vec<(&str, &str)>, &str, &str, &str)> = vec![
         ("full/path", vec![], "localhost", "localhost", "/api"),
@@ -620,7 +620,7 @@ async fn review_setup_gate_closed_routes_in_every_mode() {
 // D-29: the setup page must link the admin login (SPEC D-29). With the panel on its own host
 // the link is rendered as `/{locale}/login` on the MAIN host, where it does not exist.
 #[tokio::test]
-async fn finding_setup_page_login_link_is_dead_in_admin_subdomain_mode() {
+async fn spec_r2_setup_page_login_link_is_dead_in_admin_subdomain_mode() {
     let app = build(
         "r2p4-setup-link",
         &[
@@ -655,7 +655,7 @@ async fn finding_setup_page_login_link_is_dead_in_admin_subdomain_mode() {
 // after `reset-admin` or deleting the last admin key the whole site is 503 again on the next
 // start. Recorded, not a finding: the spec says the state is derived.
 #[tokio::test]
-async fn review_setup_gate_rearm_after_restart() {
+async fn spec_r2_setup_gate_rearm_after_restart() {
     let (config, state, store) = parts("r2p4-rearm", &[], true).await;
     let app = app::router(&config, state.clone());
     assert_eq!(get(&app, "localhost", "/en").await.status, StatusCode::OK);
@@ -689,7 +689,7 @@ async fn review_setup_gate_rearm_after_restart() {
 // D-29: neither the panel form nor the API can empty site_name / contact_email once set;
 // a save that fails validation for another field also changes nothing.
 #[tokio::test]
-async fn review_setup_cannot_be_cleared_by_panel_form() {
+async fn spec_r2_setup_cannot_be_cleared_by_panel_form() {
     let app = build("r2p4-clear", &[], true).await;
     let cookie = login(&app, "localhost", "/en/admin/login", ADMIN_KEY).await;
     let page = get_with_cookie(&app, "localhost", "/en/admin/settings", &cookie).await;
@@ -725,7 +725,7 @@ async fn review_setup_cannot_be_cleared_by_panel_form() {
 
 // D-25: host matching and what a request on the wrong host can reach.
 #[tokio::test]
-async fn review_admin_subdomain_host_matching_and_cookie_scope() {
+async fn spec_r2_admin_subdomain_host_matching_and_cookie_scope() {
     let app = build(
         "r2p4-admin-host",
         &[
@@ -903,7 +903,7 @@ async fn review_admin_subdomain_host_matching_and_cookie_scope() {
 
 // SPEC §4 / D-26: the CORS layer, edge by edge.
 #[tokio::test]
-async fn review_cors_edges() {
+async fn spec_r2_cors_edges() {
     let (config, state, store) = parts(
         "r2p4-cors",
         &[
@@ -1122,7 +1122,7 @@ async fn review_cors_edges() {
 // Item 5/addition: the duration dropdowns are a UI convenience; the server must validate the
 // posted seconds, not the choice list. A crafted form may post any value.
 #[tokio::test]
-async fn review_settings_form_crafted_durations_and_padding_preservation() {
+async fn spec_r2_settings_form_crafted_durations_and_padding_preservation() {
     let (config, state, _) = parts("r2p4-form", &[], true).await;
     let app = app::router(&config, state.clone());
     let cookie = login(&app, "localhost", "/en/admin/login", ADMIN_KEY).await;
@@ -1263,7 +1263,7 @@ async fn review_settings_form_crafted_durations_and_padding_preservation() {
 // Item 6: settings values rendered into the Markdown content pages. `{{site_name}}` is
 // substituted into already-rendered HTML without escaping.
 #[tokio::test]
-async fn finding_site_name_is_injected_unescaped_into_content_pages() {
+async fn spec_r2_site_name_is_injected_unescaped_into_content_pages() {
     let (config, state, _) = parts("r2p4-sitename", &[], true).await;
     let app = app::router(&config, state.clone());
     let auth = format!("Bearer {ADMIN_KEY}");
@@ -1307,7 +1307,7 @@ async fn finding_site_name_is_injected_unescaped_into_content_pages() {
 // Item 6 and the data-shh-i18n block: nothing an admin sets can reach the JSON strings block,
 // the footer version, the `data-shh-*` attributes or the `<template>` elements unescaped.
 #[tokio::test]
-async fn review_templates_escape_settings_and_version() {
+async fn spec_r2_templates_escape_settings_and_version() {
     let (config, state, _) = parts("r2p4-escape", &[], true).await;
     let app = app::router(&config, state.clone());
     let auth = format!("Bearer {ADMIN_KEY}");
@@ -1382,7 +1382,7 @@ async fn review_templates_escape_settings_and_version() {
 // Items 2–4 re-run after the S-39/S-40/S-43 rework: sessions, CSRF on every state-changing
 // route, login, bootstrap, and the admin API's cookie refusal.
 #[tokio::test]
-async fn review_session_csrf_login_regressions() {
+async fn spec_r2_session_csrf_login_regressions() {
     let (config, state, store) = parts("r2p4-session", &[], false).await;
     let app = app::router(&config, state.clone());
     // Bootstrap login while no admin key exists.
@@ -1719,7 +1719,7 @@ async fn review_session_csrf_login_regressions() {
 // key through the panel or the admin API does not, so a bootstrap cookie issued before the
 // first key (younger than 12 h) is accepted again.
 #[tokio::test]
-async fn finding_s39_bootstrap_session_revives_when_last_admin_key_is_deleted_in_panel_or_api() {
+async fn spec_r2_s39_bootstrap_session_revives_when_last_admin_key_is_deleted_in_panel_or_api() {
     for via in ["panel", "api"] {
         let (config, state, store) = parts(&format!("r2p4-s39-{via}"), &[], false).await;
         let app = app::router(&config, state.clone());
@@ -1811,7 +1811,7 @@ async fn finding_s39_bootstrap_session_revives_when_last_admin_key_is_deleted_in
 // Login rate limit: web login refuses even the right credential once limited; the admin API
 // consults the bucket before the lookup. Both share the bucket per client.
 #[tokio::test]
-async fn review_login_limit_shared_and_checked_first() {
+async fn spec_r2_login_limit_shared_and_checked_first() {
     let (config, state, _) = parts("r2p4-login-limit", &[], true).await;
     let app = app::router(&config, state.clone());
     let mut limited_after = None;
@@ -1869,7 +1869,7 @@ async fn review_login_limit_shared_and_checked_first() {
 // `shhnote init --env`: what counts as "set". A line with spaces around `=` is not
 // recognised, so a second definition is appended.
 #[test]
-fn review_init_env_edge_cases() {
+fn spec_r2_init_env_edge_cases() {
     use std::{fs, process::Command};
     let dir = std::env::temp_dir().join(format!("shhnote-r2p4-init-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
