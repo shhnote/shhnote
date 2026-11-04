@@ -860,6 +860,12 @@ async fn spec_spool_path_is_not_wiped_recursively() {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("shhnote.db"), b"pretend database").unwrap();
     std::fs::write(dir.join("stale.part"), b"left by a crash").unwrap();
+    // An operator-made directory with the usual mode; the server makes it private (C3).
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
     let hang = Arc::new(AtomicBool::new(false));
     let addr = fake_s3(hang).await;
     let mut vars = base_vars();
@@ -882,9 +888,16 @@ async fn spec_spool_path_is_not_wiped_recursively() {
         .unwrap();
     let survived = dir.join("shhnote.db").exists();
     let stale = dir.join("stale.part").exists();
+    #[cfg(unix)]
+    let mode = {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777
+    };
     let _ = tokio::fs::remove_dir_all(&dir).await;
     assert!(survived, "a file in SHH_SPOOL_PATH was deleted at startup");
     assert!(!stale, "a stale .part file was kept");
+    #[cfg(unix)]
+    assert_eq!(mode, 0o700, "SHH_SPOOL_PATH mode {mode:o}");
 }
 
 // --- item 3: drift

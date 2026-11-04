@@ -291,6 +291,28 @@ async fn create_private_dir(dir: &Path) -> io::Result<()> {
     builder.create(dir).await
 }
 
+// At startup: the tier's directories are private to the service user (SPEC §6.1) even when
+// they already existed with a looser mode, as an operator-made SHH_SPOOL_PATH may. A mode
+// that cannot be fixed (another owner, a read-only mount) is an error, so the server does
+// not start with secrets spooled where others can read them.
+async fn ensure_private_dir(dir: &Path) -> io::Result<()> {
+    create_private_dir(dir).await?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = tokio::fs::metadata(dir).await?.permissions().mode() & 0o777;
+        if mode != 0o700 {
+            tokio::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+                .await
+                .map_err(|e| {
+                    io::Error::new(e.kind(), format!("mode {mode:o} cannot be set to 700: {e}"))
+                })?;
+            crate::log_warn!("storage: {} was mode {mode:o}, set to 700", dir.display());
+        }
+    }
+    Ok(())
+}
+
 // Makes a rename durable: the directory entry itself is flushed, not only the file.
 async fn sync_dir(dir: &Path) -> io::Result<()> {
     tokio::fs::File::open(dir).await?.sync_all().await
@@ -394,12 +416,12 @@ pub struct Local {
 impl Local {
     async fn open(root: &Path, max_total_bytes: u64) -> Result<Self, String> {
         let describe = |e: io::Error| format!("SHH_LOCAL_PATH {}: {e}", root.display());
-        create_private_dir(&root.join("blobs"))
+        ensure_private_dir(&root.join("blobs"))
             .await
             .map_err(describe)?;
         // Spool files from an earlier run are partial uploads nobody will finish.
         let tmp = root.join("tmp");
-        create_private_dir(&tmp).await.map_err(describe)?;
+        ensure_private_dir(&tmp).await.map_err(describe)?;
         clear_parts(&tmp).await.map_err(describe)?;
         let probe = tmp.join(".write-check");
         tokio::fs::write(&probe, b"").await.map_err(describe)?;
@@ -531,7 +553,7 @@ impl S3 {
         // Spool files from an earlier run are partial uploads nobody will finish. Only those
         // go: SHH_SPOOL_PATH is the operator's directory, not ours to wipe (SPEC §7.1).
         let describe = |e: io::Error| format!("SHH_SPOOL_PATH {}: {e}", s3.spool_dir.display());
-        create_private_dir(&s3.spool_dir).await.map_err(describe)?;
+        ensure_private_dir(&s3.spool_dir).await.map_err(describe)?;
         clear_parts(&s3.spool_dir).await.map_err(describe)?;
         s3.check_versioning().await?;
         Ok(s3)

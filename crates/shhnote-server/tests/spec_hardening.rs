@@ -253,6 +253,48 @@ async fn spec_blob_files_are_private() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+// SPEC §6.1 (revision 3, C3): directories that already exist with a looser mode are made
+// private at startup, not only the ones the tier creates itself.
+#[cfg(unix)]
+#[tokio::test]
+async fn spec_existing_tier_dirs_are_made_private() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("spec-hardening-loose-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    for dir in ["blobs", "tmp"] {
+        std::fs::create_dir_all(root.join(dir)).unwrap();
+        std::fs::set_permissions(root.join(dir), std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let config = Config::from_vars(&vars(&[
+        ("SHH_INLINE_MAX", "65536"),
+        ("SHH_STORAGE", "local"),
+        ("SHH_LOCAL_PATH", root.to_str().unwrap()),
+        ("SHH_LOCAL_MAX_TOTAL_BYTES", "100000000"),
+    ]))
+    .unwrap();
+    Blobs::open(config.storage.external.as_ref().unwrap())
+        .await
+        .unwrap();
+    let modes: Vec<u32> = ["blobs", "tmp"]
+        .iter()
+        .map(|dir| {
+            std::fs::metadata(root.join(dir))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777
+        })
+        .collect();
+    let _ = std::fs::remove_dir_all(&root);
+    assert_eq!(
+        modes,
+        [0o700, 0o700],
+        "blobs {:o}, tmp {:o}",
+        modes[0],
+        modes[1]
+    );
+}
+
 // SPEC §2.12: credentials are exactly 43 canonical base64url characters. A non-canonical
 // spelling of a real burn token (non-zero trailing bits), padding or whitespace never matches.
 #[tokio::test]
