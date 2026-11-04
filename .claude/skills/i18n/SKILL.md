@@ -8,12 +8,12 @@ description: Add or change user-visible text and translations in shhnote using F
 Two kinds of translated text, both compiled into the server binary:
 
 - **UI text** (labels, buttons, short paragraphs): Fluent messages in `crates/shhnote-server/locales/<lang>/main.ftl`, loaded by `src/i18n.rs` with `fluent-bundle`. We use `fluent-bundle` directly rather than `fluent-templates`, which pulls in twice as many crates.
-- **Long page content** (terms, privacy, security, how it works): Markdown in `crates/shhnote-server/content/<lang>/<page>.md`, turned into HTML once at startup by `src/content.rs`. Start these files at `##`; the page template supplies the `<h1>`.
+- **Long page content** (terms, privacy, security, acceptable use, API docs): Markdown in `crates/shhnote-server/content/<lang>/<page>.md`, turned into HTML once at startup by `src/content.rs`. Start these files at `##`; the page template supplies the `<h1>`. The how-it-works and about pages are templates with Fluent text, not Markdown.
 
 ## Locales
 
 - Locales are plain language codes (`en`, `de`) listed in `LOCALES` in `src/i18n.rs`. `en` is the fallback and the source of truth; every key and page must exist there first.
-- Every page lives under a locale prefix: `/en/terms`, `/de/s/<id>`. A path without one, like `/` or `/s/<id>`, gets a temporary redirect to the best match for the browser's `Accept-Language`. Browsers keep the `#` part across the redirect, so secret keys survive it.
+- Every page lives under a locale prefix: `/en/terms`, `/de/s`. A path without one, like `/` or `/s`, gets a temporary redirect to the best match for the browser's `Accept-Language`. The secret's identifier and key travel only in the `#` part, which browsers keep across the redirect.
 - To add a language: add it to `LOCALES` and `SOURCES` in `i18n.rs`, add its `main.ftl`, add every Markdown page to `SOURCES` in `content.rs`, and give it a `language-name` in its own language. The tests fail if any key or page is missing.
 
 ## Writing messages

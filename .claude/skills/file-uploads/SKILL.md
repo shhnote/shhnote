@@ -33,14 +33,14 @@ The server never sees a file. It receives one opaque encrypted blob per secret (
 
 ## Code map
 
-- `crates/shhnote-server/src/storage.rs`: `Blobs` (enum over `Local` and `S3`) with `spool`, `put`, `get`, `delete`, `new_key`, `max_total_bytes`; `Blobs::open` runs the startup checks. `Spool` receives a blob chunk by chunk; `finish` turns it into a `Spooled` that removes its file on drop.
+- `crates/shhnote-server/src/storage.rs`: `Blobs` (a struct over a private `Tier` enum of `Local` and `S3`, plus the in-memory ceiling ledger) with `spool`, `put`, `get`, `delete`, `new_key`, `reserve`, `max_total_bytes`, `collect_orphans`; `Blobs::open` runs the startup checks. `Spool` receives a blob chunk by chunk; `finish` turns it into a `Spooled` that removes its file on drop.
 - `api.rs` `create`: `Sink::Memory` until the bytes outgrow `blob_len(inline_max)`, then `Sink::Spool`. Ceiling check via `store.external_bytes()`, `ApiError::StorageFull` is `507 storage_full`. `blob_response` streams external objects.
 - `scheduler::scrub` deletes parked objects, then their rows; tests call it directly.
 - Tests: `tests/api.rs` runs the tier flow on local disk always and on S3 when `SHH_TEST_S3_ENDPOINT`, `SHH_TEST_S3_BUCKET`, `SHH_TEST_S3_REGION`, `SHH_TEST_S3_ACCESS_KEY_ID` and `SHH_TEST_S3_SECRET_ACCESS_KEY` are set.
 
 ## Backends
 
-- One storage trait with put / get-stream / delete / exists. Handlers never touch the filesystem or the S3 client directly.
+- One `Blobs` type with spool / put / get (streamed) / delete, and no trait: a new backend is another `Tier` variant. Handlers never touch the filesystem or the S3 client directly.
 - Local disk: root from `SHH_LOCAL_PATH`, never inside a folder served as static files.
 - S3: hand-written SigV4 over the existing HTTP stack, not the AWS SDK (dependency policy in `CLAUDE.md`). Works against MinIO and R2 via `SHH_S3_ENDPOINT`.
 - A feature works on every tier or it isn't done. Test inline and local always; S3 when its variables are set, skipping with a clear message otherwise.

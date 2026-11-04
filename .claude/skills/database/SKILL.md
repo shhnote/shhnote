@@ -11,7 +11,7 @@ Every schema change and query must work on both SQLite and PostgreSQL. A change 
 
 - Queries go through sqlx's `Any` driver with `$1` placeholders, so one SQL string serves both engines; dynamic SQL needs `AssertSqlSafe` and a comment saying why it is safe. No compile-time query macros.
 - Each backend has its own folder: `migrations/sqlite/` and `migrations/postgres/`, one table (or one change) per file, embedded into the binary by the `MIGRATIONS` list in `shhnote-store`; add each new file to that list.
-- Every migration exists in both folders with the same version number and name, created with `sqlx migrate add -r <name> --source migrations/<backend>`. The two copies only differ where the SQL dialects differ.
+- Every migration exists in both folders as `NNNN_<name>.sql`, with the next number and the same name in each. Write the files by hand: migrations are forward-only, so there are no `.up.sql`/`.down.sql` pairs (don't use `sqlx migrate add -r`). The two copies only differ where the SQL dialects differ.
 - Never edit a migration once it has been committed. Add a new one instead.
 - Pick types both backends handle the same way:
   - IDs: UUIDs or similar, stored as `TEXT` in SQLite and `UUID` in Postgres, generated in Rust, not by the database.
