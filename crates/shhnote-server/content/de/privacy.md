@@ -14,15 +14,15 @@ Wenn du ein Geheimnis erstellst, speichern wir:
 - **Seine Einstellungen:** wann es abläuft und ob es nach einmaligem Ansehen gelöscht wird.
 - **Gehashte Zugangsdaten:** Einweg-Hashes der Werte, mit denen dein Browser es findet oder brennt; daraus lässt sich nichts Brauchbares zurückgewinnen.
 
-Deine Passphrase, den Schlüssel aus deinem Link, den Erstellungszeitpunkt und ob eine Passphrase gesetzt wurde, speichern wir nicht. Die Ablaufzeit wird gerundet, sodass sich daraus der Erstellungszeitpunkt nicht zurückrechnen lässt. Die verschlüsselten Daten sind aufgefüllt, daher kennen wir nur ihre grobe Größenklasse.
+Deine Passphrase, den Schlüssel aus deinem Link, den Erstellungszeitpunkt und ob eine Passphrase gesetzt wurde, speichern wir nicht. Die Ablaufzeit wird je nach Lebensdauer auf volle 5 Minuten, Stunden oder Tage aufgerundet, sodass sich der genaue Erstellungszeitpunkt nicht daraus zurückrechnen lässt. Die verschlüsselten Daten sind aufgefüllt, daher kennen wir nur ihre grobe Größenklasse.
 
 Große Geheimnisse können außerhalb der Datenbank liegen, auf einer Festplatte oder in einem Objektspeicher. Dieser Speicher hält fest, wann jede Datei geschrieben wurde; das ist die einzige Stelle, an der ein Erstellungszeitpunkt existiert. Er hängt an einer verschlüsselten Datei, die wir nicht öffnen können, und verschwindet mit ihr.
 
-Wird ein Link gemeldet, zählen wir die Meldung für diesen Tag. Welches Geheimnis gemeldet wurde, halten wir nicht fest.
+Wird ein Link gemeldet, zählen wir die Meldung für diesen Tag und eine Entfernung, falls die Meldung ein Geheimnis entfernt hat. Welches Geheimnis gemeldet wurde, halten wir nicht fest.
 
 ## Wann wir es löschen
 
-Ein Geheimnis wird gelöscht, wenn es abläuft, oder direkt nach dem Öffnen, wenn „Nach dem Lesen löschen“ aktiviert ist. Gelöschte Geheimnisse können nicht wiederhergestellt werden.
+Ein Geheimnis wird gelöscht, wenn es abläuft. Mit „Nach dem Lesen löschen“ ist es mit dem ersten Öffnen verbraucht: Danach wird es niemandem mehr ausgeliefert, und es wird gelöscht, sobald der Browser der empfangenden Person meldet, dass es entschlüsselt wurde, spätestens aber, wenn das kurze Zeitfenster zum erneuten Herunterladen endet (15 Minuten, sofern diese Website nichts anderes eingestellt hat). Gelöschte Geheimnisse können nicht wiederhergestellt werden.
 
 Löschen entfernt den Eintrag. Wie auf jedem Computer können verschlüsselte Reste in Datenbank-Journalen, freiem Speicherplatz oder Backups verbleiben, bis sie überschrieben werden. Es ist Chiffretext ohne Schlüssel, und wir behandeln Backups entsprechend.
 

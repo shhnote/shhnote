@@ -31,8 +31,8 @@
       {% call icons::icon("shield", 22) %}{% endcall %}
       <span><b>{{ ctx.t("how-s-callout-lead") }}</b> {{ ctx.t("how-s-callout") }}</span>
     </div>
-    {%- if !ctx.project_or_source_url().is_empty() %}
-    <p class="color-muted">{{ ctx.t("how-spec") }} <a class="color-accent" href="{{ ctx.project_or_source_url() }}" rel="noopener">{{ ctx.t("how-spec-link") }}</a></p>
+    {%- if !ctx.spec_url().is_empty() %}
+    <p class="color-muted">{{ ctx.t("how-spec") }} <a class="color-accent" href="{{ ctx.spec_url() }}" rel="noopener">{{ ctx.t("how-spec-link") }}</a></p>
     {%- endif %}
     <p class="btn-row">
       <a href="{{ ctx.href("") }}" class="btn btn--primary">{{ ctx.t("how-cta-button") }}</a>

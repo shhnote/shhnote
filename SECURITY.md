@@ -5,18 +5,16 @@ Argon2 WebAssembly module, the protocol specification, the conformance vectors a
 the release pipeline in this repository.
 
 A problem with one particular **website running shhnote** (an instance) goes to the
-people who run it: every instance has its own `/security` page with the operator's
-contact. Instances are independent; the project cannot act on an instance's behalf
-and holds none of its data.
+people who run it: every instance has its own security page, `/<language>/security`
+(for example `/en/security`), with the operator's contact. Instances are independent;
+the project cannot act on an instance's behalf and holds none of its data.
 
 ## Reporting a vulnerability
 
 Please report privately, before any public discussion:
 
 - **GitHub:** [Report a vulnerability](https://github.com/shhnote/shhnote/security/advisories/new)
-  (private vulnerability reporting on this repository).
-- **Email:** [security contact — fill in before publishing]. If you want to encrypt,
-  ask for a key in a first message.
+  (private vulnerability reporting on this repository; only the maintainers see it).
 
 Include what you found, which component and version (release tag or commit), how
 to reproduce it, and what an attacker gains. A proof of concept against your own

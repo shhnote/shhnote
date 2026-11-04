@@ -42,7 +42,7 @@ form-files-hint = Encrypted in your browser before upload · up to { $size } in 
 form-files-remove = Remove
 form-expiry-label = Expires in
 form-burn-label = Burn after reading
-form-burn-hint = Delete the secret as soon as it has been opened once. Otherwise it can be opened until it expires.
+form-burn-hint = Opening it once uses it up: nobody else can fetch it, and it is deleted right after. Otherwise it can be opened until it expires.
 form-passphrase-label = Passphrase
 form-passphrase-optional = (optional)
 form-passphrase-hint = A second lock. The recipient will need it; send it over a different channel than the link.
@@ -55,7 +55,7 @@ home-step-1-body = A key is made in this tab and the secret is encrypted with it
 home-step-2-title = Shared as a link
 home-step-2-body = The key rides in the link after the #, a part browsers never send to a server.
 home-step-3-title = Deleted, not flagged
-home-step-3-body = When it is opened or expires, the secret is removed from the server for good.
+home-step-3-body = A single-view secret is used up when it is opened and deleted right after; any other is deleted when it expires.
 
 ## Create result
 
@@ -129,7 +129,7 @@ burn-confirm = Destroy the secret
 burn-working = Destroying…
 burn-done-badge = Burned · secret destroyed
 burn-done-title = The secret has been destroyed.
-burn-done-body = It's gone from the server. Nothing about it is kept.
+burn-done-body = It can't be opened any more. A large secret kept outside the database is wiped from storage within about a minute; after that nothing about it is kept.
 burn-done-callout = Anyone who opens the share link from now on is simply told that no secret was found, with no way to tell whether it was viewed, expired or burned.
 burn-not-found-badge = Nothing to destroy
 burn-not-found-title = Nothing to destroy
@@ -145,7 +145,7 @@ how-s-1-body = Type a message or attach files: a password, a private note, a doc
 how-s-2-title = You get one link to share
 how-s-2-body = This site hands you a single link with the key hidden inside it, after the #. Send that link however you like. The key travels with the link, never through this site's server, so nobody here can peek inside the box.
 how-s-3-title = They open it, then it's gone
-how-s-3-body = The recipient presses a button, their browser unlocks the box, and the secret is deleted from this site's server, right away for a single-view secret, or when the timer runs out.
+how-s-3-body = The recipient presses a button, their browser unlocks the box, and the secret is deleted from this site's server: a single-view secret right after the browser has decrypted it (nobody else can fetch it in between), any other when the timer runs out.
 how-s-callout-lead = Think of it like a note that burns after one reader.
 how-s-callout = You seal it, hand it off, and once it's been read, it's gone. Even we, the people who run this site, can never read what's inside or bring it back.
 
@@ -159,7 +159,7 @@ about-title = About { -brand }
 about-lead = { -brand } is a simple way to send passwords, notes and files that shouldn't stay around.
 about-body-1 = Sensitive things often end up in chat histories and email inboxes, where they stay for years. { -brand } gives you a link that works for a limited time, or only once, and then the secret is gone for good.
 about-body-2 = { -brand } is built so that whoever runs it can't read what you share. Your secret is encrypted on your device, and the key never reaches the server.
-about-body-3 = This site is one instance of { -brand }, run by the operator named on the contact page. The software is open source, and anyone can run their own.
+about-body-3 = This site is one instance of { -brand }. The software is open source, and anyone can run their own.
 about-how-link = Read how it works
 about-project-link = About the { -brand } project
 
@@ -313,7 +313,7 @@ report-working = Sending…
 report-error-invalid = That doesn't look like a secret link from this site.
 report-done-badge = Received
 report-done-title = Thanks, that's handled.
-report-done-body = If that link pointed at an active secret, it is gone now. We keep a record that a report was received, nothing more.
+report-done-body = If that link pointed at an active secret, it is gone now. We count reports, and the secrets they remove, per day; nothing else is recorded.
 region-label = Region:
 region-choose = Choose
 admin-settings-group-general = General

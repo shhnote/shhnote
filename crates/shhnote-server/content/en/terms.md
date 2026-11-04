@@ -8,7 +8,7 @@
 
 ## What the service does
 
-You can create encrypted notes and file uploads ("secrets") and share them with a link. A secret is deleted when it expires or, if you choose burn after reading, as soon as it has been opened once.
+You can create encrypted notes and file uploads ("secrets") and share them with a link. A secret is deleted when it expires or, if you choose burn after reading, after it has been opened: the first opening uses it up, and it is deleted shortly after.
 
 ## Your responsibilities
 

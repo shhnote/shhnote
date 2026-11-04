@@ -8,7 +8,7 @@
 
 ## Was der Dienst tut
 
-Du kannst verschlüsselte Notizen und Dateien („Geheimnisse“) erstellen und per Link teilen. Ein Geheimnis wird gelöscht, wenn es abläuft, oder – wenn du „Nach dem Lesen löschen“ wählst – sobald es einmal geöffnet wurde.
+Du kannst verschlüsselte Notizen und Dateien („Geheimnisse“) erstellen und per Link teilen. Ein Geheimnis wird gelöscht, wenn es abläuft, oder – wenn du „Nach dem Lesen löschen“ wählst – nach dem ersten Öffnen: Dieses verbraucht es, und kurz danach wird es gelöscht.
 
 ## Deine Pflichten
 

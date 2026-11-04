@@ -763,6 +763,42 @@ async fn spec_reference_pages_carry_controller_templates() {
     }
 }
 
+// Revision 3, C7: "specification" and "security policy" links reach SPEC.md and SECURITY.md
+// in the source repository, and no content page leaves a placeholder unreplaced.
+#[tokio::test]
+async fn spec_content_links_reach_the_spec() {
+    let app = build("spec-web-spec-links", &[]).await;
+    let host = "localhost";
+    let spec = "https://github.com/shhnote/shhnote/blob/main/SPEC.md";
+    let policy = "https://github.com/shhnote/shhnote/blob/main/SECURITY.md";
+    for (path, needle) in [
+        ("/en/docs", spec),
+        ("/de/docs", spec),
+        ("/en/how-it-works", spec),
+        ("/de/how-it-works", spec),
+        ("/en/security", policy),
+        ("/de/security", policy),
+    ] {
+        let page = fetch(&app, host, Method::GET, path, None, None, "").await;
+        assert!(
+            page.body.contains(&format!("href=\"{needle}\"")),
+            "{path} does not link {needle}"
+        );
+    }
+    for locale in ["en", "de"] {
+        for page in ["terms", "privacy", "security", "acceptable-use", "docs"] {
+            let path = format!("/{locale}/{page}");
+            let body = fetch(&app, host, Method::GET, &path, None, None, "")
+                .await
+                .body;
+            assert!(
+                !body.contains("{{") && !body.contains("%7B%7B"),
+                "{path} has an unreplaced placeholder"
+            );
+        }
+    }
+}
+
 // D-27: the server version is public on /config, /health, the page footer and in content.
 #[tokio::test]
 async fn spec_server_version_is_public() {

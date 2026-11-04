@@ -14,15 +14,15 @@ When you create a secret, we store:
 - **Its settings:** when it expires and whether it is deleted after one view.
 - **Hashed credentials:** one-way hashes of the values your browser uses to find or burn it, which can't be turned back into anything useful.
 
-We don't store your passphrase, the key from your link, when the secret was created, or whether a passphrase was set. The expiry time is rounded, so it can't be turned back into the creation time. The encrypted data is padded, so we only know its rough size class.
+We don't store your passphrase, the key from your link, when the secret was created, or whether a passphrase was set. The expiry time is rounded up to a 5-minute, hourly or daily step, depending on how long the secret lives, so the exact creation time can't be read back from it. The encrypted data is padded, so we only know its rough size class.
 
 Large secrets may be kept outside the database, on disk or in object storage. That storage records when each file was written, which is the one place a creation time exists. It is attached to an encrypted file we can't open, and it goes when the file goes.
 
-If someone reports a link, we count the report for that day. We keep no record of which secret was reported.
+If someone reports a link, we count the report for that day, and count a removal if the report removed a secret. We keep no record of which secret was reported.
 
 ## When we delete it
 
-A secret is deleted when it expires, or straight after it has been opened if burn after reading is on. Deleted secrets can't be recovered.
+A secret is deleted when it expires. With burn after reading on, opening it uses it up: from then on it is never served to anyone else, and it is deleted as soon as the recipient's browser reports that it was decrypted, or at the latest when the short re-download window ends (15 minutes unless this site set another). Deleted secrets can't be recovered.
 
 Deletion removes the record. As on any computer, encrypted leftovers may linger in database journals, free disk space or backups until they are overwritten. They are ciphertext without a key, and we treat backups accordingly.
 

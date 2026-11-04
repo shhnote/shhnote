@@ -353,6 +353,11 @@ impl Ctx<'_> {
         crate::api::SERVER_VERSION
     }
 
+    // The protocol specification in the source repository (`{{spec_url}}`).
+    pub(crate) fn spec_url(&self) -> String {
+        source_file_url(&self.shared.settings.load().source_url, "SPEC.md")
+    }
+
     // Where the software lives: the project page, or the source link while none is set.
     pub(crate) fn project_or_source_url(&self) -> String {
         let settings = self.shared.settings.load();
@@ -399,6 +404,21 @@ const UI_KEYS: &[&str] = &[
     "report-working",
     "report-error-invalid",
 ];
+
+// A file in the source repository, for links from the pages: `<source_url>/blob/main/<file>`
+// when the source is a GitHub repository (the default), otherwise the source link itself,
+// since other forges lay out file URLs differently. Empty when no source link is set.
+fn source_file_url(source_url: &str, file: &str) -> String {
+    let base = source_url.trim_end_matches('/');
+    let is_repo = base
+        .strip_prefix("https://github.com/")
+        .is_some_and(|rest| rest.split('/').filter(|part| !part.is_empty()).count() == 2);
+    if is_repo {
+        format!("{base}/blob/main/{file}")
+    } else {
+        base.to_string()
+    }
+}
 
 #[derive(Template)]
 #[template(path = "home.html")]
@@ -604,6 +624,8 @@ fn doc_page(state: &PageState, doc: Doc, path: &str, title_key: &str) -> Respons
     } else {
         settings.project_url.clone()
     };
+    let spec = source_file_url(&settings.source_url, "SPEC.md");
+    let security_policy = source_file_url(&settings.source_url, "SECURITY.md");
     let body = state
         .shared
         .content
@@ -614,6 +636,10 @@ fn doc_page(state: &PageState, doc: Doc, path: &str, title_key: &str) -> Respons
         .replace("%7B%7Bapi_url%7D%7D", &state.shared.api_url)
         .replace("{{project_url}}", &project)
         .replace("%7B%7Bproject_url%7D%7D", &project)
+        .replace("{{spec_url}}", &spec)
+        .replace("%7B%7Bspec_url%7D%7D", &spec)
+        .replace("{{security_policy_url}}", &security_policy)
+        .replace("%7B%7Bsecurity_policy_url%7D%7D", &security_policy)
         .replace("{{version}}", crate::api::SERVER_VERSION)
         .replace("{{site_name}}", &settings.site_name)
         .replace("{{contact_email}}", &settings.contact_email)
@@ -849,6 +875,30 @@ fn format_size(bytes: u64, locale: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Revision 3, C7: spec and security-policy links reach the file on GitHub repositories,
+    // and fall back to the source link anywhere else.
+    #[test]
+    fn source_file_urls() {
+        let upstream = "https://github.com/shhnote/shhnote";
+        assert_eq!(
+            source_file_url(upstream, "SPEC.md"),
+            "https://github.com/shhnote/shhnote/blob/main/SPEC.md"
+        );
+        assert_eq!(
+            source_file_url(&format!("{upstream}/"), "SECURITY.md"),
+            "https://github.com/shhnote/shhnote/blob/main/SECURITY.md"
+        );
+        for other in [
+            "https://codeberg.org/someone/fork",
+            "https://github.com/shhnote",
+            "https://github.com/shhnote/shhnote/tree/dev",
+            "https://example.com/source",
+        ] {
+            assert_eq!(source_file_url(other, "SPEC.md"), other);
+        }
+        assert_eq!(source_file_url("", "SPEC.md"), "");
+    }
 
     #[test]
     fn formats_sizes() {

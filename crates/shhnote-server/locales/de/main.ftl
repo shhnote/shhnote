@@ -42,7 +42,7 @@ form-files-hint = Wird vor dem Upload in deinem Browser verschlüsselt · insges
 form-files-remove = Entfernen
 form-expiry-label = Läuft ab in
 form-burn-label = Nach dem Lesen löschen
-form-burn-hint = Das Geheimnis wird gelöscht, sobald es einmal geöffnet wurde. Sonst lässt es sich bis zum Ablauf öffnen.
+form-burn-hint = Einmal geöffnet, ist es verbraucht: Niemand sonst kann es abrufen, und kurz danach wird es gelöscht. Sonst lässt es sich bis zum Ablauf öffnen.
 form-passphrase-label = Passphrase
 form-passphrase-optional = (optional)
 form-passphrase-hint = Ein zweites Schloss. Die empfangende Person braucht sie; schick sie auf einem anderen Weg als den Link.
@@ -55,7 +55,7 @@ home-step-1-body = In diesem Tab entsteht ein Schlüssel, mit dem das Geheimnis 
 home-step-2-title = Als Link geteilt
 home-step-2-body = Der Schlüssel steckt im Link hinter dem #, einem Teil, den Browser nie an einen Server senden.
 home-step-3-title = Gelöscht, nicht markiert
-home-step-3-body = Wird es geöffnet oder läuft es ab, ist das Geheimnis endgültig vom Server entfernt.
+home-step-3-body = Ein einmaliges Geheimnis ist mit dem Öffnen verbraucht und wird kurz danach gelöscht; jedes andere wird gelöscht, wenn es abläuft.
 
 ## Create result
 
@@ -129,7 +129,7 @@ burn-confirm = Geheimnis zerstören
 burn-working = Wird zerstört …
 burn-done-badge = Gebrannt · Geheimnis zerstört
 burn-done-title = Das Geheimnis wurde zerstört.
-burn-done-body = Es ist vom Server gelöscht. Nichts davon wird aufbewahrt.
+burn-done-body = Es lässt sich nicht mehr öffnen. Ein großes Geheimnis, das außerhalb der Datenbank liegt, wird innerhalb etwa einer Minute aus dem Speicher entfernt; danach bleibt nichts davon übrig.
 burn-done-callout = Wer den Teilen-Link ab jetzt öffnet, erfährt nur, dass kein Geheimnis gefunden wurde, ohne zu erkennen, ob es angesehen, abgelaufen oder gebrannt wurde.
 burn-not-found-badge = Nichts zu zerstören
 burn-not-found-title = Nichts zu zerstören
@@ -145,7 +145,7 @@ how-s-1-body = Tippe eine Nachricht oder hänge Dateien an: ein Passwort, eine p
 how-s-2-title = Du bekommst einen Link zum Teilen
 how-s-2-body = Diese Website gibt dir einen einzigen Link, in dem der Schlüssel versteckt ist, nach dem #. Schick den Link, wie du willst. Der Schlüssel reist mit dem Link, nie über den Server dieser Website, also kann hier niemand in die Box schauen.
 how-s-3-title = Sie öffnen es, dann ist es weg
-how-s-3-body = Die empfangende Person klickt auf einen Button, ihr Browser öffnet die Box, und das Geheimnis wird vom Server dieser Website gelöscht, bei einmaliger Ansicht sofort, sonst wenn die Zeit abläuft.
+how-s-3-body = Die empfangende Person klickt auf einen Button, ihr Browser öffnet die Box, und das Geheimnis wird vom Server dieser Website gelöscht: ein einmaliges direkt nachdem der Browser es entschlüsselt hat (dazwischen kann es niemand sonst abrufen), jedes andere, wenn die Zeit abläuft.
 how-s-callout-lead = Stell es dir wie eine Notiz vor, die nach einer Leserin verbrennt.
 how-s-callout = Du versiegelst sie, gibst sie weiter, und sobald sie gelesen wurde, ist sie weg. Selbst wir, die diese Website betreiben, können nie lesen, was drinsteht, oder sie zurückholen.
 
@@ -159,7 +159,7 @@ about-title = Über { -brand }
 about-lead = { -brand } ist ein einfacher Weg, Passwörter, Notizen und Dateien zu verschicken, die nicht dauerhaft herumliegen sollen.
 about-body-1 = Vertrauliches landet oft in Chatverläufen und Postfächern und bleibt dort jahrelang. { -brand } gibt dir einen Link, der nur eine begrenzte Zeit oder nur einmal funktioniert – danach ist das Geheimnis endgültig weg.
 about-body-2 = { -brand } ist so gebaut, dass niemand, der es betreibt, lesen kann, was du teilst. Dein Geheimnis wird auf deinem Gerät verschlüsselt, und der Schlüssel erreicht nie den Server.
-about-body-3 = Diese Website ist eine Instanz von { -brand }, betrieben von dem auf der Kontaktseite genannten Betreiber. Die Software ist quelloffen, und jede Person kann eine eigene Instanz betreiben.
+about-body-3 = Diese Website ist eine Instanz von { -brand }. Die Software ist quelloffen, und jede Person kann eine eigene Instanz betreiben.
 about-how-link = Lies, wie es funktioniert
 about-project-link = Über das { -brand }-Projekt
 
@@ -313,7 +313,7 @@ report-working = Wird gesendet …
 report-error-invalid = Das sieht nicht nach einem geheimen Link dieser Seite aus.
 report-done-badge = Eingegangen
 report-done-title = Danke, erledigt.
-report-done-body = Falls der Link auf ein aktives Geheimnis zeigte, ist es jetzt weg. Wir vermerken nur, dass eine Meldung eingegangen ist, mehr nicht.
+report-done-body = Falls der Link auf ein aktives Geheimnis zeigte, ist es jetzt weg. Wir zählen nur Meldungen und die dadurch entfernten Geheimnisse pro Tag; mehr wird nicht festgehalten.
 region-label = Region:
 region-choose = Wählen
 admin-settings-group-general = Allgemein
