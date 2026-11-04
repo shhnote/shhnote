@@ -64,6 +64,8 @@ pub struct Settings {
     // Padmé's floor as last set, kept while the ladder is in use, so switching back to padme
     // restores it instead of silently resetting it (SPEC §6.2).
     pub padding_min: u64,
+    // The ladder as last set, kept the same way while Padmé is in use.
+    pub padding_ladder: Vec<u64>,
     pub claim_window_secs: i64,
     pub min_ttl_secs: i64,
     pub max_ttl_secs: i64,
@@ -105,6 +107,7 @@ impl Default for Settings {
                 min: PaddingPolicy::DEFAULT_MIN,
             },
             padding_min: PaddingPolicy::DEFAULT_MIN,
+            padding_ladder: Vec::new(),
             claim_window_secs: 15 * 60,
             min_ttl_secs: 60,
             max_ttl_secs: MAX_TTL_CEILING,
@@ -234,6 +237,7 @@ impl Settings {
         }
 
         s.padding_min = padding_min;
+        s.padding_ladder = padding_ladder.clone();
         s.padding = match padding_mode.as_str() {
             "buckets" if !padding_ladder.is_empty() => PaddingPolicy::Buckets {
                 ladder: padding_ladder,
@@ -296,17 +300,13 @@ impl Settings {
     }
 
     pub fn as_strings(&self) -> BTreeMap<&'static str, String> {
+        let sizes = |v: &[u64]| v.iter().map(u64::to_string).collect::<Vec<_>>().join(",");
+        // The setting that is not in use is written too, so a save never drops it.
         let (padding_mode, padding_min, padding_ladder) = match &self.padding {
-            PaddingPolicy::Padme { min } => ("padme", min.to_string(), String::new()),
-            PaddingPolicy::Buckets { ladder } => (
-                "buckets",
-                self.padding_min.to_string(),
-                ladder
-                    .iter()
-                    .map(u64::to_string)
-                    .collect::<Vec<_>>()
-                    .join(","),
-            ),
+            PaddingPolicy::Padme { min } => ("padme", min.to_string(), sizes(&self.padding_ladder)),
+            PaddingPolicy::Buckets { ladder } => {
+                ("buckets", self.padding_min.to_string(), sizes(ladder))
+            }
         };
         let list = |v: &[i64]| v.iter().map(i64::to_string).collect::<Vec<_>>().join(",");
         let r = self.rate_limits;
@@ -585,6 +585,32 @@ mod tests {
         );
         assert_eq!(low.padding_min, PaddingPolicy::DEFAULT_MIN);
         assert_eq!(warnings.len(), 1, "{warnings:?}");
+    }
+
+    // The same for the ladder: saving with Padmé in use keeps it for the next switch back.
+    #[test]
+    fn padding_ladder_is_kept_in_padme_mode() {
+        let pairs = overrides(&[
+            ("padding_mode", "padme"),
+            ("padding_ladder", "65536,131072"),
+        ]);
+        let (s, warnings) = Settings::with_overrides(&pairs, AppEnv::Production);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(s.padding, PaddingPolicy::Padme { min: 65536 });
+        assert_eq!(s.as_strings()["padding_ladder"], "65536,131072");
+        let mut stored: HashMap<String, String> = s
+            .as_strings()
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect();
+        stored.insert("padding_mode".into(), "buckets".into());
+        let (back, _) = Settings::with_overrides(&stored, AppEnv::Production);
+        assert_eq!(
+            back.padding,
+            PaddingPolicy::Buckets {
+                ladder: vec![65536, 131072]
+            }
+        );
     }
 
     #[test]

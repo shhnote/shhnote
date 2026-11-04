@@ -272,7 +272,7 @@ Burn and report match `status = 'active'` only; a claimed secret is already cons
 
 The padded size is chosen by an instance setting, served by `GET /config`. The server accepts a blob only if its length corresponds to a valid padded size under the current policy. Decryption reads `payload_len` and never needs the policy, so the policy can change at any time without affecting stored secrets.
 
-Settings: `padding_mode` (`padme` | `buckets`), `padding_min` (smallest padded size), `padding_ladder` (buckets mode only).
+Settings: `padding_mode` (`padme` | `buckets`), `padding_min` (smallest padded size, padme mode), `padding_ladder` (buckets mode). The one not in use is kept, so switching modes back restores it.
 
 **`padme` (default).** Deterministic padding from Nikitin et al., *PURBs* (2019): for `L = max(payload_len + 4, padding_min)`,
 

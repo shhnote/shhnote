@@ -1,4 +1,4 @@
-# Revision 3 — discrepancy fixes (docs, `@shhnote/client` 0.3.1, server)
+# Revision 3 — discrepancy fixes (docs, `@shhnote/client` 0.4.0, server)
 
 Status: draft for application. Follows the "Working procedure" in
 `spec-revision.md`: one step at a time, stop, propose a commit message, wait
@@ -30,7 +30,7 @@ Decisions taken (2026-11-03):
 | A4 | SPEC §8 and `docs/admin-api.md`: remove the admin `/reports` endpoint; `last_used_on`; timestamps are unix seconds; list `invalid_json`, `invalid_key`, `no_such_key`; name the base path; document `sessions_valid_after` ("end sessions") as API or note it is panel-only. | none |
 | A5 | SPEC wording: §3 "one table per migration" → "forward-only migrations, one concern each" and mention `admin_state`; §4 "match a ladder entry exactly" → "be a valid padded size under the policy"; §4 `GET /` sits behind the setup gate and returns `{name, version}` (same fix in `content/*/docs.md`); §6.1 S3 versioning is an error; §6.1 spool-directory wording unchanged (C3 fixes the code); §6.1 orphan sweep: "deletes unreferenced objects with the 22-character name shape and ignores any other file, logging a count" (C2 implements); §8 `check`/`reset-admin` run migrations; §10 `createSecret` etc. live in `client/src/client.ts`; D-13 amended for lockstep (see Decisions); "active" counts include `claimed`. `client/README.md`: lockstep versioning; `fragment_version` check performed by the package (after B5). | `cargo test -p shhnote-server` (docs content test) |
 
-## Part B — `@shhnote/client` 0.3.1
+## Part B — `@shhnote/client` 0.4.0
 
 | # | step | checks |
 |---|---|---|
@@ -42,7 +42,7 @@ Decisions taken (2026-11-03):
 | B6 | Scrubbing (C7–C9): `wireCreate` wipes seed, burn token and file buffers on `pagehide` and after the result is shown; reveal scrubs the fragment on 404 as well as success; a failed `confirm` after decrypt throws with the claim token and keeps the payload available to the caller. Update SPEC §10 and the conformance checklist to match exactly what is wiped. | `npm test` |
 | B7 | Body cap (C10): `revealSecret` without `maxBlobBytes` uses `getConfig().max_blob_bytes` before reading the body; the 4 GiB constant is only the ceiling for a missing config. | `npm test` |
 | B8 | `client/README.md`: markup contract per controller (required attributes, optional templates, states toggled, strings used), the options, `getConfig`, `createT`, the `sessionStorage` note, lockstep versioning. `docs/frontend-conformance.md` items 5, 6, 14, 16, 17 reworded to what is true. | read-through |
-| B9 | Version: `scripts/bump-version.sh patch` → 0.3.1 after the Part C server fixes (one release for both). | — |
+| B9 | Version: `scripts/bump-version.sh minor` → 0.4.0 after the Part C server fixes (one release for both; controller signatures and hooks changed). | — |
 
 ## Part C — server
 
@@ -57,4 +57,4 @@ Decisions taken (2026-11-03):
 | C7 | Content wording (`en` and `de`): "deleted when opened" → consumed on open, destroyed on confirmation or within the claim window, never served to anyone else; TTL secrets are removed at expiry; reports: "we count reports and removals per day"; expiry rounding: "rounded to a 5-minute, hourly or daily grid"; burn-done: external blobs are removed within a minute; drop "the recipient then sees it was already opened" or say "sees the same not-found message"; drop "operator named on the contact page"; spec links point at `SPEC.md`; `SECURITY.md` placeholder filled, `/{locale}/security`. | `cargo test` (content tests); read-through |
 | C8 | Deploy docs: Fly and bare-metal guides add the setup-gate step (site name, contact email); `operations.md` fixes (`SHH_ENV` default, token behaviour, `shhnote health` under subdomain routing, the log line at info level and its exact text); `docker.md` uses `COMPOSE_PROFILES=caddy,postgres`; compose pin `:0.3`; `CHANGELOG.md` 0.2.0 reference. | read-through |
 | C9 | CLAUDE.md (`init` in Commands; "Blobs struct over a private Tier enum", no trait) and the four skills (`file-uploads`, `i18n`, `web-page`, `database`) corrected as listed in `DISCREPANCIES.md`. | read-through |
-| C10 | `DISCREPANCIES.md`: mark every item resolved with its commit, or "accepted" with a reason; then B9 (bump to 0.3.1) and tag. | `cargo test`, `npm test`; `v0.3.1-rc.1` first, then `v0.3.1` |
+| C10 | `DISCREPANCIES.md`: mark every item resolved with its commit, or "accepted" with a reason; then B9 (bump to 0.4.0) and tag. `CHANGELOG.md`: `## 0.4.0 — unreleased` with the `/ui` signature and hook changes listed under "Changed". | `cargo test`, `npm test`; `v0.4.0-rc.1` first, then `v0.4.0` |
