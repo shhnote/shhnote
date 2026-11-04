@@ -188,6 +188,8 @@ error-404-body = Diese Seite gibt es nicht. Wenn du einem geheimen Link gefolgt 
 error-500-title = Etwas ist schiefgelaufen
 error-500-body = Bei uns ist etwas Unerwartetes passiert. Bitte versuch es gleich noch einmal.
 error-home-link = Zur Startseite
+# Shown by the create and reveal pages when the site speaks a newer secret format than the page's script.
+error-unsupported-protocol = Diese Seite kennt das Geheimnis-Format dieser Website nicht, es ist neuer. Lade die Seite neu; hilft das nicht, braucht die Seite ein Update.
 
 ## Admin
 

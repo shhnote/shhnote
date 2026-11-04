@@ -403,6 +403,7 @@ const UI_KEYS: &[&str] = &[
     "burn-working",
     "report-working",
     "report-error-invalid",
+    "error-unsupported-protocol",
 ];
 
 // A file in the source repository, for links from the pages: `<source_url>/blob/main/<file>`

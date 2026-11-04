@@ -1,3 +1,4 @@
+import { checkProtocol } from "../client.ts";
 import type { Header } from "../crypto/blob.ts";
 import type { Payload } from "../crypto/container.ts";
 import { ShhError } from "../crypto/error.ts";
@@ -6,13 +7,23 @@ import { HEADER_LEN } from "../crypto/padding.ts";
 import { decryptBody, lookup, unwrapEk } from "../crypto/secret.ts";
 import { collect, iterateBytes, readHeader } from "../crypto/stream.ts";
 import { isUserActivation } from "../lib/activation.ts";
-import { Api, ApiError, DEFAULT_MAX_BLOB_BYTES, getConfig } from "../lib/api.ts";
+import { Api, ApiError, type InstanceConfig, getConfig } from "../lib/api.ts";
 import { loadArgon2, prefetchArgon2 } from "../lib/argon2-loader.ts";
 import { sanitiseFileName } from "../lib/filename.ts";
 import { wipeBytes, wipePayload } from "../lib/wipe.ts";
 import { $, type PageOptions, formatSize, fromTemplate, hide, hook, pageSettings, setState, setStatus, show, wireCopy } from "./dom.ts";
 import { ClaimStore, MAX_CLAIM_WINDOW_SECS } from "./claims.ts";
 import type { Translate } from "./i18n.ts";
+
+// What a reveal needs from `/config` before it claims anything: null when it can't be read,
+// and `ShhError("unsupported_protocol")` when this package can't open the instance's secrets.
+// Never revealing without it means a single-view secret is not used up by a page that could
+// not open it (SPEC §10).
+export async function configForReveal(apiBase: string): Promise<InstanceConfig | null> {
+  const config = await getConfig(apiBase).catch(() => null);
+  if (config) checkProtocol(config);
+  return config;
+}
 
 // `/s#…`: nothing is fetched until the button is pressed, so link previews and scanners
 // can't consume a single-view secret (SPEC §5). `options` may name the API base, the Argon2
@@ -108,7 +119,15 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
       lookupValue ??= await lookup(seed);
       claimKey ??= await ClaimStore.keyFor(lookupValue);
       claimToken ??= claims.get(claimKey);
-      const maxBlobBytes = pageMaxBlobBytes ?? (await getConfig(settings.apiBase).then((c) => c.max_blob_bytes, () => DEFAULT_MAX_BLOB_BYTES));
+      // Fetched only now, after the press.
+      const config = await configForReveal(settings.apiBase);
+      if (!config) {
+        setState(page, "armed");
+        setStatus(armedStatus, t("reveal-error-network"));
+        button.disabled = false;
+        return;
+      }
+      const maxBlobBytes = pageMaxBlobBytes ?? config.max_blob_bytes;
       const revealed = await api.reveal(lookupValue, claimToken, maxBlobBytes);
       if (revealed.claimToken) {
         claimToken = revealed.claimToken;
@@ -134,7 +153,11 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
       }
       await display(await decryptBody(ek, header, rest, maxBlobBytes));
     } catch (e) {
-      if (e instanceof ApiError && e.status === 404) {
+      if (e instanceof ShhError && e.code === "unsupported_protocol") {
+        // Nothing was claimed. A retry would meet the same instance, so the button stays off.
+        setState(page, "armed");
+        setStatus(armedStatus, t("error-unsupported-protocol"));
+      } else if (e instanceof ApiError && e.status === 404) {
         // Gone, or the window closed: a stored token has nothing left to fetch, and the
         // fragment has nothing left to open, so it leaves the URL and history too.
         if (claimKey) claims.delete(claimKey);

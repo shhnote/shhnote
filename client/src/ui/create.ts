@@ -1,3 +1,4 @@
+import { checkProtocol } from "../client.ts";
 import { decodeFragment } from "../crypto/fragment.ts";
 import { ShhError } from "../crypto/error.ts";
 import { type Encrypted, encrypt, generateRandomness } from "../crypto/secret.ts";
@@ -94,6 +95,8 @@ export function wireCreate(root: HTMLElement, options: PageOptions): void {
       // Cached since the page loaded; fetched again here if that first attempt failed, and
       // then the lifetimes are filled in before one is read.
       const config = await getConfig(apiBase);
+      // Links in a format the instance doesn't speak would be useless to their recipients.
+      checkProtocol(config);
       if (ttlSelect && ttlSelect.options.length === 0) fillTtl(ttlSelect, config);
       const ttlSeconds = ttlSelect ? Number(ttlSelect.value) : Number(data.get("expiry"));
       const [randomness, argon2, fileBytes] = await Promise.all([
@@ -186,7 +189,7 @@ function showResult(api: Api, t: Translate, result: HTMLElement, fragment: strin
   result.scrollIntoView({ block: "start" });
 }
 
-function messageFor(t: Translate, e: unknown): string {
+export function messageFor(t: Translate, e: unknown): string {
   if (e instanceof ApiError) {
     if (e.status === 0) return t("create-error-network");
     if (e.status === 413) return t("create-error-too-large");
@@ -196,6 +199,7 @@ function messageFor(t: Translate, e: unknown): string {
     return t(e.code === "empty_payload" ? "create-error-empty" : "create-error-too-large");
   }
   if (e instanceof ShhError && e.code === "argon2_unavailable") return t("create-error-wasm");
+  if (e instanceof ShhError && e.code === "unsupported_protocol") return t("error-unsupported-protocol");
   console.error(e);
   return t("create-error-failed");
 }

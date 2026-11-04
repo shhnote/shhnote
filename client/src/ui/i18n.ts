@@ -25,7 +25,8 @@ export type UiKey =
   | "reveal-error-wasm"
   | "burn-working"
   | "report-working"
-  | "report-error-invalid";
+  | "report-error-invalid"
+  | "error-unsupported-protocol";
 
 export type Translate = (key: UiKey, vars?: Record<string, string | number>) => string;
 

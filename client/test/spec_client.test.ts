@@ -20,7 +20,8 @@ import { burnSecret, createSecret, parseFragment, revealSecret } from "../src/cl
 import { Api, ApiError, type InstanceConfig, getConfig } from "../src/lib/api.ts";
 import { sanitiseFileName } from "../src/lib/filename.ts";
 import { ClaimStore } from "../src/ui/claims.ts";
-import { fillTtl, ttlChoices } from "../src/ui/create.ts";
+import { fillTtl, messageFor, ttlChoices } from "../src/ui/create.ts";
+import { configForReveal } from "../src/ui/reveal.ts";
 import { COPIED_MS, formatDuration, pageSettings, wireCopy } from "../src/ui/dom.ts";
 import { createT } from "../src/ui/i18n.ts";
 import * as ui from "../src/ui/index.ts";
@@ -554,6 +555,50 @@ describe("spec: controller options and hooks (revision 3, D3a)", () => {
     assert.equal(ui.formatDuration(3600, "en"), "1 hour");
     assert.deepEqual(ui.ttlChoices(instanceConfig), ttlChoices(instanceConfig));
     assert.equal(ui.fillTtl, fillTtl);
+  });
+});
+
+describe("spec: protocol check in the controllers (revision 3, D3b)", () => {
+  // `getConfig` without a fetch implementation uses the global one, as the pages do.
+  async function withFetch<T>(fetchImpl: typeof fetch, run: () => Promise<T>): Promise<T> {
+    const previous = globalThis.fetch;
+    globalThis.fetch = fetchImpl;
+    try {
+      return await run();
+    } finally {
+      globalThis.fetch = previous;
+    }
+  }
+  const answering = (config: unknown, urls: string[]) =>
+    (async (url: string | URL | Request) => {
+      urls.push(String(url));
+      return Response.json(config);
+    }) as typeof fetch;
+
+  it("the reveal page reads /config before anything else and refuses another fragment version", async () => {
+    const urls: string[] = [];
+    const base = "https://d3b-newer.example/api/v1";
+    await withFetch(answering({ ...instanceConfig, fragment_version: 99 }, urls), () =>
+      assert.rejects(configForReveal(base), (e: unknown) => e instanceof ShhError && e.code === "unsupported_protocol"),
+    );
+    assert.deepEqual(urls, [`${base}/config`]);
+  });
+
+  it("the reveal page gets null, not a fallback, when /config cannot be read", async () => {
+    const failing = (async () => {
+      throw new TypeError("offline");
+    }) as typeof fetch;
+    assert.equal(await withFetch(failing, () => configForReveal("https://d3b-offline.example/api/v1")), null);
+  });
+
+  it("the reveal page gets the config when the version is supported", async () => {
+    const config = await withFetch(answering(instanceConfig, []), () => configForReveal("https://d3b-ok.example/api/v1"));
+    assert.equal(config?.max_blob_bytes, instanceConfig.max_blob_bytes);
+  });
+
+  it("the create page names the problem instead of a generic failure", () => {
+    const t = (key: string) => key;
+    assert.equal(messageFor(t, new ShhError("unsupported_protocol", "newer")), "error-unsupported-protocol");
   });
 });
 

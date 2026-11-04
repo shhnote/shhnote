@@ -47,9 +47,10 @@ Each line says what, why, and how to check it.
 6. **Bodies are capped.** The reveal refuses a body longer than the instance's
    `max_blob_bytes`, whether the server announces the length or not, before buffering it.
    The limit comes from the controller's `maxBlobBytes` option, else the
-   `data-shh-max-blob-bytes` attribute, else `/config` read after the press; only when none
-   of them can be had is the cap 4 GiB, the largest blob any instance can serve.
-   `revealSecret` uses `/config`'s value unless given a smaller one. **by construction**.
+   `data-shh-max-blob-bytes` attribute, else `/config`, which the controller reads after the
+   press and before the reveal request in any case (it checks `fragment_version` there and
+   reveals nothing without it). `revealSecret` uses `/config`'s value unless given a smaller
+   one. **by construction**.
    *Why:* D-4 promises bounded client memory whatever the server sends.
 7. **Secret material is wiped when it is done and on leave.** On the reveal page, on
    `pagehide`, the seed, the buffered ciphertext and the decrypted file bytes are

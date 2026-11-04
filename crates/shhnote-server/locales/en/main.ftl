@@ -188,6 +188,8 @@ error-404-body = This page doesn't exist. If you followed a secret link, the sec
 error-500-title = Something went wrong
 error-500-body = Something unexpected happened on our side. Please try again in a moment.
 error-home-link = Go to the home page
+# Shown by the create and reveal pages when the site speaks a newer secret format than the page's script.
+error-unsupported-protocol = This page doesn't know this site's secret format, which is newer. Reload the page; if that doesn't help, the page needs an update.
 
 ## Admin
 

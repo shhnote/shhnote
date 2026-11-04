@@ -87,8 +87,13 @@ this, if you want to see the result):
 - `apiBase`: required one way or the other.
 - `argon2Url`: `/static/argon2.wasm?v=<version>` when the page names an asset version (the
   instance's own pages), otherwise `/argon2.wasm` at the page's origin.
-- `maxBlobBytes`: the create page otherwise uses `/config`'s `max_blob_bytes`; the reveal page
-  reads `/config` after the press, and falls back to 4 GiB only if it cannot.
+- `maxBlobBytes`: otherwise both pages use `/config`'s `max_blob_bytes`.
+
+Both pages read `/config` (once, shared through `getConfig`) and check its `fragment_version`
+with `checkProtocol`: the create page before it encrypts, the reveal page after the press and
+before the reveal request, so a single-view secret is never used up by a page that cannot
+open it. If `/config` cannot be read, the reveal page stays armed with
+`reveal-error-network`; an unsupported version shows `error-unsupported-protocol`.
 
 `wireBurn` and `wireReport` take the same options; only `apiBase` matters to them.
 
@@ -124,8 +129,9 @@ Text is always set with `textContent`, never as HTML.
   those paths (see `docs/deploy/own-frontend.md`).
 - Strings: `create-encrypting`, `create-uploading`, `create-error-empty`,
   `create-error-too-large`, `create-error-network`, `create-error-failed`,
-  `create-error-wasm`, `result-chip-single`, `result-chip-multi`, `result-chip-expires`
-  (`{period}`), `result-destroyed`, `form-files-remove`.
+  `create-error-wasm`, `error-unsupported-protocol`, `result-chip-single`,
+  `result-chip-multi`, `result-chip-expires` (`{period}`), `result-destroyed`,
+  `form-files-remove`.
 
 ### `wireReveal(root, options)`
 
@@ -146,7 +152,7 @@ Text is always set with `textContent`, never as HTML.
   keeps its own label or gets `reveal-download`).
 - Strings: `reveal-fetching`, `reveal-decrypting`, `reveal-wrong-passphrase`,
   `reveal-single-view`, `reveal-download`, `reveal-error-network`, `reveal-error-corrupt`,
-  `reveal-error-wasm`.
+  `reveal-error-wasm`, `error-unsupported-protocol`.
 
 ### `wireBurn(root, options)` and `wireReport(root, options)`
 
