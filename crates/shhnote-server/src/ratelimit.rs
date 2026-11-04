@@ -357,11 +357,17 @@ pub async fn limit(
                 "rate_limited",
                 "Too many requests from your connection. Please wait a little and try again.",
             );
-            if let Ok(value) = HeaderValue::from_str(&retry_after.to_string()) {
-                response.headers_mut().insert(header::RETRY_AFTER, value);
-            }
+            set_retry_after(&mut response, retry_after);
             response
         }
+    }
+}
+
+// `Retry-After` on every 429, API, admin API and panel login alike. The value is the same
+// constant everywhere, so it says nothing about the threshold (SPEC §4).
+pub(crate) fn set_retry_after(response: &mut Response, secs: u64) {
+    if let Ok(value) = HeaderValue::from_str(&secs.to_string()) {
+        response.headers_mut().insert(header::RETRY_AFTER, value);
     }
 }
 

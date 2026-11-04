@@ -270,8 +270,10 @@ async fn login(
         *response.status_mut() = status;
         response
     };
-    if state.shared.limiter.check(Endpoint::Login, ip).is_err() {
-        return fail("admin-login-limited", StatusCode::TOO_MANY_REQUESTS);
+    if let Err(retry_after) = state.shared.limiter.check(Endpoint::Login, ip) {
+        let mut response = fail("admin-login-limited", StatusCode::TOO_MANY_REQUESTS);
+        crate::ratelimit::set_retry_after(&mut response, retry_after);
+        return response;
     }
 
     let credential = form.get("credential").map(|c| c.trim()).unwrap_or("");

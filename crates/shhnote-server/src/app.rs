@@ -58,8 +58,12 @@ fn core(config: &Config, state: ApiState) -> Router {
         site: config.url.trim_end_matches('/').to_ascii_lowercase(),
         settings: state.settings.clone(),
     };
-    // CORS on both routing modes (SPEC §4): the site origin plus `allowed_origins`.
-    let api = api::router(state).layer(middleware::from_fn_with_state(cors_state, cors));
+    // CORS on both routing modes (SPEC §4): the site origin plus `allowed_origins`. Outside it,
+    // `no-store` on every API response, preflights and errors included: nothing the API
+    // answers is for a cache to keep or hand to someone else.
+    let api = api::router(state)
+        .layer(middleware::from_fn_with_state(cors_state, cors))
+        .layer(middleware::map_response(crate::admin::no_store));
 
     // Each subdomain gets its own router; everything else is the website.
     let mut hosts: Vec<(String, Router)> = Vec::new();
@@ -184,8 +188,14 @@ async fn redirect_trailing_slash(req: Request, next: Next) -> Response {
         Some(query) => format!("{path}?{query}"),
         None => path,
     };
-    // 308 keeps the request method, so a POST is not silently turned into a GET.
-    Redirect::permanent(&location).into_response()
+    // 308 keeps the request method, so a POST is not silently turned into a GET. Not cached:
+    // this runs before routing, so it also answers API paths, and no API response is kept
+    // (SPEC §4); for a page the cost is one more redirect.
+    let mut response = Redirect::permanent(&location).into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 #[derive(Clone)]

@@ -250,6 +250,109 @@ async fn spec_every_response_has_the_security_headers() {
     assert!(missing.is_empty(), "{}", missing.join("\n"));
 }
 
+// Revision 3, C4: every API response carries `Cache-Control: no-store`, whatever it is
+// (policy, errors, the fallback, a CORS preflight), on both routing modes.
+#[tokio::test]
+async fn spec_headers_every_api_response_is_no_store() {
+    let app = build("spec-web-no-store", &[]).await;
+    let mut seen: Vec<Seen> = walk(&app, "localhost", "/api/v1")
+        .await
+        .into_iter()
+        .filter(|s| s.label.contains("/api"))
+        .collect();
+    for path in ["/api", "/api/", "/api/v2/config"] {
+        seen.push(fetch(&app, "localhost", Method::GET, path, None, None, "").await);
+    }
+    seen.push(
+        fetch(
+            &app,
+            "localhost",
+            Method::OPTIONS,
+            "/api/v1/secrets/reveal",
+            None,
+            None,
+            "",
+        )
+        .await,
+    );
+
+    let sub = build(
+        "spec-web-no-store-sub",
+        &[
+            ("SHH_ENV", "production"),
+            ("SHH_URL", "https://example.com"),
+            ("SHH_API_ROUTING", "subdomain"),
+        ],
+    )
+    .await;
+    for path in ["/v1/config", "/v1/health", "/v1/", "/v1/nope", "/"] {
+        seen.push(fetch(&sub, "api.example.com", Method::GET, path, None, None, "").await);
+    }
+    assert!(seen.len() > 20, "walked too little: {}", seen.len());
+    let missing: Vec<String> = seen
+        .iter()
+        .filter(|s| {
+            s.headers
+                .get(header::CACHE_CONTROL)
+                .is_none_or(|v| v != "no-store")
+        })
+        .map(|s| format!("{} ({})", s.label, s.status))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "no `no-store` on:\n{}",
+        missing.join("\n")
+    );
+}
+
+// Revision 3, C4: the admin API's and the panel login's 429s say when to come back, with the
+// same constant `Retry-After` as the public API.
+#[tokio::test]
+async fn spec_headers_admin_429s_carry_retry_after() {
+    let api = build("spec-web-admin-429", &[]).await;
+    let mut limited = None;
+    for _ in 0..200 {
+        let r = fetch(
+            &api,
+            "localhost",
+            Method::GET,
+            "/api/v1/admin/stats",
+            None,
+            Some("Bearer not-a-key-of-any-kind-at-all-0000000000"),
+            "",
+        )
+        .await;
+        if r.status == StatusCode::TOO_MANY_REQUESTS {
+            limited = Some(r);
+            break;
+        }
+        assert_eq!(r.status, StatusCode::UNAUTHORIZED, "{}", r.body);
+    }
+    let r = limited.expect("the admin API never rate-limited failed logins");
+    assert_eq!(r.headers[header::RETRY_AFTER], "60", "admin API");
+
+    let panel = build("spec-web-login-429", &[]).await;
+    let mut limited = None;
+    for _ in 0..200 {
+        let r = fetch(
+            &panel,
+            "localhost",
+            Method::POST,
+            "/en/admin/login",
+            Some("application/x-www-form-urlencoded"),
+            None,
+            "credential=wrong",
+        )
+        .await;
+        if r.status == StatusCode::TOO_MANY_REQUESTS {
+            limited = Some(r);
+            break;
+        }
+    }
+    let r = limited.expect("the panel login never rate-limited");
+    assert_eq!(r.headers[header::RETRY_AFTER], "60", "panel login");
+}
+
 // SPEC §11: HSTS and the other headers on every production response, the API subdomain included.
 #[tokio::test]
 async fn spec_hsts_on_every_production_response() {

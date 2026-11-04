@@ -17,7 +17,7 @@ use crate::{
     admin::{SaveError, constant_time_eq, hex, mint_key, save_settings, unhex},
     api::{ApiState, error_response},
     clock::{format_date, now},
-    ratelimit::{Endpoint, peer_of},
+    ratelimit::{Endpoint, RETRY_AFTER_SECS, peer_of, set_retry_after},
 };
 
 // The admin panel's operations as JSON (SPEC §8): the same checks, the same store calls,
@@ -36,16 +36,20 @@ pub fn routes(state: ApiState) -> Router<ApiState> {
 // consulted before the lookup and charged for every failure (SPEC §8): a limited client gets
 // 429 even for a right guess, so keys cannot be guessed at speed.
 async fn require_admin(State(state): State<ApiState>, req: Request, next: Next) -> Response {
-    let limited = error_response(
-        StatusCode::TOO_MANY_REQUESTS,
-        "rate_limited",
-        "Too many attempts. Please wait a little and try again.",
-    );
+    let limited = || {
+        let mut response = error_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            "rate_limited",
+            "Too many attempts. Please wait a little and try again.",
+        );
+        set_retry_after(&mut response, RETRY_AFTER_SECS);
+        response
+    };
     let ip = state
         .limiter
         .client_ip(peer_of(req.extensions()), req.headers());
     if state.limiter.exhausted(Endpoint::Login, ip) {
-        return limited;
+        return limited();
     }
     let hash = req
         .headers()
@@ -80,7 +84,7 @@ async fn require_admin(State(state): State<ApiState>, req: Request, next: Next) 
     }
     if !allowed {
         if state.limiter.check(Endpoint::Login, ip).is_err() {
-            return limited;
+            return limited();
         }
         return error_response(
             StatusCode::UNAUTHORIZED,
