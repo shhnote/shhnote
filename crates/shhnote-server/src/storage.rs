@@ -619,21 +619,7 @@ impl S3 {
             return Err(status_error(response).await);
         }
         // Each piece of the object must keep arriving, or the download is cut.
-        let frames = BodyDataStream::new(response.into_body());
-        let timed = stream::unfold(Some(frames), |frames| async move {
-            let mut frames = frames?;
-            match tokio::time::timeout(
-                BODY_IDLE_TIMEOUT,
-                futures_util::StreamExt::next(&mut frames),
-            )
-            .await
-            {
-                Ok(Some(Ok(bytes))) => Some((Ok(bytes), Some(frames))),
-                Ok(Some(Err(e))) => Some((Err(io::Error::other(e)), None)),
-                Ok(None) => None,
-                Err(_) => Some((Err(timed_out("download")), None)),
-            }
-        });
+        let timed = timed_frames(response.into_body(), BODY_IDLE_TIMEOUT, "download");
         Ok(Body::from_stream(timed))
     }
 
@@ -813,13 +799,44 @@ async fn read_page(response: Response<Incoming>) -> io::Result<String> {
     read_up_to(response, 1024 * 1024).await
 }
 
+// A small body (XML for a check, a listing page, an error) is read with the same per-piece
+// bound as a download, so a store that sends its headers and then stalls cannot hang startup,
+// the scrubber or an upload slot (SPEC §6.1). These bodies are small, so the shorter bound
+// used for the headers applies.
 async fn read_up_to(response: Response<Incoming>, limit: usize) -> io::Result<String> {
-    let body = http_body_util::Limited::new(response.into_body(), limit)
-        .collect()
-        .await
-        .map_err(io::Error::other)?
-        .to_bytes();
+    let mut frames = std::pin::pin!(timed_frames(
+        response.into_body(),
+        RESPONSE_TIMEOUT,
+        "response body"
+    ));
+    let mut body = Vec::new();
+    while let Some(chunk) = futures_util::StreamExt::next(&mut frames).await {
+        let chunk = chunk?;
+        if body.len() + chunk.len() > limit {
+            return Err(io::Error::other("S3 response body too large"));
+        }
+        body.extend_from_slice(&chunk);
+    }
     Ok(String::from_utf8_lossy(&body).into_owned())
+}
+
+// The pieces of a response body, each of which must arrive within `idle` of the previous
+// one; a stall ends the stream with a timeout error instead of waiting for ever.
+fn timed_frames(
+    body: Incoming,
+    idle: Duration,
+    what: &'static str,
+) -> impl Stream<Item = io::Result<Bytes>> {
+    let frames = BodyDataStream::new(body);
+    stream::unfold(Some(frames), move |frames| async move {
+        let mut frames = frames?;
+        match tokio::time::timeout(idle, futures_util::StreamExt::next(&mut frames)).await {
+            Ok(Some(Ok(bytes))) => Some((Ok(bytes), Some(frames))),
+            Ok(Some(Err(e))) => Some((Err(io::Error::other(e)), None)),
+            Ok(None) => None,
+            Err(_) => Some((Err(timed_out(what)), None)),
+        }
+    })
 }
 
 // Every stretch of `text` between `open` and `close`, in order.
