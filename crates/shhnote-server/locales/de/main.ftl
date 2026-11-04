@@ -81,6 +81,7 @@ create-encrypting = Wird in deinem Browser verschlüsselt …
 create-uploading = Wird hochgeladen …
 create-error-empty = Gib einen Text ein oder füge mindestens eine Datei hinzu.
 create-error-too-large = Das ist mehr, als diese Seite annimmt. Entferne Dateien oder kürze den Text.
+create-error-text-too-long = Der Text ist länger, als diese Seite annimmt ({ "{max}" }). Kürze ihn, oder hänge ihn als Datei an.
 create-error-network = Der Server ist nicht erreichbar. Prüfe deine Verbindung und versuch es erneut.
 create-error-failed = Beim Erstellen des Geheimnisses ist etwas schiefgelaufen. Bitte versuch es erneut.
 create-error-wasm = Passphrasen brauchen WebAssembly, das dein Browser oder seine Sicherheitsstufe abgeschaltet hat. Erlaube es, oder erstelle das Geheimnis ohne Passphrase.
@@ -118,6 +119,8 @@ reveal-not-found-title = Hier gibt es kein Geheimnis.
 reveal-not-found-body = Dieser Link ist ungültig, oder das Geheimnis wurde bereits angesehen, ist abgelaufen oder wurde zerstört. Zu deinem Schutz speichert diese Website nicht, was davon zutrifft.
 reveal-not-found-callout = Wenn du das Geheimnis noch brauchst, bitte um einen neuen Link, und prüfe, ob du die ganze URL kopiert hast, inklusive des Teils nach dem #.
 reveal-error-network = Der Server ist nicht erreichbar. Versuch es gleich noch einmal.
+reveal-error-busy = Der Server ist ausgelastet oder startet gerade neu. Der Link ist in Ordnung; versuch es gleich noch einmal.
+reveal-error-too-large = Dieses Geheimnis ist größer, als diese Seite annehmen kann.
 reveal-error-corrupt = Dieses Geheimnis konnte nicht entschlüsselt werden. Der Link ist vielleicht unvollständig.
 reveal-error-wasm = Diese Passphrase braucht WebAssembly, das dein Browser oder seine Sicherheitsstufe abgeschaltet hat (zum Beispiel Tor Browser auf „Sicherer“). Erlaube es und versuch es noch einmal.
 

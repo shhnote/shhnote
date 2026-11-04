@@ -245,10 +245,10 @@ describe("review r2 pass 5: what stays in memory and in storage", () => {
     assert.deepEqual(calls.map((c) => c.url.split("/v1")[1]), ["/secrets/reveal"]);
   });
 
-  it("createT falls over on a block whose JSON is null (hardening note, not a finding)", () => {
+  it("createT treats a block whose JSON is null like any other gap (revision 4, C5)", () => {
     const block = { textContent: "null" };
     const root = { querySelector: () => block } as unknown as ParentNode;
-    assert.throws(() => createT(root)("reveal-download"), TypeError);
+    assert.equal(createT(root)("reveal-download"), "reveal-download");
   });
 
   it("the burn-token hash and lookup hash leave the client; the seed and token never do (S-19, S-46 re-check)", async () => {

@@ -12,6 +12,7 @@ export type UiKey =
   | "create-uploading"
   | "create-error-empty"
   | "create-error-too-large"
+  | "create-error-text-too-long"
   | "create-error-network"
   | "create-error-failed"
   | "create-error-wasm"
@@ -21,6 +22,8 @@ export type UiKey =
   | "reveal-single-view"
   | "reveal-download"
   | "reveal-error-network"
+  | "reveal-error-busy"
+  | "reveal-error-too-large"
   | "reveal-error-corrupt"
   | "reveal-error-wasm"
   | "burn-working"
@@ -50,7 +53,9 @@ export function createT(root?: ParentNode): Translate {
         root?.querySelector<HTMLScriptElement>(selector) ??
         (typeof document === "undefined" ? null : document.querySelector<HTMLScriptElement>(selector));
       try {
-        strings = block ? (JSON.parse(block.textContent ?? "{}") as Record<UiKey, string>) : {};
+        const parsed: unknown = block ? JSON.parse(block.textContent ?? "{}") : {};
+        // `null` or an array parse fine but hold no strings; keys fall back like any gap.
+        strings = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? (parsed as Record<UiKey, string>) : {};
       } catch {
         strings = {};
       }

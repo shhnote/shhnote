@@ -9,11 +9,11 @@ import { collect, iterateBytes, readHeader } from "../crypto/stream.ts";
 import { isUserActivation } from "../lib/activation.ts";
 import { Api, ApiError, type InstanceConfig, getConfig } from "../lib/api.ts";
 import { loadArgon2, prefetchArgon2 } from "../lib/argon2-loader.ts";
-import { sanitiseFileName } from "../lib/filename.ts";
+import { sanitiseFileName, stripInvisible } from "../lib/filename.ts";
 import { wipeBytes, wipePayload } from "../lib/wipe.ts";
 import { $, type PageOptions, formatSize, fromTemplate, hide, hook, pageSettings, setState, setStatus, show, wireCopy } from "./dom.ts";
 import { ClaimStore, MAX_CLAIM_WINDOW_SECS } from "./claims.ts";
-import type { Translate } from "./i18n.ts";
+import type { Translate, UiKey } from "./i18n.ts";
 
 // What a reveal needs from `/config` before it claims anything: null when it can't be read,
 // and `ShhError("unsupported_protocol")` when this package can't open the instance's secrets.
@@ -68,10 +68,20 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
   const claims = new ClaimStore();
   claims.prune();
   let shown: Payload | null = null;
+  // True while the confirm after a reveal is still being retried.
+  let confirming = false;
   const objectUrls: string[] = [];
 
+  // A caller's file-card template is checked now, before anything can be revealed: finding
+  // out at display time would leave a single-view secret consumed with nothing shown.
+  const template = fromTemplate(page, "file-card");
+  if (template && !template.querySelector("a[data-shh-file-download]")) {
+    throw new Error("a file-card template needs an a[data-shh-file-download]");
+  }
+
   // Best effort (SPEC §10): overwrite what we can once the page is left. Strings cannot be
-  // wiped in JavaScript; the seed, file bytes and the DOM can.
+  // wiped in JavaScript; the seed, file bytes and the DOM can. The lookup value and the
+  // claim token stay only while a confirm is still retrying, since it needs them.
   window.addEventListener("pagehide", () => {
     wipeBytes(seed, bodyBytes);
     bodyBytes = null;
@@ -79,10 +89,20 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
     passInput.value = "";
     wipePayload(shown);
     shown = null;
+    if (!confirming) {
+      wipeBytes(lookupValue);
+      lookupValue = null;
+      claimToken = null;
+    }
     for (const url of objectUrls) URL.revokeObjectURL(url);
     const pre = page.querySelector("[data-shh-text]");
     if (pre) pre.textContent = "";
     page.querySelector("[data-shh-files]")?.replaceChildren();
+  });
+  // Restored from the back-forward cache, the page would come back with its seed wiped and
+  // its forms dead; a reload starts it over from the fragment, which the URL still carries.
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) location.reload();
   });
 
   // Only a real press reveals (SPEC §5, `isUserActivation`); the form itself never submits.
@@ -171,7 +191,7 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
         setState(page, "notfound");
       } else {
         setState(page, "armed");
-        setStatus(armedStatus, e instanceof ApiError && e.code === "network" ? t("reveal-error-network") : t("reveal-error-corrupt"));
+        setStatus(armedStatus, t(revealErrorKey(e)));
         button.disabled = false;
       }
     }
@@ -199,11 +219,11 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
         passInput.select();
       } else if (e instanceof ShhError && e.code === "argon2_unavailable") {
         setStatus(passStatus, t("reveal-error-wasm"));
-      } else if (e instanceof ApiError && e.code === "network") {
+      } else if (e instanceof ApiError) {
         // The download behind the prompt failed; the next press fetches again with the token.
         locked = null;
         setState(page, "armed");
-        setStatus(armedStatus, t("reveal-error-network"));
+        setStatus(armedStatus, t(revealErrorKey(e)));
         button.disabled = false;
       } else {
         setStatus(passStatus, t("reveal-error-corrupt"));
@@ -246,7 +266,7 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
       // blob URL were opened in a tab.
       const url = URL.createObjectURL(new Blob([file.bytes as BlobPart], { type: "application/octet-stream" }));
       objectUrls.push(url);
-      list.append(fileCard(page, t, file.name, `${file.type || "application/octet-stream"} · ${formatSize(file.bytes.length)}`, url));
+      list.append(fileCard(page, t, file.name, `${stripInvisible(file.type) || "application/octet-stream"} · ${formatSize(file.bytes.length)}`, url));
     }
     setState(page, "revealed");
 
@@ -254,25 +274,43 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
     // consumed either way (SPEC §5.1).
     if (claimToken !== null) {
       const token = claimToken;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          await api.confirm(lookupValue ?? (await lookup(seed)), token);
-          // Destroyed: nothing left to download again.
-          if (claimKey) claims.delete(claimKey);
-          break;
-        } catch {
-          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+      confirming = true;
+      try {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            await api.confirm(lookupValue ?? (await lookup(seed)), token);
+            // Destroyed: nothing left to download again.
+            if (claimKey) claims.delete(claimKey);
+            break;
+          } catch {
+            await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+          }
         }
+      } finally {
+        confirming = false;
       }
     }
   }
 }
 
+// Which message a failed reveal shows. Only a decryption failure means the secret itself is
+// wrong; a busy or restarting server, a rate limit and a body over the cap are the server's
+// state or the page's limit, and say so, since the link is fine.
+export function revealErrorKey(e: unknown): UiKey {
+  if (e instanceof ApiError) {
+    if (e.code === "network") return "reveal-error-network";
+    if (e.code === "too_large") return "reveal-error-too-large";
+    return "reveal-error-busy";
+  }
+  return "reveal-error-corrupt";
+}
+
 // One downloadable file: the page's `<template data-shh-template="file-card">` when it has
 // one, else a plain `<li>`. Hooks filled in: `[data-shh-file-name]` (the cleaned name, as
 // text inside a `<bdi>`, so the sender's name can neither inject markup nor reorder the text
-// around it), `[data-shh-file-meta]` (type and size) and `a[data-shh-file-download]`, which
-// keeps its own label or gets "reveal-download".
+// around it), `[data-shh-file-meta]` (the sender's type, cleaned and isolated the same way,
+// and the size) and `a[data-shh-file-download]`, which keeps its own label or gets
+// "reveal-download".
 function fileCard(page: HTMLElement, t: Translate, rawName: string, meta: string, url: string): HTMLElement {
   const card = fromTemplate(page, "file-card") ?? builtInFileCard();
   const link = card.querySelector<HTMLAnchorElement>("a[data-shh-file-download]");
@@ -282,7 +320,11 @@ function fileCard(page: HTMLElement, t: Translate, rawName: string, meta: string
   bdi.textContent = safeName;
   card.querySelector("[data-shh-file-name]")?.replaceChildren(bdi);
   const metaSlot = card.querySelector("[data-shh-file-meta]");
-  if (metaSlot) metaSlot.textContent = meta;
+  if (metaSlot) {
+    const isolated = document.createElement("bdi");
+    isolated.textContent = meta;
+    metaSlot.replaceChildren(isolated);
+  }
   link.href = url;
   link.download = safeName;
   if (!link.textContent?.trim()) link.textContent = t("reveal-download");

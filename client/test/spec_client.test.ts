@@ -18,10 +18,10 @@ import { CHUNK_SIZE, blobLen, pad } from "../src/crypto/padding.ts";
 import { decrypt, decryptStream, encrypt, lookup } from "../src/crypto/secret.ts";
 import { burnSecret, createSecret, parseFragment, revealSecret } from "../src/client.ts";
 import { Api, ApiError, DEFAULT_MAX_BLOB_BYTES, type InstanceConfig, getConfig, invalidateConfig } from "../src/lib/api.ts";
-import { sanitiseFileName } from "../src/lib/filename.ts";
+import { sanitiseFileName, stripInvisible } from "../src/lib/filename.ts";
 import { ClaimStore } from "../src/ui/claims.ts";
 import { fillTtl, messageFor, ttlChoices } from "../src/ui/create.ts";
-import { configForReveal } from "../src/ui/reveal.ts";
+import { configForReveal, revealErrorKey } from "../src/ui/reveal.ts";
 import { COPIED_MS, formatDuration, pageSettings, wireCopy } from "../src/ui/dom.ts";
 import { createT } from "../src/ui/i18n.ts";
 import * as ui from "../src/ui/index.ts";
@@ -384,6 +384,25 @@ const instanceConfig: InstanceConfig = {
   web_mode: "full",
 };
 
+describe("spec: what a failed reveal says (revision 4, C5)", () => {
+  it("only a decryption failure is called corrupt; the server's state and the cap get their own words", () => {
+    assert.equal(revealErrorKey(new ShhError("corrupt")), "reveal-error-corrupt");
+    assert.equal(revealErrorKey(new ShhError("wrong_passphrase")), "reveal-error-corrupt");
+    assert.equal(revealErrorKey(new ApiError(0, "network")), "reveal-error-network");
+    assert.equal(revealErrorKey(new ApiError(0, "too_large")), "reveal-error-too-large");
+    assert.equal(revealErrorKey(new ApiError(429, "rate_limited")), "reveal-error-busy");
+    assert.equal(revealErrorKey(new ApiError(503, "not_configured")), "reveal-error-busy");
+    assert.equal(revealErrorKey(new ApiError(503, "shutting_down")), "reveal-error-busy");
+    assert.equal(revealErrorKey(new Error("x")), "reveal-error-corrupt");
+  });
+
+  it("a sender's file type loses its controls and bidi overrides but keeps its slash", () => {
+    assert.equal(stripInvisible("image/png"), "image/png");
+    assert.equal(stripInvisible("text/\u202eplain\u0000"), "text/plain");
+    assert.equal(stripInvisible("\ufeffapplication/pdf"), "application/pdf");
+  });
+});
+
 describe("spec: shared instance config (revision 3, B1)", () => {
   it("getConfig fetches once per base and fetch implementation", async () => {
     const { calls, fetchImpl } = recorder(() => Response.json(instanceConfig));
@@ -472,6 +491,9 @@ describe("spec: page strings (revision 3, B1)", () => {
     assert.equal(createT(rootWith(null))("reveal-download"), "reveal-download");
     assert.equal(createT(rootWith("{}"))("reveal-download"), "reveal-download");
     assert.equal(createT(rootWith("{not json"))("burn-working"), "burn-working");
+    // Revision 4, C5: JSON that parses to no object (`null`, a list) is a gap, not a crash.
+    assert.equal(createT(rootWith("null"))("burn-working"), "burn-working");
+    assert.equal(createT(rootWith("[1]"))("burn-working"), "burn-working");
     assert.equal(createT()("burn-working"), "burn-working", "no document in Node: keys, no crash");
   });
 });

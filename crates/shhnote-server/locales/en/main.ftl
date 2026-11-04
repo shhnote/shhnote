@@ -81,6 +81,7 @@ create-encrypting = Encrypting in your browser…
 create-uploading = Uploading…
 create-error-empty = Add some text or at least one file.
 create-error-too-large = That's more than this site accepts. Remove some files or shorten the text.
+create-error-text-too-long = The text is longer than this site accepts ({ "{max}" }). Shorten it, or attach it as a file.
 create-error-network = Couldn't reach the server. Check your connection and try again.
 create-error-failed = Something went wrong while creating the secret. Please try again.
 create-error-wasm = Passphrases need WebAssembly, which your browser or its security level has switched off. Allow it, or create the secret without a passphrase.
@@ -118,6 +119,8 @@ reveal-not-found-title = No secret found here.
 reveal-not-found-body = This link is invalid, or the secret it pointed to has already been viewed, expired, or been destroyed. For your privacy, this site keeps no record of which.
 reveal-not-found-callout = If you still need the secret, ask the sender for a fresh link, and double-check you copied the whole URL, including the part after the #.
 reveal-error-network = Couldn't reach the server. Try again in a moment.
+reveal-error-busy = The server is busy or restarting. The link is fine; try again in a moment.
+reveal-error-too-large = This secret is larger than this page can accept.
 reveal-error-corrupt = This secret couldn't be decrypted. The link may be incomplete.
 reveal-error-wasm = This passphrase needs WebAssembly, which your browser or its security level has switched off (Tor Browser at "Safer", for example). Allow it and try again.
 

@@ -55,6 +55,8 @@ export class Argon2 {
       if (status !== 0) throw new ShhError("argon2_unavailable", `argon2 failed with status ${status}`);
       return new Uint8Array(this.wasm.memory.buffer.slice(outPtr, outPtr + 32));
     } finally {
+      // The JavaScript copy of the passphrase bytes goes too; the string itself cannot be wiped.
+      pwd.fill(0);
       const view = new Uint8Array(this.wasm.memory.buffer);
       view.fill(0, pwdPtr, pwdPtr + pwd.length);
       view.fill(0, outPtr, outPtr + 32);

@@ -10,6 +10,12 @@ const INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u00ad\u200b-\u200f\u2028-\u202e\u
 const SEPARATORS = /[/\\\u2044\u2215\u29f5\u29f8\u29f9\uff0f\uff3c:*?"<>|]/g;
 const MAX_BYTES = 255;
 
+// Sender-chosen text shown next to a file (its declared type): no controls, no bidi tricks;
+// slashes and the like stay, since `image/png` is what the text is.
+export function stripInvisible(text: string): string {
+  return text.normalize("NFC").replace(INVISIBLE, "");
+}
+
 export function sanitiseFileName(name: string): string {
   let out = name.normalize("NFC").replace(INVISIBLE, "").replace(SEPARATORS, "_");
   // Leading dots hide a file or point up the tree; trailing dots and spaces are dropped by Windows.

@@ -5,7 +5,7 @@ import { type Encrypted, encrypt, generateRandomness } from "../crypto/secret.ts
 import { wipeBytes } from "../lib/wipe.ts";
 import { Api, ApiError, type InstanceConfig, type Lifetime, getConfig, invalidateConfig } from "../lib/api.ts";
 import { loadArgon2, prefetchArgon2 } from "../lib/argon2-loader.ts";
-import { $, type PageOptions, formatDuration, hide, pageLocale, pageSettings, setStatus, show, wireCopy } from "./dom.ts";
+import { $, type PageOptions, formatDuration, formatSize, hide, pageLocale, pageSettings, setStatus, show, wireCopy } from "./dom.ts";
 import { type Dropzone, wireDropzone } from "./dropzone.ts";
 import type { Translate } from "./i18n.ts";
 
@@ -66,6 +66,11 @@ export function wireCreate(root: HTMLElement, options: PageOptions): void {
     }
     result.querySelector("[data-shh-open-link]")?.removeAttribute("href");
   });
+  // Restored from the back-forward cache, the page would show blank readouts over buttons
+  // whose closures still hold the links; a reload gives a clean form instead.
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) location.reload();
+  });
 
   // Instance policy: with files switched off the drop zone goes away and the API would refuse
   // anything file-sized anyway.
@@ -123,6 +128,11 @@ export function wireCreate(root: HTMLElement, options: PageOptions): void {
         // Links in a format the instance doesn't speak would be useless to their recipients.
         checkProtocol(config);
         if (ttlSelect && ttlSelect.options.length === 0) fillTtl(ttlSelect, config);
+        // The instance's text limit (SPEC §2.5), in bytes as the manifest will hold it.
+        if (new TextEncoder().encode(text).length > config.text_max_bytes) {
+          setStatus(status, t("create-error-text-too-long", { max: formatSize(config.text_max_bytes) }));
+          return;
+        }
         ttlSeconds = ttlSelect ? Number(ttlSelect.value) : Number(data.get("expiry"));
         const candidate = await encryptFor(config);
         // `max_blob_bytes` is the largest padded size (bucket) the instance accepts (SPEC §4).
