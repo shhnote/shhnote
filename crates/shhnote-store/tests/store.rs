@@ -495,8 +495,8 @@ async fn api_keys_round_trip() {
             vec!["ci", "laptop"],
             "{backend}"
         );
-        assert!(store.delete_api_key(&user).await.unwrap(), "{backend}");
-        assert!(!store.delete_api_key(&user).await.unwrap(), "{backend}");
+        assert!(store.delete_api_key(&user, 0).await.unwrap(), "{backend}");
+        assert!(!store.delete_api_key(&user, 0).await.unwrap(), "{backend}");
         assert_eq!(
             store.delete_admin_keys(1_700_000_000).await.unwrap(),
             1,

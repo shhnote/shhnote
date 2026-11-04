@@ -75,6 +75,8 @@ sudo install -m 0755 shhnote /usr/local/bin/shhnote
 sudo systemctl start shhnote
 ```
 
+Stop before you start, as above: one process owns the storage tier and its spool directory, and two running against the same directory or bucket would take each other's uploads in flight for leftovers (see operations.md).
+
 Migrations are applied at startup and are forward-only; keep the backup until the new version has run for a while.
 
 ## Blobs on disk

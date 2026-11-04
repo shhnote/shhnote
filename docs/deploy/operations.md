@@ -56,7 +56,7 @@ Because secrets expire or self-destruct within days, restoring an old backup bri
 
 ## Upgrades
 
-Back up, replace the binary or pull the image, start. Migrations are embedded and run at startup, forward-only. Then check that it answers: `shhnote health` exits 0 (`docker compose ps` shows the container as healthy). The start line, `info: listening on 0.0.0.0:3000` (with your bind address), is logged only at `SHH_LOG_LEVEL=info` or more; the examples set `warn`. A failed migration is logged as an error in `journalctl -u shhnote` or `docker compose logs`, leaves the service stopped, and the backup is the way back.
+Back up, stop, replace the binary or pull the image, start. Stop before you start: one server process owns an external tier (local disk or S3) and its spool directory, and a second process starting against the same tier would treat the first one's uploads in flight as leftovers. The server guards against that by leaving entries younger than the longest possible upload alone at startup, but a rolling or blue/green deploy that runs two processes against one tier is not supported; run the new process only once the old one has exited. Migrations are embedded and run at startup, forward-only. Then check that it answers: `shhnote health` exits 0 (`docker compose ps` shows the container as healthy). The start line, `info: listening on 0.0.0.0:3000` (with your bind address), is logged only at `SHH_LOG_LEVEL=info` or more; the examples set `warn`. A failed migration is logged as an error in `journalctl -u shhnote` or `docker compose logs`, leaves the service stopped, and the backup is the way back.
 
 ## Storage tiers
 

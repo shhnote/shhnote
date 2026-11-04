@@ -100,8 +100,11 @@ async fn main() {
         );
     }
 
+    // Anything in the tier younger than the longest possible upload may belong to a process
+    // this one is replacing, so the startup cleanup leaves it alone (SPEC §6.1).
+    let upload_window = shhnote_server::api::upload_window(config.storage.max_blob_bytes());
     let storage = match &config.storage.external {
-        Some(external) => match Blobs::open(external).await {
+        Some(external) => match Blobs::open_with(external, upload_window).await {
             Ok(blobs) => Some(Arc::new(blobs)),
             Err(e) => {
                 shhnote_server::log_error!("storage error: {e}");
@@ -124,6 +127,12 @@ async fn main() {
                     shhnote_server::log_warn!(
                         "storage: left {} other entry(s) in the blob area alone: not shhnote objects",
                         sweep.ignored
+                    );
+                }
+                if sweep.young > 0 {
+                    shhnote_server::log_info!(
+                        "storage: left {} unreferenced object(s) that may still be uploads in flight",
+                        sweep.young
                     );
                 }
             }

@@ -868,7 +868,7 @@ async fn keys_delete(
     let Some(hash) = form.get("key_hash").and_then(|h| unhex(h)) else {
         return error_page(&state, StatusCode::BAD_REQUEST);
     };
-    if let Err(e) = state.shared.store.delete_api_key(&hash).await {
+    if let Err(e) = state.shared.store.delete_api_key(&hash, now()).await {
         return db_error(&state, e);
     }
     Redirect::to(&state.admin_href("/keys")).into_response()

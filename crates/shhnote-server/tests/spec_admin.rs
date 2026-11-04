@@ -12,7 +12,7 @@ use axum::{
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde_json::{Value, json};
-use shhnote_core::{config::Config, settings::Settings};
+use shhnote_core::{config::Config, secret::credential_hash, settings::Settings};
 use shhnote_server::{api::ApiState, app};
 use shhnote_store::{Store, sqlite_path_for_tests};
 use tower::ServiceExt;
@@ -333,29 +333,69 @@ async fn spec_logout_requires_csrf() {
     );
 }
 
-// SPEC §8: a bootstrap session is invalid once any admin key exists, and `reset-admin` does
-// not revive it.
+// SPEC §8: a bootstrap session is invalid once any admin key exists, and neither
+// `reset-admin` nor deleting the last admin key through the panel or the admin API (round 2,
+// R-7) revives it.
 #[tokio::test]
 async fn spec_bootstrap_session_does_not_come_back() {
-    let (app, store) = build("spec-admin-bootstrap-revive").await;
-    let old = login(&app, BOOTSTRAP).await;
-    let admin_key = mint(&app, &bearer(BOOTSTRAP), "admin").await;
-    assert_eq!(
-        get(&app, "/en/admin", &old).await.status,
-        StatusCode::SEE_OTHER
-    );
-    // What `shhnote reset-admin` does.
-    store
-        .delete_admin_keys(shhnote_server::clock::now())
-        .await
-        .unwrap();
-    let _ = admin_key;
-    let revived = get(&app, "/en/admin", &old).await;
-    assert_eq!(
-        revived.status,
-        StatusCode::SEE_OTHER,
-        "pre-key bootstrap cookie accepted again"
-    );
+    for via in ["reset-admin", "panel", "api"] {
+        let (app, store) = build(&format!("spec-admin-bootstrap-revive-{via}")).await;
+        let old = login(&app, BOOTSTRAP).await;
+        let admin_key = mint(&app, &bearer(BOOTSTRAP), "admin").await;
+        assert_eq!(
+            get(&app, "/en/admin", &old).await.status,
+            StatusCode::SEE_OTHER
+        );
+        let hash_hex: String = credential_hash(admin_key.as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        match via {
+            "reset-admin" => {
+                store
+                    .delete_admin_keys(shhnote_server::clock::now())
+                    .await
+                    .unwrap();
+            }
+            "panel" => {
+                let cookie = login(&app, &admin_key).await;
+                let page = get(&app, "/en/admin/keys", &cookie).await;
+                let csrf = csrf_of(&page);
+                let r = post_form(
+                    &app,
+                    "/en/admin/keys/delete",
+                    &cookie,
+                    &[("csrf", &csrf), ("key_hash", &hash_hex)],
+                )
+                .await;
+                assert_eq!(r.status, StatusCode::SEE_OTHER);
+            }
+            _ => {
+                let r = admin_api(
+                    &app,
+                    Method::POST,
+                    "/keys/delete",
+                    &bearer(&admin_key),
+                    Some(json!({ "id": hash_hex })),
+                )
+                .await;
+                assert_eq!(r.status, StatusCode::NO_CONTENT);
+            }
+        }
+        assert_eq!(store.admin_key_count().await.unwrap(), 0);
+        let revived = get(&app, "/en/admin", &old).await;
+        assert_eq!(
+            revived.status,
+            StatusCode::SEE_OTHER,
+            "pre-key bootstrap cookie accepted again after {via}"
+        );
+        // A fresh bootstrap login still works: the token itself is not retired by this. The
+        // cut-off is the deletion second itself (a session issued in it is refused, fail
+        // closed), so the next second is the first that counts.
+        tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+        let fresh = login(&app, BOOTSTRAP).await;
+        assert_eq!(get(&app, "/en/admin", &fresh).await.status, StatusCode::OK);
+    }
 }
 
 // SPEC §8: a bootstrap session is bound to the hash of the token that created it.
@@ -668,6 +708,8 @@ async fn spec_settings_patch_rejects_values_that_break_the_instance() {
     let bad: Vec<(&str, Value)> = vec![
         ("padding_min", json!(0)),
         ("padding_min", json!(1)),
+        // Above the largest blob the instance stores (round 2, suspicion 4).
+        ("padding_min", json!(4_294_967_296u64)),
         ("padding_mode/ladder", json!(null)),
         ("claim_window_secs", json!(-1)),
         ("claim_window_secs", json!(0)),
@@ -763,6 +805,37 @@ async fn spec_settings_markup_is_escaped_in_pages() {
         .await
         .text();
     assert!(!settings_page.contains("<script>alert(1)</script>"));
+    // The policy pages take the site name through a placeholder in Markdown (round 2, R-8):
+    // it must land there as text too, in every locale, and a refresh tag is the markup that
+    // CSP would not stop. The pages exist only once the instance is set up.
+    let admin_key = configure(&app).await;
+    let r = admin_api(
+        &app,
+        Method::PATCH,
+        "/settings",
+        &bearer(&admin_key),
+        Some(json!({
+            "site_name": r#"Acme <b data-x="1">bold</b><meta http-equiv="refresh" content="0;url=https://evil.example">"#,
+        })),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.text());
+    for path in [
+        "/en/terms",
+        "/en/privacy",
+        "/en/acceptable-use",
+        "/de/terms",
+    ] {
+        let page = get(&app, path, "").await.text();
+        assert!(
+            !page.contains(r#"<b data-x="1">"#) && !page.contains("<meta http-equiv"),
+            "{path} renders the site name as markup"
+        );
+        assert!(
+            page.contains("Acme &lt;b data-x=&quot;1&quot;&gt;bold&lt;/b&gt;"),
+            "{path} does not show the site name as text"
+        );
+    }
 }
 
 // `project_url`: footer link when set, never on /config, same URL rule as `source_url`.

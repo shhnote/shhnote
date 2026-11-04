@@ -97,12 +97,32 @@ impl Store {
         rows.iter().map(api_key).collect()
     }
 
-    pub async fn delete_api_key(&self, key_hash: &[u8]) -> Result<bool, Error> {
-        let result = sqlx::query("DELETE FROM api_keys WHERE key_hash = $1")
+    // Deleting an admin key may leave no admin key at all, which is the state in which the
+    // bootstrap token works again. A bootstrap session from before that key must not come
+    // back with it (SPEC §8), so the deletion instant is recorded in the same transaction,
+    // as `reset-admin` does.
+    pub async fn delete_api_key(&self, key_hash: &[u8], now: i64) -> Result<bool, Error> {
+        let mut tx = self.pool.begin().await?;
+        let deleted = sqlx::query("DELETE FROM api_keys WHERE key_hash = $1 RETURNING scopes")
             .bind(key_hash.to_vec())
-            .execute(&self.pool)
+            .fetch_optional(&mut *tx)
             .await?;
-        Ok(result.rows_affected() > 0)
+        let Some(row) = deleted else {
+            return Ok(false);
+        };
+        let scopes: String = row.try_get("scopes")?;
+        if scopes == "admin" {
+            sqlx::query(
+                "INSERT INTO admin_state (key, value) VALUES ($1, $2) \
+                 ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            )
+            .bind(BOOTSTRAP_VALID_AFTER)
+            .bind(now)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(true)
     }
 
     // Ends every session of the key issued up to `now`; the key itself stays (SPEC §8).

@@ -22,7 +22,7 @@ pub fn generate() -> io::Result<Vec<(&'static str, String)>> {
         .collect()
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
     Created,
     Filled,
@@ -50,19 +50,42 @@ pub fn apply(
     let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
     let mut outcomes = Vec::new();
     for (key, value) in values {
-        let prefix = format!("{key}=");
-        let found = lines.iter().position(|line| {
-            line.trim_start().starts_with(&prefix) && !line.trim_start().starts_with('#')
-        });
-        match found {
-            Some(i) if lines[i].trim_start()[prefix.len()..].trim().is_empty() => {
-                lines[i] = format!("{key}={value}");
-                outcomes.push((*key, Outcome::Filled));
-            }
-            Some(_) => outcomes.push((*key, Outcome::Kept)),
-            None => {
+        // Every line that sets the key, in any form the server's reader accepts: a key set
+        // twice is left to the operator, since the server would read the last one while a
+        // fill here would touch the first.
+        let found: Vec<usize> = lines
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| assignment(line).is_some_and(|a| a.key == *key))
+            .map(|(i, _)| i)
+            .collect();
+        match found[..] {
+            [] => {
                 lines.push(format!("{key}={value}"));
                 outcomes.push((*key, Outcome::Appended));
+            }
+            [i] => {
+                let line = &lines[i];
+                let set = assignment(line).expect("found above");
+                let empty = set.is_empty().ok_or_else(|| {
+                    io::Error::other(format!(
+                        "line {} sets {key} in a form shhnote init cannot judge; set it by hand",
+                        i + 1
+                    ))
+                })?;
+                if empty {
+                    lines[i] = format!("{}{key}={value}", set.prefix);
+                    outcomes.push((*key, Outcome::Filled));
+                } else {
+                    outcomes.push((*key, Outcome::Kept));
+                }
+            }
+            [first, .., last] => {
+                return Err(io::Error::other(format!(
+                    "lines {} and {} both set {key}; keep one",
+                    first + 1,
+                    last + 1
+                )));
             }
         }
     }
@@ -72,6 +95,48 @@ pub fn apply(
         write_atomically(path, &body)?;
     }
     Ok(outcomes)
+}
+
+// One `KEY=value` line as the server's `.env` reader (dotenvy) sees it: an optional `export`,
+// spaces around the `=`, a value that may be quoted or followed by a comment.
+struct Assignment<'a> {
+    // Everything before the key (`export ` and indentation), kept when the line is rewritten.
+    prefix: &'a str,
+    key: &'a str,
+    value: &'a str,
+}
+
+impl Assignment<'_> {
+    // Whether the server would read an empty value. `None` for a quoted value that does not
+    // end on this line, which this tool does not try to understand.
+    fn is_empty(&self) -> Option<bool> {
+        let value = self.value.trim();
+        if value.is_empty() || value.starts_with('#') {
+            return Some(true);
+        }
+        if let Some(quote) = value.chars().next().filter(|c| *c == '"' || *c == '\'') {
+            let inner = &value[1..];
+            let close = inner.find(quote)?;
+            return Some(inner[..close].is_empty());
+        }
+        Some(false)
+    }
+}
+
+fn assignment(line: &str) -> Option<Assignment<'_>> {
+    let body = line.trim_start();
+    if body.starts_with('#') {
+        return None;
+    }
+    let body = body.strip_prefix("export ").map_or(body, str::trim_start);
+    let (key, value) = body.split_once('=')?;
+    let key = key.trim_end();
+    let valid = !key.is_empty() && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
+    if !valid {
+        return None;
+    }
+    let prefix = &line[..line.len() - body.len()];
+    Some(Assignment { prefix, key, value })
 }
 
 // Writes the whole file next to the old one and renames it into place: a crash, a full disk
@@ -156,6 +221,20 @@ pub fn run(args: &[String]) -> io::Result<()> {
                 };
                 println!("{key}: {what} ({})", path.display());
             }
+            // The file keeps its mode (SPEC §8); it now holds credentials, so a mode that lets
+            // other users read it deserves a word.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mode = fs::metadata(path)?.permissions().mode() & 0o777;
+                if mode & 0o044 != 0 {
+                    println!(
+                        "warning: {} is readable by other users (mode {mode:o}) and now holds credentials; run: chmod 600 {}",
+                        path.display(),
+                        path.display()
+                    );
+                }
+            }
             Ok(())
         }
         _ => Err(io::Error::other("usage: shhnote init [--env <path>]")),
@@ -233,6 +312,68 @@ mod tests {
                 "SHH_ENV=local\n# a comment\nSHH_SECRET_KEY={}\n#SHH_ADMIN_TOKEN=\nSHH_DB=sqlite\nSHH_ADMIN_TOKEN={}\n",
                 values[0].1, values[1].1
             )
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // Round 2, R-9: the forms the server's reader accepts are all recognised, a key set
+    // twice or in a form that cannot be judged is an error, and nothing is ever appended
+    // behind a set value.
+    #[test]
+    fn reads_lines_the_way_the_server_does() {
+        let dir = dir();
+        let values = generate().unwrap();
+        let cases: [(&str, Outcome); 7] = [
+            ("export SHH_SECRET_KEY=set-by-hand\n", Outcome::Kept),
+            ("SHH_SECRET_KEY = set-by-hand\n", Outcome::Kept),
+            (
+                "  export  SHH_SECRET_KEY =\"set-by-hand\" # c\n",
+                Outcome::Kept,
+            ),
+            ("SHH_SECRET_KEY=\"\"\n", Outcome::Filled),
+            ("SHH_SECRET_KEY=''\n", Outcome::Filled),
+            ("SHH_SECRET_KEY= # comment\n", Outcome::Filled),
+            ("export SHH_SECRET_KEY=\n", Outcome::Filled),
+        ];
+        for (i, (text, expected)) in cases.iter().enumerate() {
+            let env = dir.join(format!("case{i}.env"));
+            fs::write(&env, text).unwrap();
+            let outcomes = apply(&env, &values).unwrap();
+            assert_eq!(outcomes[0], ("SHH_SECRET_KEY", *expected), "{text:?}");
+            let after = fs::read_to_string(&env).unwrap();
+            assert_eq!(
+                after.matches("SHH_SECRET_KEY").count(),
+                1,
+                "{text:?} -> {after:?}"
+            );
+            if *expected == Outcome::Kept {
+                assert!(after.starts_with(text), "{text:?} -> {after:?}");
+            } else {
+                let line = after.lines().next().unwrap();
+                assert!(line.ends_with(&values[0].1), "{text:?} -> {after:?}");
+                assert_eq!(line.starts_with("export"), text.starts_with("export"));
+            }
+        }
+
+        let twice = dir.join("twice.env");
+        fs::write(
+            &twice,
+            "SHH_SECRET_KEY=\nSHH_ADMIN_TOKEN=x\nSHH_SECRET_KEY=y\n",
+        )
+        .unwrap();
+        let err = apply(&twice, &values).unwrap_err().to_string();
+        assert!(err.contains("lines 1 and 3"), "{err}");
+        assert_eq!(
+            fs::read_to_string(&twice).unwrap(),
+            "SHH_SECRET_KEY=\nSHH_ADMIN_TOKEN=x\nSHH_SECRET_KEY=y\n"
+        );
+
+        let open_quote = dir.join("quote.env");
+        fs::write(&open_quote, "SHH_SECRET_KEY=\"starts here\n").unwrap();
+        let err = apply(&open_quote, &values).unwrap_err().to_string();
+        assert!(
+            err.contains("line 1") && err.contains("cannot judge"),
+            "{err}"
         );
         let _ = fs::remove_dir_all(&dir);
     }

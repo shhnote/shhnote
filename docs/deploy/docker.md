@@ -10,17 +10,21 @@ Prerequisites: Docker with Compose v2, a domain whose DNS points at the host, po
 mkdir shhnote && cd shhnote
 curl -fsSLO https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/docker/docker-compose.yml
 curl -fsSLO https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/docker/Caddyfile
-curl -fsSL https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/docker/.env.example -o .env
+(umask 077; curl -fsSL https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/docker/.env.example -o .env)
 ```
 
 Let the image generate the two secrets and append them to `.env`, then edit the rest of it:
 
 ```sh
 docker run --rm ghcr.io/shhnote/shhnote init >> .env
+chmod 600 .env
 ```
 
 `init` only prints `KEY=value` lines; your shell does the writing, so the container (which
-runs as an unprivileged user) never needs access to a file on the host.
+runs as an unprivileged user) never needs access to a file on the host. The file holds the
+session key, the bootstrap token and, with the Postgres or S3 profile, those credentials too,
+so keep it readable by you alone: the `umask` above creates it that way and the `chmod` makes
+sure.
 
 | Variable | Value |
 |---|---|
@@ -89,7 +93,7 @@ For S3, see [operations](operations.md#storage-tiers).
 ## Everyday commands
 
 ```sh
-docker compose pull && docker compose up -d       # upgrade (back up first, see operations.md)
+docker compose pull && docker compose up -d       # upgrade (back up first, see operations.md); compose stops the old container before starting the new one, which the storage tier needs
 docker compose exec shhnote /shhnote check        # config and database reachable
 docker compose exec shhnote /shhnote health       # what the container's health check runs
 docker compose exec shhnote /shhnote reset-admin  # locked out: delete admin keys, bootstrap token works again

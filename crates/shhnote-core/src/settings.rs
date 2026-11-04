@@ -292,24 +292,36 @@ impl Settings {
         }
     }
 
-    // Ladder sizes are checked against the largest blob this instance can store (SPEC §6.2):
-    // a bigger one could never be uploaded. The limit comes from the environment and the
-    // configured tiers, which the overrides alone do not know, so this runs after them. A
-    // ladder over it falls back to Padmé, like any invalid value; the reason is returned.
-    pub fn check_blob_limit(&mut self, max_blob_bytes: u64) -> Option<String> {
-        let PaddingPolicy::Buckets { ladder } = &self.padding else {
-            return None;
-        };
-        let largest = ladder.iter().copied().max()?;
-        if largest <= max_blob_bytes {
-            return None;
+    // The padded sizes a policy can produce, the ladder's rungs and `padding_min`, are checked
+    // against the largest padded size this instance stores (SPEC §6.2): a bigger one could
+    // never be uploaded. The limit comes from the environment and the configured tiers, which
+    // the overrides alone do not know, so this runs after them. A value over it falls back,
+    // like any invalid value: the minimum to its default, a ladder to Padmé. The reasons are
+    // returned, so a save can refuse them and a start can log them.
+    pub fn check_blob_limit(&mut self, max_blob_bytes: u64) -> Vec<String> {
+        let mut reasons = Vec::new();
+        if self.padding_min > max_blob_bytes {
+            reasons.push(format!(
+                "setting padding_min ignored: {} is above the largest blob this instance stores ({max_blob_bytes} bytes)",
+                self.padding_min
+            ));
+            self.padding_min = PaddingPolicy::DEFAULT_MIN;
+            if let PaddingPolicy::Padme { min } = &mut self.padding {
+                *min = PaddingPolicy::DEFAULT_MIN;
+            }
         }
-        self.padding = PaddingPolicy::Padme {
-            min: self.padding_min,
-        };
-        Some(format!(
-            "setting padding_ladder ignored: {largest} is above the largest blob this instance stores ({max_blob_bytes} bytes)"
-        ))
+        if let PaddingPolicy::Buckets { ladder } = &self.padding
+            && let Some(largest) = ladder.iter().copied().max()
+            && largest > max_blob_bytes
+        {
+            self.padding = PaddingPolicy::Padme {
+                min: self.padding_min,
+            };
+            reasons.push(format!(
+                "setting padding_ladder ignored: {largest} is above the largest blob this instance stores ({max_blob_bytes} bytes)"
+            ));
+        }
+        reasons
     }
 
     pub fn as_strings(&self) -> BTreeMap<&'static str, String> {
@@ -644,19 +656,65 @@ mod tests {
             ("padding_min", "131072"),
         ]);
         let (mut fits, _) = Settings::with_overrides(&pairs, AppEnv::Production);
-        assert_eq!(fits.check_blob_limit(1048576), None);
+        assert!(fits.check_blob_limit(1048576).is_empty());
         assert!(matches!(fits.padding, PaddingPolicy::Buckets { .. }));
 
         let (mut over, _) = Settings::with_overrides(&pairs, AppEnv::Production);
-        let reason = over
-            .check_blob_limit(1048575)
-            .expect("a ladder over the limit");
-        assert!(reason.contains("padding_ladder"), "{reason}");
+        let reasons = over.check_blob_limit(1048575);
+        assert_eq!(reasons.len(), 1, "{reasons:?}");
+        assert!(reasons[0].contains("padding_ladder"), "{reasons:?}");
         // Like any invalid value it falls back, here to Padmé with the admin's floor.
         assert_eq!(over.padding, PaddingPolicy::Padme { min: 131072 });
 
         let mut padme = Settings::default();
-        assert_eq!(padme.check_blob_limit(65536), None);
+        assert!(padme.check_blob_limit(65536).is_empty());
+    }
+
+    // Round 2, suspicion 4: a `padding_min` above the largest blob the instance stores would
+    // make every create fail; it falls back to the default floor, in either mode.
+    #[test]
+    fn padding_min_must_fit_the_instance() {
+        let (mut padme, _) = Settings::with_overrides(
+            &overrides(&[("padding_min", "4294967296")]),
+            AppEnv::Production,
+        );
+        let reasons = padme.check_blob_limit(2 * 1024 * 1024);
+        assert_eq!(reasons.len(), 1, "{reasons:?}");
+        assert!(reasons[0].contains("padding_min"), "{reasons:?}");
+        assert_eq!(padme.padding_min, PaddingPolicy::DEFAULT_MIN);
+        assert_eq!(
+            padme.padding,
+            PaddingPolicy::Padme {
+                min: PaddingPolicy::DEFAULT_MIN
+            }
+        );
+
+        // In buckets mode the kept minimum is corrected too, and a ladder that is also over
+        // the limit falls back to Padmé with the corrected minimum.
+        let (mut buckets, _) = Settings::with_overrides(
+            &overrides(&[
+                ("padding_mode", "buckets"),
+                ("padding_ladder", "65536,4194304"),
+                ("padding_min", "4194304"),
+            ]),
+            AppEnv::Production,
+        );
+        let reasons = buckets.check_blob_limit(2 * 1024 * 1024);
+        assert_eq!(reasons.len(), 2, "{reasons:?}");
+        assert_eq!(buckets.padding_min, PaddingPolicy::DEFAULT_MIN);
+        assert_eq!(
+            buckets.padding,
+            PaddingPolicy::Padme {
+                min: PaddingPolicy::DEFAULT_MIN
+            }
+        );
+
+        let (mut fits, _) = Settings::with_overrides(
+            &overrides(&[("padding_min", "2097152")]),
+            AppEnv::Production,
+        );
+        assert!(fits.check_blob_limit(2 * 1024 * 1024).is_empty());
+        assert_eq!(fits.padding_min, 2097152);
     }
 
     #[test]

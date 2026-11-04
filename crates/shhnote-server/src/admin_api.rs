@@ -371,7 +371,7 @@ async fn keys_delete(State(state): State<ApiState>, Strict(body): Strict<DeleteK
     let Some(hash) = unhex(&body.id) else {
         return error_response(StatusCode::BAD_REQUEST, "invalid_key", "Unknown key id.");
     };
-    match state.store.delete_api_key(&hash).await {
+    match state.store.delete_api_key(&hash, now()).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => error_response(StatusCode::NOT_FOUND, "no_such_key", "Unknown key id."),
         Err(e) => db_error(e),

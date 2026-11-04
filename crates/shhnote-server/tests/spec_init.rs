@@ -64,6 +64,88 @@ fn spec_init_subcommand() {
     assert!(String::from_utf8_lossy(&out.stdout).contains("written to a new file"));
     assert_eq!(fs::read_to_string(&fresh).unwrap().lines().count(), 2);
 
+    // Round 2, R-9: a value set in any form the server reads (`export`, spaces around `=`)
+    // is kept, never shadowed by an appended line; an empty quoted value is filled; a key
+    // set twice is refused with the lines named and the file left alone.
+    let forms = dir.join("forms");
+    fs::write(
+        &forms,
+        "export SHH_SECRET_KEY=keep-this-exact-value-please-too\nSHH_ADMIN_TOKEN = \"\"\n",
+    )
+    .unwrap();
+    let out = shhnote()
+        .args(["init", "--env", forms.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let report = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        report.contains("SHH_SECRET_KEY: already set, kept"),
+        "{report}"
+    );
+    assert!(report.contains("SHH_ADMIN_TOKEN: filled in"), "{report}");
+    let written = fs::read_to_string(&forms).unwrap();
+    assert_eq!(written.matches("SHH_SECRET_KEY").count(), 1, "{written}");
+    assert!(
+        written.starts_with(
+            "export SHH_SECRET_KEY=keep-this-exact-value-please-too\nSHH_ADMIN_TOKEN="
+        )
+    );
+    assert!(!written.contains("SHH_ADMIN_TOKEN = \"\""), "{written}");
+
+    let twice = dir.join("twice");
+    fs::write(&twice, "SHH_SECRET_KEY=\nSHH_SECRET_KEY=second\n").unwrap();
+    let out = shhnote()
+        .args(["init", "--env", twice.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("lines 1 and 2 both set SHH_SECRET_KEY"),
+        "{err}"
+    );
+    assert_eq!(
+        fs::read_to_string(&twice).unwrap(),
+        "SHH_SECRET_KEY=\nSHH_SECRET_KEY=second\n"
+    );
+
+    // Round 2, R-10: the mode is kept, and one that lets others read the file is called out.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let open = dir.join("open");
+        fs::write(&open, "SHH_SECRET_KEY=\n").unwrap();
+        fs::set_permissions(&open, fs::Permissions::from_mode(0o644)).unwrap();
+        let out = shhnote()
+            .args(["init", "--env", open.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+        let report = String::from_utf8(out.stdout).unwrap();
+        assert!(
+            report.contains("readable by other users (mode 644)") && report.contains("chmod 600"),
+            "{report}"
+        );
+        assert_eq!(
+            fs::metadata(&open).unwrap().permissions().mode() & 0o777,
+            0o644
+        );
+        // `fresh` was created by `init` itself, owner-only.
+        let out = shhnote()
+            .args(["init", "--env", fresh.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(
+            !String::from_utf8_lossy(&out.stdout).contains("readable by other users"),
+            "a private file was warned about"
+        );
+    }
+
     let bad = shhnote().args(["init", "--nonsense"]).output().unwrap();
     assert!(!bad.status.success());
     let _ = fs::remove_dir_all(&dir);

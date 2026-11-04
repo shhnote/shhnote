@@ -21,6 +21,7 @@ curl -fsSLO https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/docker
 curl -fsSLO https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/docker/Caddyfile
 curl -fsSL https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/docker/.env.example -o .env
 docker run --rm ghcr.io/shhnote/shhnote init >> .env   # appends the two secrets
+chmod 600 .env                                         # it holds credentials now
 # edit .env: DOMAIN, SHH_URL
 docker compose up -d
 ```
@@ -38,7 +39,7 @@ Caddy fetches the TLS certificate; the admin panel is at `/en/admin`. Sign in wi
 Rust (stable, with the `wasm32-unknown-unknown` target) and Node 24.
 
 ```sh
-cp .env.example .env            # SQLite and local addresses
+(umask 077; cp .env.example .env)   # SQLite and local addresses; owner-readable, it will hold credentials
 scripts/build-client.sh         # Argon2 WASM module and the JavaScript bundles; the server build needs them
 cargo run -p shhnote-server -- init --env .env   # fills in SHH_SECRET_KEY and SHH_ADMIN_TOKEN
 cargo run -p shhnote-server     # http://localhost:3000

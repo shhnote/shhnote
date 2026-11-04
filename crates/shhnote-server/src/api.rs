@@ -148,8 +148,9 @@ pub fn router(state: ApiState) -> Router {
 }
 
 fn v1(state: ApiState) -> Router {
-    // Room for the multipart framing around the largest blob we accept.
-    let body_limit = (state.limits.max_blob_bytes() + 16 * 1024) as usize;
+    // `max_blob_bytes` is a bucket (SPEC §4); the blob for it is longer by the header and the
+    // tags, and the multipart framing comes on top, so the largest advertised bucket fits.
+    let body_limit = (blob_len(state.limits.max_blob_bytes()) + FRAMING_SLACK) as usize;
     let limited =
         |endpoint: Endpoint| middleware::from_fn_with_state((state.clone(), endpoint), limit);
     Router::new()
@@ -323,6 +324,12 @@ impl UploadClock {
 fn allowance(received: u64) -> Duration {
     let earned_ms = received.saturating_mul(1000) / UPLOAD_MIN_BYTES_PER_SEC;
     UPLOAD_GRACE + Duration::from_millis(earned_ms)
+}
+
+// The longest an upload of the largest accepted blob may take, with the idle allowance on
+// top: anything in the tier younger than this may still be an upload in flight (SPEC §6.1).
+pub fn upload_window(max_blob_bytes: u64) -> Duration {
+    allowance(blob_len(max_blob_bytes)) + BODY_IDLE_TIMEOUT
 }
 
 // Multipart framing around the blob: boundaries and part headers. The body limit allows this

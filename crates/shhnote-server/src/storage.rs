@@ -30,6 +30,9 @@ use crate::clock::{amz_date, now};
 pub struct Blobs {
     tier: Tier,
     ledger: Mutex<Ledger>,
+    // Entries younger than this may belong to an upload still in flight, in this process or
+    // in one being replaced, so the startup sweep and the spool cleanup leave them alone.
+    upload_window: Duration,
 }
 
 enum Tier {
@@ -49,16 +52,37 @@ struct Ledger {
 
 const KEY_PREFIX: &str = "blobs/";
 const CHUNK: usize = 64 * 1024;
+// The largest object any instance accepts (`SHH_EXTERNAL_MAX_OBJECT` is capped at 4 GiB).
+const LARGEST_OBJECT: u64 = 4 * 1024 * 1024 * 1024;
+
+// An entry in the tier's listing: the key and when it was last written, if the tier says.
+struct Listed {
+    key: String,
+    modified: Option<u64>,
+}
 
 impl Blobs {
-    // Opens the tier and runs the startup checks: the local root must be writable, the S3
-    // bucket reachable with the given credentials and not versioned (SPEC §6).
+    // Opens the tier with the most cautious upload window, for callers that do not know the
+    // instance's blob limit: nothing an instance could still be uploading is ever swept.
     pub async fn open(config: &ExternalStorage) -> Result<Self, String> {
+        Self::open_with(config, crate::api::upload_window(LARGEST_OBJECT)).await
+    }
+
+    // Opens the tier and runs the startup checks: the local root must be writable, the S3
+    // bucket reachable with the given credentials and not versioned (SPEC §6). Spool files
+    // older than `upload_window` are removed; younger ones may still be in use by a process
+    // this one is replacing.
+    pub async fn open_with(
+        config: &ExternalStorage,
+        upload_window: Duration,
+    ) -> Result<Self, String> {
         let tier = match config {
             ExternalStorage::Local {
                 path,
                 max_total_bytes,
-            } => Local::open(path, *max_total_bytes).await.map(Tier::Local)?,
+            } => Local::open(path, *max_total_bytes, upload_window)
+                .await
+                .map(Tier::Local)?,
             ExternalStorage::S3 {
                 bucket,
                 region,
@@ -75,6 +99,7 @@ impl Blobs {
                 secret_access_key.expose(),
                 *max_total_bytes,
                 spool_path,
+                upload_window,
             )
             .await
             .map(Tier::S3)?,
@@ -82,6 +107,7 @@ impl Blobs {
         Ok(Self {
             tier,
             ledger: Mutex::new(Ledger::default()),
+            upload_window,
         })
     }
 
@@ -133,20 +159,25 @@ impl Blobs {
     // Deletes every object of ours that no row references (SPEC §6.1): what a crash between
     // the object write and the row write, or a failed cleanup, leaves behind. Anything else
     // in the blob area (a `.DS_Store`, an operator's file, a key of another shape) is not one
-    // of ours and is left alone, only counted, so a stray file never stops the server.
+    // of ours and is left alone, only counted, so a stray file never stops the server. An
+    // object younger than the upload window, or whose age the tier does not tell, may be an
+    // upload another process is about to reference, so it is left for a later sweep; the rows
+    // are read again after the listing for the same reason.
     pub async fn collect_orphans(&self, store: &Store) -> io::Result<Sweep> {
-        let referenced: HashSet<String> = store
-            .external_refs()
-            .await
-            .map_err(io::Error::other)?
-            .into_iter()
-            .collect();
+        let mut referenced = self.referenced(store).await?;
+        let listed = self.list().await?;
+        referenced.extend(self.referenced(store).await?);
+        let oldest_in_flight = now_secs().saturating_sub(self.upload_window.as_secs());
         let mut sweep = Sweep::default();
-        for key in self.list().await? {
-            if object_name(&key).is_err() {
+        for entry in listed {
+            if object_name(&entry.key).is_err() {
                 sweep.ignored += 1;
-            } else if !referenced.contains(&key) {
-                self.delete(&key).await?;
+            } else if referenced.contains(&entry.key) {
+                continue;
+            } else if entry.modified.is_none_or(|at| at > oldest_in_flight) {
+                sweep.young += 1;
+            } else {
+                self.delete(&entry.key).await?;
                 sweep.removed += 1;
             }
         }
@@ -155,7 +186,16 @@ impl Blobs {
         Ok(sweep)
     }
 
-    async fn list(&self) -> io::Result<Vec<String>> {
+    async fn referenced(&self, store: &Store) -> io::Result<HashSet<String>> {
+        Ok(store
+            .external_refs()
+            .await
+            .map_err(io::Error::other)?
+            .into_iter()
+            .collect())
+    }
+
+    async fn list(&self) -> io::Result<Vec<Listed>> {
         match &self.tier {
             Tier::Local(local) => local.list().await,
             Tier::S3(s3) => s3.list().await,
@@ -202,11 +242,17 @@ impl Blobs {
     }
 }
 
-// What the startup sweep did: orphans of ours deleted, and entries that are not ours left alone.
+// What the startup sweep did: orphans of ours deleted, entries that are not ours left alone,
+// and objects of ours too young to be sure about left for a later sweep.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Sweep {
     pub removed: usize,
     pub ignored: usize,
+    pub young: usize,
+}
+
+fn now_secs() -> u64 {
+    u64::try_from(now()).unwrap_or(0)
 }
 
 // Bytes an upload holds against the ceiling. Dropped unconfirmed, they are given back; once
@@ -320,13 +366,22 @@ async fn sync_dir(dir: &Path) -> io::Result<()> {
 
 // Removes what an earlier run left in a spool directory: its `.part` files and nothing else,
 // since SHH_SPOOL_PATH may be a directory an operator also uses for other things.
-async fn clear_parts(dir: &Path) -> io::Result<()> {
+// Removes the `*.part` files of uploads nobody will finish. One written within the upload
+// window may still be fed by a process this one is replacing, so it stays (SPEC §6.1).
+async fn clear_parts(dir: &Path, upload_window: Duration) -> io::Result<()> {
+    let oldest_in_flight = now_secs().saturating_sub(upload_window.as_secs());
     let mut entries = tokio::fs::read_dir(dir).await?;
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
-        if path.extension().is_some_and(|ext| ext == "part") && entry.file_type().await?.is_file() {
-            tokio::fs::remove_file(path).await?;
+        if !path.extension().is_some_and(|ext| ext == "part") || !entry.file_type().await?.is_file()
+        {
+            continue;
         }
+        let modified = modified_secs(&entry.metadata().await?);
+        if modified.is_none_or(|at| at > oldest_in_flight) {
+            continue;
+        }
+        tokio::fs::remove_file(path).await?;
     }
     Ok(())
 }
@@ -414,7 +469,11 @@ pub struct Local {
 }
 
 impl Local {
-    async fn open(root: &Path, max_total_bytes: u64) -> Result<Self, String> {
+    async fn open(
+        root: &Path,
+        max_total_bytes: u64,
+        upload_window: Duration,
+    ) -> Result<Self, String> {
         let describe = |e: io::Error| format!("SHH_LOCAL_PATH {}: {e}", root.display());
         ensure_private_dir(&root.join("blobs"))
             .await
@@ -422,7 +481,7 @@ impl Local {
         // Spool files from an earlier run are partial uploads nobody will finish.
         let tmp = root.join("tmp");
         ensure_private_dir(&tmp).await.map_err(describe)?;
-        clear_parts(&tmp).await.map_err(describe)?;
+        clear_parts(&tmp, upload_window).await.map_err(describe)?;
         let probe = tmp.join(".write-check");
         tokio::fs::write(&probe, b"").await.map_err(describe)?;
         tokio::fs::remove_file(&probe).await.map_err(describe)?;
@@ -455,8 +514,8 @@ impl Local {
         }
     }
 
-    async fn list(&self) -> io::Result<Vec<String>> {
-        let mut keys = Vec::new();
+    async fn list(&self) -> io::Result<Vec<Listed>> {
+        let mut listed = Vec::new();
         let mut entries = tokio::fs::read_dir(self.root.join("blobs")).await?;
         while let Some(entry) = entries.next_entry().await? {
             // A name that is not UTF-8 cannot be ours; kept lossily so the sweep counts it. A
@@ -467,10 +526,23 @@ impl Local {
             } else {
                 ""
             };
-            keys.push(format!("{KEY_PREFIX}{}{slash}", name.to_string_lossy()));
+            listed.push(Listed {
+                key: format!("{KEY_PREFIX}{}{slash}", name.to_string_lossy()),
+                modified: modified_secs(&entry.metadata().await?),
+            });
         }
-        Ok(keys)
+        Ok(listed)
     }
+}
+
+// When a file was last written, as unix seconds; `None` where the filesystem cannot say.
+fn modified_secs(metadata: &std::fs::Metadata) -> Option<u64> {
+    metadata
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_secs())
 }
 
 // --- S3
@@ -507,6 +579,7 @@ fn timed_out(what: &str) -> io::Error {
 }
 
 impl S3 {
+    #[allow(clippy::too_many_arguments)]
     async fn open(
         bucket: &str,
         region: &str,
@@ -515,6 +588,7 @@ impl S3 {
         secret_access_key: &str,
         max_total_bytes: u64,
         spool_dir: &Path,
+        upload_window: Duration,
     ) -> Result<Self, String> {
         let (tls, host, port, prefix) = match endpoint {
             None => (
@@ -554,7 +628,9 @@ impl S3 {
         // go: SHH_SPOOL_PATH is the operator's directory, not ours to wipe (SPEC §7.1).
         let describe = |e: io::Error| format!("SHH_SPOOL_PATH {}: {e}", s3.spool_dir.display());
         ensure_private_dir(&s3.spool_dir).await.map_err(describe)?;
-        clear_parts(&s3.spool_dir).await.map_err(describe)?;
+        clear_parts(&s3.spool_dir, upload_window)
+            .await
+            .map_err(describe)?;
         s3.check_versioning().await?;
         Ok(s3)
     }
@@ -633,7 +709,7 @@ impl S3 {
     }
 
     // ListObjectsV2 under `blobs/`, page by page. Keys are base64url, so no XML unescaping.
-    async fn list(&self) -> io::Result<Vec<String>> {
+    async fn list(&self) -> io::Result<Vec<Listed>> {
         let path = format!("{}/", self.prefix);
         let mut keys = Vec::new();
         let mut token: Option<String> = None;
@@ -651,7 +727,18 @@ impl S3 {
                 return Err(status_error(response).await);
             }
             let body = read_page(response).await?;
-            keys.extend(between_all(&body, "<Key>", "</Key>").map(str::to_string));
+            for object in between_all(&body, "<Contents>", "</Contents>") {
+                let Some(key) = between_all(object, "<Key>", "</Key>").next() else {
+                    continue;
+                };
+                let modified = between_all(object, "<LastModified>", "</LastModified>")
+                    .next()
+                    .and_then(parse_s3_time);
+                keys.push(Listed {
+                    key: key.to_string(),
+                    modified,
+                });
+            }
             if !body.contains("<IsTruncated>true</IsTruncated>") {
                 return Ok(keys);
             }
@@ -839,6 +926,20 @@ fn timed_frames(
     })
 }
 
+// S3's `LastModified` (`2026-11-04T15:00:00.000Z`) as unix seconds. Anything else is `None`,
+// which the sweep treats as "too young to touch".
+fn parse_s3_time(text: &str) -> Option<u64> {
+    let text = text.trim().strip_suffix('Z')?;
+    let (date, time) = text.split_once('T')?;
+    let mut date = date.split('-').map(str::parse::<i64>);
+    let (year, month, day) = (date.next()?.ok()?, date.next()?.ok()?, date.next()?.ok()?);
+    let time = time.split('.').next()?;
+    let mut time = time.split(':').map(str::parse::<i64>);
+    let (hour, minute, second) = (time.next()?.ok()?, time.next()?.ok()?, time.next()?.ok()?);
+    let secs = crate::clock::from_civil(year, month, day, hour, minute, second)?;
+    u64::try_from(secs).ok()
+}
+
 // Every stretch of `text` between `open` and `close`, in order.
 fn between_all<'a>(text: &'a str, open: &'a str, close: &'a str) -> impl Iterator<Item = &'a str> {
     text.split(open)
@@ -965,6 +1066,17 @@ fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn s3_last_modified_is_read_as_unix_seconds() {
+        assert_eq!(
+            parse_s3_time("2026-11-04T15:00:00.000Z"),
+            Some(1_793_804_400)
+        );
+        assert_eq!(parse_s3_time("2000-01-01T00:00:00Z"), Some(946_684_800));
+        assert_eq!(parse_s3_time("not a date"), None);
+        assert_eq!(parse_s3_time("2026-11-04T15:00:00+01:00"), None);
+    }
 
     // The worked example from the S3 SigV4 documentation ("GET object", example bucket).
     #[test]

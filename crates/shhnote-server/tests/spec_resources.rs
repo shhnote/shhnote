@@ -243,6 +243,17 @@ fn channel_body() -> (mpsc::Sender<Bytes>, Body) {
     (tx, Body::from_stream(stream))
 }
 
+// Makes a file look older than any upload window, as a leftover from an earlier run would.
+fn age(path: &Path) {
+    let old = std::time::SystemTime::now() - Duration::from_secs(7 * 86_400);
+    std::fs::File::options()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(old)
+        .unwrap();
+}
+
 fn dir_stats(dir: &Path) -> (usize, u64) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return (0, 0);
@@ -892,6 +903,8 @@ async fn spec_spool_path_is_not_wiped_recursively() {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("shhnote.db"), b"pretend database").unwrap();
     std::fs::write(dir.join("stale.part"), b"left by a crash").unwrap();
+    age(&dir.join("stale.part"));
+    std::fs::write(dir.join("fresh.part"), b"an upload still being written").unwrap();
     // An operator-made directory with the usual mode; the server makes it private (C3).
     #[cfg(unix)]
     {
@@ -920,6 +933,7 @@ async fn spec_spool_path_is_not_wiped_recursively() {
         .unwrap();
     let survived = dir.join("shhnote.db").exists();
     let stale = dir.join("stale.part").exists();
+    let fresh = dir.join("fresh.part").exists();
     #[cfg(unix)]
     let mode = {
         use std::os::unix::fs::PermissionsExt;
@@ -928,6 +942,10 @@ async fn spec_spool_path_is_not_wiped_recursively() {
     let _ = tokio::fs::remove_dir_all(&dir).await;
     assert!(survived, "a file in SHH_SPOOL_PATH was deleted at startup");
     assert!(!stale, "a stale .part file was kept");
+    assert!(
+        fresh,
+        "a .part file an upload may still be writing was removed"
+    );
     #[cfg(unix)]
     assert_eq!(mode, 0o700, "SHH_SPOOL_PATH mode {mode:o}");
 }
@@ -946,6 +964,7 @@ async fn spec_orphan_objects_are_collected_at_startup() {
     );
     let orphan = root.join("blobs").join("AAAAAAAAAAAAAAAAAAAAAA");
     std::fs::write(&orphan, vec![0u8; 500_000]).unwrap();
+    age(&orphan);
     // Restart the tier.
     let mut vars = base_vars();
     for (k, v) in [
@@ -986,6 +1005,7 @@ async fn spec_orphan_sweep_ignores_stray_files() {
     let blobs_dir = root.join("blobs");
     let orphan = blobs_dir.join("AAAAAAAAAAAAAAAAAAAAAA");
     std::fs::write(&orphan, vec![0u8; 1000]).unwrap();
+    age(&orphan);
     let strays = [
         blobs_dir.join(".DS_Store"),
         blobs_dir.join("notes.txt"),
@@ -1024,6 +1044,53 @@ async fn spec_orphan_sweep_ignores_stray_files() {
     assert!(!orphan_left, "the unreferenced object survived");
     assert!(strays_left, "an entry that is not ours was deleted");
     assert_eq!(referenced, StatusCode::OK, "the referenced object went");
+}
+
+// SPEC §6.1 (round 2, R-4): an unreferenced object or a spool file younger than the upload
+// window may belong to an upload another process is still finishing, so a startup leaves it
+// alone and the rows are re-read after the listing; once it is older than the window it goes.
+#[tokio::test]
+async fn spec_sweep_leaves_objects_that_may_still_be_uploads_in_flight() {
+    let (_app, store, _blobs, root) = local("orphans-young", "1000000000").await;
+    let blobs_dir = root.join("blobs");
+    let young = blobs_dir.join("CCCCCCCCCCCCCCCCCCCCCC");
+    std::fs::write(&young, vec![0u8; 1000]).unwrap();
+    let part = root.join("tmp").join("inflight.part");
+    std::fs::write(&part, vec![0u8; 1000]).unwrap();
+
+    let mut vars = base_vars();
+    for (k, v) in [
+        ("SHH_STORAGE", "local"),
+        ("SHH_LOCAL_PATH", root.to_str().unwrap()),
+        ("SHH_LOCAL_MAX_TOTAL_BYTES", "1000000000"),
+    ] {
+        vars.insert(k.into(), v.into());
+    }
+    let config = Config::from_vars(&vars).unwrap();
+    let external = config.storage.external.as_ref().unwrap();
+    let window = shhnote_server::api::upload_window(config.storage.max_blob_bytes());
+    let reopened = Blobs::open_with(external, window).await.unwrap();
+    let first = reopened.collect_orphans(&store).await.unwrap();
+    let young_left = young.exists();
+    let part_left = part.exists();
+
+    // Later, the same entries are older than the window: nobody is still writing them.
+    age(&young);
+    age(&part);
+    let reopened = Blobs::open_with(external, window).await.unwrap();
+    let second = reopened.collect_orphans(&store).await.unwrap();
+    let young_gone = !young.exists();
+    let part_gone = !part.exists();
+    let _ = tokio::fs::remove_dir_all(&root).await;
+
+    assert_eq!((first.removed, first.young), (0, 1), "{first:?}");
+    assert!(
+        young_left,
+        "a young unreferenced object was deleted at startup"
+    );
+    assert!(part_left, "a young spool file was removed at startup");
+    assert_eq!((second.removed, second.young), (1, 0), "{second:?}");
+    assert!(young_gone && part_gone, "aged leftovers survived");
 }
 
 // --- revision 3, D5: a fake S3, so the S3 tier's own code runs without a bucket
@@ -1100,7 +1167,9 @@ async fn fake_bucket_request(
             let end = (start + FAKE_PAGE).min(keys.len());
             let mut xml = String::from("<ListBucketResult>");
             for key in &keys[start..end] {
-                xml.push_str(&format!("<Contents><Key>{key}</Key></Contents>"));
+                xml.push_str(&format!(
+                    "<Contents><Key>{key}</Key><LastModified>2000-01-01T00:00:00.000Z</LastModified></Contents>"
+                ));
             }
             if end < keys.len() {
                 xml.push_str(&format!(

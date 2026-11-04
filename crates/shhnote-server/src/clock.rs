@@ -9,6 +9,34 @@ pub fn now() -> i64 {
         .unwrap_or(0)
 }
 
+// Unix seconds from a civil UTC date and time (Howard Hinnant's algorithm), the inverse of
+// `civil`; `None` for a field out of range.
+pub(crate) fn from_civil(
+    year: i64,
+    month: i64,
+    day: i64,
+    hour: i64,
+    minute: i64,
+    second: i64,
+) -> Option<i64> {
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || !(0..24).contains(&hour)
+        || !(0..60).contains(&minute)
+        || !(0..61).contains(&second)
+    {
+        return None;
+    }
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = if month > 2 { month - 3 } else { month + 9 };
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    Some(days * DAY + hour * 3600 + minute * 60 + second)
+}
+
 // Civil date from unix seconds (Howard Hinnant's algorithm), so no date crate is needed.
 pub(crate) fn civil(secs: i64) -> (i64, u32, u32, u32, u32, u32) {
     let days = secs.div_euclid(DAY);
@@ -49,6 +77,19 @@ pub(crate) fn amz_date(secs: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn from_civil_inverts_civil() {
+        for secs in [0, 951_782_400, 1_762_268_400, 4_102_444_799, -86_400] {
+            let (y, m, d, hh, mm, ss) = civil(secs);
+            assert_eq!(
+                from_civil(y, m.into(), d.into(), hh.into(), mm.into(), ss.into()),
+                Some(secs)
+            );
+        }
+        assert_eq!(from_civil(2026, 13, 1, 0, 0, 0), None);
+        assert_eq!(from_civil(2026, 1, 1, 24, 0, 0), None);
+    }
 
     #[test]
     fn formats_dates() {

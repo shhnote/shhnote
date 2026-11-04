@@ -627,25 +627,44 @@ fn doc_page(state: &PageState, doc: Doc, path: &str, title_key: &str) -> Respons
     };
     let spec = source_file_url(&settings.source_url, "SPEC.md");
     let security_policy = source_file_url(&settings.source_url, "SECURITY.md");
-    let body = state
-        .shared
-        .content
-        .get(state.locale, doc)
-        .replace("{{site_url}}", &site)
-        .replace("%7B%7Bsite_url%7D%7D", &site)
-        .replace("{{api_url}}", &state.shared.api_url)
-        .replace("%7B%7Bapi_url%7D%7D", &state.shared.api_url)
-        .replace("{{project_url}}", &project)
-        .replace("%7B%7Bproject_url%7D%7D", &project)
-        .replace("{{spec_url}}", &spec)
-        .replace("%7B%7Bspec_url%7D%7D", &spec)
-        .replace("{{security_policy_url}}", &security_policy)
-        .replace("%7B%7Bsecurity_policy_url%7D%7D", &security_policy)
-        .replace("{{version}}", crate::api::SERVER_VERSION)
-        .replace("{{site_name}}", &settings.site_name)
-        .replace("{{contact_email}}", &settings.contact_email)
-        .replace("{{security_email}}", security_email);
+    // The placeholders sit in text or in link targets of HTML the renderer has already
+    // escaped, so every value goes in escaped too: a setting is text on the page, never
+    // markup, whatever an admin typed into it.
+    let values = [
+        ("site_url", site.as_str()),
+        ("api_url", state.shared.api_url.as_str()),
+        ("project_url", project.as_str()),
+        ("spec_url", spec.as_str()),
+        ("security_policy_url", security_policy.as_str()),
+        ("version", crate::api::SERVER_VERSION),
+        ("site_name", settings.site_name.as_str()),
+        ("contact_email", settings.contact_email.as_str()),
+        ("security_email", security_email),
+    ];
+    let mut body = state.shared.content.get(state.locale, doc).to_string();
+    for (name, value) in values {
+        let escaped = escape_html(value);
+        body = body
+            .replace(&format!("{{{{{name}}}}}"), &escaped)
+            .replace(&format!("%7B%7B{name}%7D%7D"), &escaped);
+    }
     render(state, DocPage { ctx, title, body })
+}
+
+// The five characters that matter in text and in attribute values.
+fn escape_html(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for c in value.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 #[derive(Template)]
