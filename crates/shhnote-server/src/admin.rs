@@ -9,12 +9,13 @@ use axum::{
     routing::{get, post},
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use fluent_bundle::FluentArgs;
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 use shhnote_core::{
     config::AppEnv,
     secret::credential_hash,
-    settings::{Settings, SettingsCell},
+    settings::{Settings, SettingsCell, duration_range},
 };
 use shhnote_store::{ApiKey, Scope, Store};
 
@@ -396,7 +397,109 @@ async fn dashboard(State(state): State<PageState>, headers: HeaderMap) -> Respon
 struct Field {
     key: &'static str,
     value: String,
+    // As shown next to the field: durations in words, everything else as stored.
     default: String,
+    // Durations are offered as choices labelled in words, never typed as seconds; empty for
+    // every other setting.
+    choices: Vec<Choice>,
+    // A list of durations (the lifetime presets): one checkbox per choice instead of a select.
+    multiple: bool,
+}
+
+struct Choice {
+    secs: i64,
+    label: String,
+    selected: bool,
+}
+
+// The durations the panel offers, within each setting's range. A stored value that is not
+// one of them (set through the admin API, say) is offered too, so a save never changes it.
+const DURATIONS: &[i64] = &[
+    60,
+    5 * 60,
+    10 * 60,
+    15 * 60,
+    30 * 60,
+    3600,
+    2 * 3600,
+    6 * 3600,
+    12 * 3600,
+    DAY,
+    2 * DAY,
+    3 * DAY,
+    7 * DAY,
+    14 * DAY,
+];
+
+// Settings whose form value is a list: the browser sends one field per ticked box.
+const LIST_FIELDS: &[&str] = &["ttl_presets"];
+
+// A duration in its largest whole unit, in the page's language: 900 -> "15 minutes".
+fn duration_label(ctx: &Ctx, secs: i64) -> String {
+    let (key, n) = [
+        (DAY, "admin-duration-days"),
+        (3600, "admin-duration-hours"),
+        (60, "admin-duration-minutes"),
+    ]
+    .into_iter()
+    .find(|(unit, _)| secs % unit == 0)
+    .map_or(("admin-duration-seconds", secs), |(unit, key)| {
+        (key, secs / unit)
+    });
+    let mut args = FluentArgs::new();
+    args.set("n", n);
+    ctx.t_args(key, &args)
+}
+
+// The seconds in a form or storage value: one number, or a comma-separated list.
+fn seconds_in(value: &str) -> Vec<i64> {
+    value
+        .split(',')
+        .filter_map(|v| v.trim().parse().ok())
+        .collect()
+}
+
+fn duration_choices(ctx: &Ctx, key: &str, value: &str) -> Vec<Choice> {
+    let Some(range) = duration_range(key) else {
+        return Vec::new();
+    };
+    let picked = seconds_in(value);
+    let mut offered: Vec<i64> = DURATIONS
+        .iter()
+        .copied()
+        .filter(|d| range.contains(d))
+        .chain(picked.iter().copied())
+        .collect();
+    offered.sort_unstable();
+    offered.dedup();
+    offered
+        .into_iter()
+        .map(|secs| Choice {
+            secs,
+            label: duration_label(ctx, secs),
+            selected: picked.contains(&secs),
+        })
+        .collect()
+}
+
+fn field(ctx: &Ctx, key: &'static str, value: String, default: String) -> Field {
+    let choices = duration_choices(ctx, key, &value);
+    let default = if choices.is_empty() {
+        default
+    } else {
+        let labels: Vec<String> = seconds_in(&default)
+            .into_iter()
+            .map(|secs| duration_label(ctx, secs))
+            .collect();
+        labels.join(", ")
+    };
+    Field {
+        key,
+        value,
+        default,
+        choices,
+        multiple: LIST_FIELDS.contains(&key),
+    }
 }
 
 // One tab on the settings page. Order here is the order on screen.
@@ -467,7 +570,7 @@ struct SettingsPage<'a> {
 }
 
 // `shown` overrides what the form displays, so a rejected submission keeps the typed values.
-fn groups(current: &Settings, shown: Option<&HashMap<String, String>>) -> Vec<Group> {
+fn groups(ctx: &Ctx, current: &Settings, shown: Option<&HashMap<String, String>>) -> Vec<Group> {
     let defaults = Settings::default().as_strings();
     let values = current.as_strings();
     let mut groups: Vec<Group> = GROUPS
@@ -476,13 +579,13 @@ fn groups(current: &Settings, shown: Option<&HashMap<String, String>>) -> Vec<Gr
             key,
             fields: members
                 .iter()
-                .map(|member| Field {
-                    key: member,
-                    value: shown
+                .map(|member| {
+                    let value = shown
                         .and_then(|s| s.get(*member).cloned())
                         .or_else(|| values.get(member).cloned())
-                        .unwrap_or_default(),
-                    default: defaults.get(member).cloned().unwrap_or_default(),
+                        .unwrap_or_default();
+                    let default = defaults.get(member).cloned().unwrap_or_default();
+                    field(ctx, member, value, default)
                 })
                 .collect(),
         })
@@ -495,10 +598,13 @@ fn groups(current: &Settings, shown: Option<&HashMap<String, String>>) -> Vec<Gr
         let rest = values
             .iter()
             .filter(|(k, _)| !known.contains(k))
-            .map(|(k, v)| Field {
-                key: k,
-                value: v.clone(),
-                default: defaults.get(k).cloned().unwrap_or_default(),
+            .map(|(k, v)| {
+                field(
+                    ctx,
+                    k,
+                    v.clone(),
+                    defaults.get(k).cloned().unwrap_or_default(),
+                )
             })
             .collect();
         groups.push(Group {
@@ -519,12 +625,14 @@ async fn settings_page(
         Err(r) => return *r,
     };
     let current = state.shared.settings.load();
+    let ctx = state.ctx("/admin/settings");
+    let groups = groups(&ctx, &current, None);
     render(
         &state,
         SettingsPage {
-            ctx: state.ctx("/admin/settings"),
+            ctx,
             admin: admin_ctx(&state, &session),
-            groups: groups(&current, None),
+            groups,
             errors: Vec::new(),
             saved: query.contains_key("saved"),
         },
@@ -535,23 +643,39 @@ async fn settings_page(
 async fn settings_save(
     State(state): State<PageState>,
     headers: HeaderMap,
-    Form(form): Form<HashMap<String, String>>,
+    Form(pairs): Form<Vec<(String, String)>>,
 ) -> Response {
     let session = match authenticate(&state, &headers).await {
         Ok(s) => s,
         Err(r) => return *r,
     };
+    // A list arrives as one field per ticked box and is stored comma-separated.
+    let mut form: HashMap<String, String> = HashMap::new();
+    for (key, value) in pairs {
+        form.entry(key)
+            .and_modify(|joined| {
+                joined.push(',');
+                joined.push_str(&value);
+            })
+            .or_insert(value);
+    }
     if let Err(r) = check_csrf(&session, &state, &form) {
         return *r;
     }
     let defaults = Settings::default().as_strings();
     let mut submitted: HashMap<String, String> = HashMap::new();
     for key in defaults.keys() {
-        // Unchecked checkboxes are absent from the form.
+        // Unchecked checkboxes are absent from the form: off for a toggle, an empty list
+        // for a list.
+        let absent = if LIST_FIELDS.contains(key) {
+            ""
+        } else {
+            "false"
+        };
         let value = form
             .get(*key)
             .cloned()
-            .unwrap_or_else(|| "false".to_string());
+            .unwrap_or_else(|| absent.to_string());
         submitted.insert(key.to_string(), value);
     }
     // Saved: redirect, so a refresh re-reads the page instead of re-posting the form.
@@ -568,12 +692,14 @@ async fn settings_save(
         Ok(_) => Redirect::to(&format!("{}?saved", state.admin_href("/settings"))).into_response(),
         Err(SaveError::Invalid(errors)) => {
             let current = state.shared.settings.load();
+            let ctx = state.ctx("/admin/settings");
+            let groups = groups(&ctx, &current, Some(&submitted));
             let mut response = render(
                 &state,
                 SettingsPage {
-                    ctx: state.ctx("/admin/settings"),
+                    ctx,
                     admin: admin_ctx(&state, &session),
-                    groups: groups(&current, Some(&submitted)),
+                    groups,
                     errors,
                     saved: false,
                 },

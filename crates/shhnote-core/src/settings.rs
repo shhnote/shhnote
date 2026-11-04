@@ -16,6 +16,19 @@ const MIN_TTL_FLOOR: i64 = 60;
 const CLAIM_WINDOW_RANGE: std::ops::RangeInclusive<i64> = 60..=DAY;
 const SALT_ROTATION_RANGE: std::ops::RangeInclusive<i64> = 60..=DAY;
 const RETENTION_MAX_DAYS: i64 = 36_500;
+
+// The seconds a duration setting accepts, for forms that offer a choice of durations (the
+// admin panel). `None` for settings that are not durations.
+pub fn duration_range(key: &str) -> Option<std::ops::RangeInclusive<i64>> {
+    match key {
+        "min_ttl_secs" | "max_ttl_secs" | "default_ttl_secs" | "ttl_presets" => {
+            Some(MIN_TTL_FLOOR..=MAX_TTL_CEILING)
+        }
+        "claim_window_secs" => Some(CLAIM_WINDOW_RANGE),
+        "salt_rotation_secs" => Some(SALT_ROTATION_RANGE),
+        _ => None,
+    }
+}
 const TEXT_MAX_RANGE: std::ops::RangeInclusive<u64> = 1..=(1024 * 1024);
 const RATE_MAX_PER_HOUR: u32 = 1_000_000;
 const MULTIPLIER_RANGE: std::ops::RangeInclusive<u32> = 1..=1000;

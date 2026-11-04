@@ -38,7 +38,11 @@
           <div class="form-grid">
             {%- for f in g.fields %}
             <div class="form-field">
+              {%- if f.multiple %}
+              <span class="form-label" id="l-{{ f.key }}">{{ ctx.tn("setting-", f.key, "") }}</span>
+              {%- else %}
               <label class="form-label" for="s-{{ f.key }}">{{ ctx.tn("setting-", f.key, "") }}</label>
+              {%- endif %}
               {%- if f.key == "files_enabled" || f.key == "inline_enabled" || f.key == "require_api_key_for_create" %}
               <span class="toggle">
                 <input type="checkbox" id="s-{{ f.key }}" name="{{ f.key }}" value="true"{% if f.value == "true" %} checked{% endif %}>
@@ -48,6 +52,18 @@
               <select class="form-select" id="s-{{ f.key }}" name="{{ f.key }}">
                 <option value="padme"{% if f.value == "padme" %} selected{% endif %}>padme</option>
                 <option value="buckets"{% if f.value == "buckets" %} selected{% endif %}>buckets</option>
+              </select>
+              {%- else if f.multiple %}
+              <div class="choice-list" role="group" aria-labelledby="l-{{ f.key }}">
+                {%- for c in f.choices %}
+                <label><input type="checkbox" name="{{ f.key }}" value="{{ c.secs }}"{% if c.selected %} checked{% endif %}> {{ c.label }}</label>
+                {%- endfor %}
+              </div>
+              {%- else if !f.choices.is_empty() %}
+              <select class="form-select" id="s-{{ f.key }}" name="{{ f.key }}">
+                {%- for c in f.choices %}
+                <option value="{{ c.secs }}"{% if c.selected %} selected{% endif %}>{{ c.label }}</option>
+                {%- endfor %}
               </select>
               {%- else if f.key == "regions" %}
               <textarea class="form-textarea min-h-20" id="s-{{ f.key }}" name="{{ f.key }}" rows="3">{{ f.value }}</textarea>

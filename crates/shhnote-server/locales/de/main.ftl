@@ -222,6 +222,23 @@ admin-settings-intro = Änderungen gelten sofort. Gespeichert werden nur Werte, 
 admin-settings-saved = Gespeichert.
 admin-settings-save = Einstellungen speichern
 admin-settings-default = Standard:
+# Durations in the settings form, in their largest whole unit.
+admin-duration-seconds = { $n ->
+    [one] { $n } Sekunde
+   *[other] { $n } Sekunden
+}
+admin-duration-minutes = { $n ->
+    [one] { $n } Minute
+   *[other] { $n } Minuten
+}
+admin-duration-hours = { $n ->
+    [one] { $n } Stunde
+   *[other] { $n } Stunden
+}
+admin-duration-days = { $n ->
+    [one] { $n } Tag
+   *[other] { $n } Tage
+}
 setting-site_name = Name der Seite
 setting-site_name-help = Erscheint im Seitentitel und in der Fußzeile. Pflichtfeld: Die Website liefert nichts Öffentliches, bis sie einen Namen und eine Kontaktadresse hat, und beides lässt sich danach nicht mehr leeren.
 setting-contact_email = Kontakt-E-Mail
@@ -238,16 +255,16 @@ setting-padding_min = Minimale aufgefüllte Größe (Bytes)
 setting-padding_min-help = Jedes Geheimnis wird mindestens hierauf aufgefüllt, damit kleine Dateien wie Text aussehen.
 setting-padding_ladder = Größenleiter (Bytes, kommagetrennt)
 setting-padding_ladder-help = Nur im Modus buckets verwendet.
-setting-claim_window_secs = Abruffenster (Sekunden)
+setting-claim_window_secs = Abruffenster
 setting-claim_window_secs-help = Wie lange der Client, der ein einmaliges Geheimnis angezeigt hat, es erneut laden darf.
-setting-min_ttl_secs = Minimale Lebensdauer (Sekunden)
+setting-min_ttl_secs = Minimale Lebensdauer
 setting-min_ttl_secs-help = Kürzeste Ablaufzeit, die die API annimmt.
-setting-max_ttl_secs = Maximale Lebensdauer (Sekunden)
+setting-max_ttl_secs = Maximale Lebensdauer
 setting-max_ttl_secs-help = Längste Ablaufzeit, die die API annimmt; höchstens 14 Tage.
-setting-default_ttl_secs = Standard-Lebensdauer (Sekunden)
+setting-default_ttl_secs = Standard-Lebensdauer
 setting-default_ttl_secs-help = Im Formular vorausgewählt.
-setting-ttl_presets = Lebensdauer-Auswahl (Sekunden, kommagetrennt)
-setting-ttl_presets-help = Die Optionen im Formular.
+setting-ttl_presets = Lebensdauer-Auswahl
+setting-ttl_presets-help = Die Optionen im Formular, zusammen mit der Standard-Lebensdauer.
 setting-text_max_bytes = Textlimit (Bytes)
 setting-text_max_bytes-help = Ein Hinweis für Clients; der Server prüft nur Blob-Größen.
 setting-files_enabled = Dateien aktiviert
@@ -274,7 +291,7 @@ setting-rate_login_per_hour = Ratenlimit: Admin-Anmeldung (pro Stunde)
 setting-rate_login_per_hour-help = Pro Client. 0 deaktiviert.
 setting-rate_user_multiplier = Multiplikator für API-Schlüssel
 setting-rate_user_multiplier-help = Anfragen mit einem User-API-Schlüssel erhalten das Vielfache der anonymen Limits.
-setting-salt_rotation_secs = Salt-Rotation des Ratenlimits (Sekunden)
+setting-salt_rotation_secs = Salt-Rotation des Ratenlimits
 setting-salt_rotation_secs-help = Nach der Rotation lässt sich nichts von davor mit etwas danach verknüpfen.
 setting-require_api_key_for_create = API-Schlüssel zum Erstellen verlangen
 setting-require_api_key_for_create-help = Für private Instanzen. Anzeigen, Brennen und Melden bleiben offen.

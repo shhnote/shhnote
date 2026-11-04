@@ -773,6 +773,91 @@ async fn admin_login_bootstrap_then_keys() {
     assert_eq!(login(&app, BOOTSTRAP).await.status, StatusCode::SEE_OTHER);
 }
 
+// Revision 3, D4: durations are chosen in words, never typed as seconds. The presets are one
+// checkbox each and are stored comma-separated; a value that is not on the panel's list
+// (set through the admin API, say) is still offered, selected, so a save keeps it.
+#[tokio::test]
+async fn admin_settings_offer_durations_in_words() {
+    let (app, store) = admin_server("admin-durations").await;
+    let cookie = session_cookie(&login(&app, BOOTSTRAP).await);
+    let page = text(&get_page(&app, "/en/admin/settings", &cookie).await);
+    let csrf = between(&page, "name=\"csrf\" value=\"", "\"").to_string();
+    assert!(!page.contains("(seconds"), "a label still asks for seconds");
+    let default_ttl = between(&page, "name=\"default_ttl_secs\">", "</select>");
+    assert!(
+        default_ttl.contains("<option value=\"86400\" selected>1 day</option>"),
+        "{default_ttl}"
+    );
+    assert!(
+        default_ttl.contains("<option value=\"900\">15 minutes</option>"),
+        "{default_ttl}"
+    );
+    assert!(page.contains("name=\"ttl_presets\" value=\"900\" checked> 15 minutes"));
+    assert!(page.contains("name=\"ttl_presets\" value=\"300\"> 5 minutes"));
+    assert!(
+        page.contains("<code>15 minutes, 30 minutes, 1 hour, 6 hours"),
+        "the default in words"
+    );
+    let claim = between(&page, "name=\"claim_window_secs\">", "</select>");
+    assert!(
+        !claim.contains("value=\"172800\""),
+        "a choice outside the setting's range"
+    );
+
+    // What the browser sends: every field once, the presets once per ticked box.
+    let mut fields: Vec<(String, String)> = Settings::default()
+        .as_strings()
+        .into_iter()
+        .filter(|(k, _)| *k != "ttl_presets")
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+    for (k, v) in &mut fields {
+        if k == "default_ttl_secs" {
+            *v = "5400".to_string();
+        }
+    }
+    fields.push(("csrf".to_string(), csrf.clone()));
+    let post = |presets: &[&str]| {
+        let mut all = fields.clone();
+        all.extend(
+            presets
+                .iter()
+                .map(|p| ("ttl_presets".to_string(), p.to_string())),
+        );
+        all
+    };
+    let send_form = |all: Vec<(String, String)>| {
+        let app = app.clone();
+        let cookie = cookie.clone();
+        async move {
+            let borrowed: Vec<(&str, &str)> =
+                all.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+            post_form(&app, "/en/admin/settings", &cookie, &borrowed).await
+        }
+    };
+    let reply = send_form(post(&["3600", "86400"])).await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER, "{}", text(&reply));
+    let overrides = store.setting_overrides().await.unwrap();
+    assert_eq!(overrides["ttl_presets"], "3600,86400");
+    assert_eq!(overrides["default_ttl_secs"], "5400");
+    let page = text(&get_page(&app, "/en/admin/settings", &cookie).await);
+    let default_ttl = between(&page, "name=\"default_ttl_secs\">", "</select>");
+    assert!(
+        default_ttl.contains("<option value=\"5400\" selected>90 minutes</option>"),
+        "{default_ttl}"
+    );
+    assert!(
+        page.contains("name=\"ttl_presets\" value=\"900\"> 15 minutes"),
+        "unticked now"
+    );
+
+    // No box ticked is an empty list, not a missing toggle: the create form then offers the
+    // default lifetime alone.
+    let reply = send_form(post(&[])).await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER, "{}", text(&reply));
+    assert_eq!(store.setting_overrides().await.unwrap()["ttl_presets"], "");
+}
+
 #[tokio::test]
 async fn admin_settings_apply_live_and_store_only_overrides() {
     let (app, store) = admin_server("admin-settings").await;

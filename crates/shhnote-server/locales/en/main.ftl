@@ -222,6 +222,23 @@ admin-settings-intro = Changes apply immediately. Only values that differ from t
 admin-settings-saved = Saved.
 admin-settings-save = Save settings
 admin-settings-default = Default:
+# Durations in the settings form, in their largest whole unit.
+admin-duration-seconds = { $n ->
+    [one] { $n } second
+   *[other] { $n } seconds
+}
+admin-duration-minutes = { $n ->
+    [one] { $n } minute
+   *[other] { $n } minutes
+}
+admin-duration-hours = { $n ->
+    [one] { $n } hour
+   *[other] { $n } hours
+}
+admin-duration-days = { $n ->
+    [one] { $n } day
+   *[other] { $n } days
+}
 setting-site_name = Site name
 setting-site_name-help = Shown in the page title and footer. Required: the site serves nothing public until it has a name and a contact address, and neither can be cleared once set.
 setting-contact_email = Contact email
@@ -238,16 +255,16 @@ setting-padding_min = Minimum padded size (bytes)
 setting-padding_min-help = Every secret is padded to at least this, so small files look like text.
 setting-padding_ladder = Bucket ladder (bytes, comma-separated)
 setting-padding_ladder-help = Only used in buckets mode.
-setting-claim_window_secs = Claim window (seconds)
+setting-claim_window_secs = Claim window
 setting-claim_window_secs-help = How long the client that revealed a single-view secret may re-download it.
-setting-min_ttl_secs = Minimum lifetime (seconds)
+setting-min_ttl_secs = Minimum lifetime
 setting-min_ttl_secs-help = Shortest expiry the API accepts.
-setting-max_ttl_secs = Maximum lifetime (seconds)
+setting-max_ttl_secs = Maximum lifetime
 setting-max_ttl_secs-help = Longest expiry the API accepts; capped at 14 days.
-setting-default_ttl_secs = Default lifetime (seconds)
+setting-default_ttl_secs = Default lifetime
 setting-default_ttl_secs-help = Preselected on the create form.
-setting-ttl_presets = Lifetime presets (seconds, comma-separated)
-setting-ttl_presets-help = The choices offered on the create form.
+setting-ttl_presets = Lifetime presets
+setting-ttl_presets-help = The choices offered on the create form, along with the default lifetime.
 setting-text_max_bytes = Text limit (bytes)
 setting-text_max_bytes-help = A hint for clients; the server only enforces blob sizes.
 setting-files_enabled = Files enabled
@@ -274,7 +291,7 @@ setting-rate_login_per_hour = Rate limit: admin login (per hour)
 setting-rate_login_per_hour-help = Per client. 0 disables.
 setting-rate_user_multiplier = API key limit multiplier
 setting-rate_user_multiplier-help = Requests with a user API key get this many times the anonymous limits.
-setting-salt_rotation_secs = Rate-limit salt rotation (seconds)
+setting-salt_rotation_secs = Rate-limit salt rotation
 setting-salt_rotation_secs-help = After rotation, nothing from before can be linked to anything after.
 setting-require_api_key_for_create = Require an API key to create secrets
 setting-require_api_key_for_create-help = For private instances. Reveal, burn and report stay open.
