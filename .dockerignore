@@ -14,4 +14,6 @@ client/node_modules
 client/dist
 crates/shhnote-server/static/app.js
 crates/shhnote-server/static/shh.js
+crates/shhnote-server/static/shh-ui.js
 crates/shhnote-server/static/argon2.wasm
+crates/shhnote-server/static/.stamp

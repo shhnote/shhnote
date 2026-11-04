@@ -114,8 +114,9 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
         claimToken = revealed.claimToken;
         remember(claimKey, claimToken);
       }
-      // The header is enough to know whether a passphrase is needed; the rest of the body
-      // is decrypted as it arrives, so the ciphertext is never held whole.
+      // The header is enough to know whether a passphrase is needed. Without one the rest of
+      // the body is decrypted as it arrives and the ciphertext is never held whole; with one
+      // the body is collected while the passphrase is typed, so retries need no server.
       const { header, rest } = await readHeader(revealed.body);
       setStatus(working, t("reveal-decrypting"));
       let ek: CryptoKey;

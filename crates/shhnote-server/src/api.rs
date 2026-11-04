@@ -722,7 +722,8 @@ struct ReportResponse {
     status: &'static str,
 }
 
-// Always the same answer. A malformed identifier is not notice, so it gets no ledger row.
+// Always the same answer. Every report is counted in the day's `reports`, a malformed one
+// too, since it runs the same statements on random bytes; nothing per report is kept (D-19).
 async fn report(
     State(state): State<ApiState>,
     Lenient(body): Lenient<ReportBody>,

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Builds everything the server embeds from the client: the Argon2id module and the two
-# JavaScript bundles. Run before `cargo build`; CI and the Docker image do the same.
+# Builds everything the server embeds from the client: the Argon2id module and the three
+# JavaScript bundles (app.js, shh.js, shh-ui.js). Run before `cargo build`; CI and the Docker image do the same.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=crates/shhnote-server/static

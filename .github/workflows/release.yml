@@ -107,17 +107,13 @@ jobs:
             SHA256SUMS
           generate_release_notes: true
 
-  # One image per platform, built natively and pushed by digest only (no tag yet). The
-  # cache scope matches the binaries job, so the compile is already done by the time
-  # this runs.
   publish:
     # `@shhnote/client` on npm, through trusted publishing (OIDC, no token): the package on
-    # npmjs.com is configured to trust this repository and workflow. The client is versioned
-    # on its own, so a tag whose package version is already published publishes nothing, and
-    # a pre-release tag (a dash in it) publishes nothing either: npm versions are immutable.
+    # npmjs.com is configured to trust this repository and workflow. The client shares the
+    # server's version (the version job checks the tag against both), so a re-run of a tag
+    # whose version is already published publishes nothing, and a pre-release tag (a dash in
+    # it) publishes nothing either: npm versions are immutable.
     needs: [version, ci]
-    # Disabled until the first version is published by hand and the trusted publisher is
-    # configured on npmjs.com; then restore the condition below.
     if: ${{ !contains(github.ref_name, '-') }}
     permissions:
       contents: read
@@ -144,6 +140,9 @@ jobs:
             npm publish "../target/npm/shhnote-client-${version}.tgz" --provenance --access public
           fi
 
+  # One image per platform, built natively and pushed by digest only (no tag yet). The
+  # cache scope matches the binaries job, so the compile is already done by the time
+  # this runs.
   image:
     needs: [version, ci]
     permissions:

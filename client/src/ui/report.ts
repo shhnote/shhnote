@@ -4,8 +4,9 @@ import { Api } from "../lib/api.ts";
 import { $, apiFrom, setState, setStatus, show } from "./dom.ts";
 import type { Strings } from "./i18n.ts";
 
-// `/report`: paste a secret link; the server removes the secret if it is active and keeps a
-// ledger row either way. The answer is the same whatever happened, so nothing is learned here.
+// `/report`: paste a secret link; the server removes the secret if it is active and counts the
+// report in its daily statistics, with no record of which secret it was (D-19). The answer is
+// the same whatever happened, so nothing is learned here.
 export function wireReport(page: HTMLElement, { t }: Strings): void {
   const api = apiFrom(page);
   const form = $<HTMLFormElement>("[data-shh-form=report]", page);
