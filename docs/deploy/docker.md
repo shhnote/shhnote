@@ -13,17 +13,20 @@ curl -fsSLO https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/docker
 curl -fsSL https://raw.githubusercontent.com/shhnote/shhnote/main/deploy/docker/.env.example -o .env
 ```
 
-Let the image fill in the two secrets, then edit the rest of `.env`:
+Let the image generate the two secrets and append them to `.env`, then edit the rest of it:
 
 ```sh
-docker run --rm -v "$PWD/.env:/env" ghcr.io/shhnote/shhnote init --env /env
+docker run --rm ghcr.io/shhnote/shhnote init >> .env
 ```
+
+`init` only prints `KEY=value` lines; your shell does the writing, so the container (which
+runs as an unprivileged user) never needs access to a file on the host.
 
 | Variable | Value |
 |---|---|
 | `DOMAIN` | the site's domain, for Caddy's certificate |
 | `SHH_URL` | `https://` plus the same domain |
-| `SHH_SECRET_KEY`, `SHH_ADMIN_TOKEN` | filled in by `init` above |
+| `SHH_SECRET_KEY`, `SHH_ADMIN_TOKEN` | appended by `init` above |
 
 Then:
 

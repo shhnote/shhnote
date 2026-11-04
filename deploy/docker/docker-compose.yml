@@ -1,5 +1,6 @@
-# One-command deployment: copy .env.example to .env, set DOMAIN, SHH_URL, SHH_SECRET_KEY
-# and SHH_ADMIN_TOKEN, then `docker compose up -d`. Caddy obtains the TLS certificate.
+# One-command deployment: copy .env.example to .env, append the two secrets with
+# `docker run --rm ghcr.io/shhnote/shhnote init >> .env`, set DOMAIN and SHH_URL, then
+# `docker compose up -d`. Caddy obtains the TLS certificate.
 #
 #   docker compose --profile postgres up -d     adds a Postgres container (set SHH_DB=postgres)
 #   COMPOSE_PROFILES= (empty) in .env           no Caddy; see compose.own-proxy.yml

@@ -34,7 +34,7 @@ Deployment settings come from the environment (or a `.env` file in the working d
 | Command | Does |
 |---|---|
 | `shhnote` | Runs the server. SIGTERM or Ctrl-C stops accepting requests, finishes the ones in flight (up to 30 s), then exits. |
-| `shhnote init` | Generates `SHH_SECRET_KEY` and `SHH_ADMIN_TOKEN` and prints them as `KEY=value` lines. `shhnote init --env <path>` writes them into that file instead: creates it (owner-readable only), fills an empty `KEY=` line in place, appends a missing key, and never overwrites a value that is set. Needs no configuration; the first command of every install. |
+| `shhnote init` | Generates `SHH_SECRET_KEY` and `SHH_ADMIN_TOKEN` and prints them as `KEY=value` lines. `shhnote init --env <path>` writes them into that file instead: creates it (owner-readable only), fills an empty `KEY=` line in place, appends a missing key, and never overwrites a value that is set. The file is replaced whole through a temp file and a rename in its directory, keeping its permissions (and its owner and group when run as root), so it is never left half-written; the directory must be writable, and a bind-mounted single file cannot be updated this way (use the printing form there). Needs no configuration; the first command of every install. |
 | `shhnote check` | Loads the configuration and pings the database; exit code 0 when a start would succeed. |
 | `shhnote health` | Asks the running server's `/api/v1/health`; used as the container health check. |
 | `shhnote reset-admin` | Deletes every admin API key, so `SHH_ADMIN_TOKEN` works again. For lockouts. |

@@ -1,4 +1,7 @@
-use std::{fs, io, path::Path};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 
@@ -29,6 +32,7 @@ pub enum Outcome {
 
 // Applies the generated values to the file: a missing file is created (readable by its owner
 // only), an empty `KEY=` line is filled in place, a missing key is appended, a set key stays.
+// Every write goes through a temp file and a rename, so the file is never half-written.
 pub fn apply(
     path: &Path,
     values: &[(&'static str, String)],
@@ -40,7 +44,7 @@ pub fn apply(
     };
     let Some(text) = existing else {
         let body: String = values.iter().map(|(k, v)| format!("{k}={v}\n")).collect();
-        write_private(path, &body)?;
+        write_atomically(path, &body)?;
         return Ok(values.iter().map(|(k, _)| (*k, Outcome::Created)).collect());
     };
     let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
@@ -65,21 +69,70 @@ pub fn apply(
     if outcomes.iter().any(|(_, o)| *o != Outcome::Kept) {
         let mut body = lines.join("\n");
         body.push('\n');
-        fs::write(path, body)?;
+        write_atomically(path, &body)?;
     }
     Ok(outcomes)
 }
 
-fn write_private(path: &Path, body: &str) -> io::Result<()> {
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
+// Writes the whole file next to the old one and renames it into place: a crash, a full disk
+// or a kill leaves either the old file or the new one, never a truncated env file with the
+// server's secrets half gone. The new file keeps the old one's permissions and, where the
+// caller may set them, its owner and group (a new file is owner-only); a symlinked env file
+// is updated where it points.
+fn write_atomically(path: &Path, body: &str) -> io::Result<()> {
+    let target = match fs::canonicalize(path) {
+        Ok(target) => target,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => path.to_path_buf(),
+        Err(e) => return Err(e),
+    };
+    let existing = match fs::metadata(&target) {
+        Ok(meta) => Some(meta),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e),
+    };
+    let dir = match target.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir.to_path_buf(),
+        _ => PathBuf::from("."),
+    };
+    let name = target
+        .file_name()
+        .ok_or_else(|| io::Error::other("the env path names no file"))?
+        .to_string_lossy();
+    let mut random = [0u8; 6];
+    getrandom::fill(&mut random).map_err(|e| io::Error::other(e.to_string()))?;
+    let temp = dir.join(format!(".{name}.{}.tmp", URL_SAFE_NO_PAD.encode(random)));
+
+    let written = (|| {
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temp)?;
+        io::Write::write_all(&mut file, body.as_bytes())?;
+        file.sync_all()?;
+        if let Some(meta) = &existing {
+            // Owner and group too, where we may set them (root can; anyone else gets their own).
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                let _ = std::os::unix::fs::chown(&temp, Some(meta.uid()), Some(meta.gid()));
+            }
+            fs::set_permissions(&temp, meta.permissions())?;
+        }
+        fs::rename(&temp, &target)?;
+        // Best effort: the rename is durable once the directory entry is on disk, but the
+        // file is already in place, so a failure here is no reason to report one.
+        #[cfg(unix)]
+        let _ = fs::File::open(&dir).and_then(|d| d.sync_all());
+        Ok(())
+    })();
+    if written.is_err() {
+        let _ = fs::remove_file(&temp);
     }
-    use io::Write;
-    options.open(path)?.write_all(body.as_bytes())
+    written
 }
 
 // The subcommand itself: `init` prints, `init --env <path>` writes. Exit code 0 on success.
@@ -182,5 +235,78 @@ mod tests {
             )
         );
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    // Revision 3, C5: the file is replaced whole, keeps its mode, stays a symlink when it is
+    // one, and leaves no temp file behind.
+    #[cfg(unix)]
+    #[test]
+    fn rewrites_through_a_temp_file() {
+        use std::os::unix::fs::PermissionsExt;
+        // Its own directory: tests run in parallel, and `dir()` is wiped by the others.
+        let dir = std::env::temp_dir().join(format!("shhnote-init-atomic-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let values = generate().unwrap();
+
+        let env = dir.join("env");
+        fs::write(&env, "SHH_SECRET_KEY=\n").unwrap();
+        fs::set_permissions(&env, fs::Permissions::from_mode(0o640)).unwrap();
+        apply(&env, &values).unwrap();
+        assert!(fs::read_to_string(&env).unwrap().contains(&values[0].1));
+        assert_eq!(
+            fs::metadata(&env).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
+        assert_eq!(names(&dir), ["env"], "a temp file was left behind");
+
+        let real = dir.join("real.env");
+        let link = dir.join("link.env");
+        fs::write(&real, "SHH_DB=sqlite\n").unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        apply(&link, &values).unwrap();
+        assert!(
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert!(fs::read_to_string(&real).unwrap().contains(&values[1].1));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // A write that cannot happen leaves the old file exactly as it was.
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_write_leaves_the_file_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("shhnote-init-ro-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let env = dir.join("env");
+        fs::write(&env, "SHH_SECRET_KEY=\n").unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o500)).unwrap();
+        // Root can write anyway; then there is nothing to test.
+        let writable = fs::write(dir.join("probe"), b"").is_ok();
+        let result = apply(&env, &generate().unwrap());
+        let text = fs::read_to_string(&env).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+        let left = names(&dir);
+        let _ = fs::remove_dir_all(&dir);
+        if writable {
+            return;
+        }
+        assert!(result.is_err());
+        assert_eq!(text, "SHH_SECRET_KEY=\n");
+        assert_eq!(left, ["env"]);
     }
 }
