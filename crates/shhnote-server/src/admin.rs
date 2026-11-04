@@ -695,6 +695,7 @@ async fn settings_save(
     match save_settings(
         &state.shared.store,
         &state.shared.settings,
+        &state.shared.setup,
         &submitted,
         state.shared.env,
         state.shared.max_blob_bytes,
@@ -854,7 +855,7 @@ async fn keys_create(
     } else {
         "/keys"
     };
-    match mint_key(&state.shared.store, name, scope, now()).await {
+    match mint_key(&state.shared.store, &state.shared.setup, name, scope, now()).await {
         Ok(text) => match park_fresh_key(&state, &session, text) {
             Some(nonce) => {
                 Redirect::to(&format!("{}?new={nonce}", state.admin_href(next))).into_response()
@@ -918,6 +919,7 @@ pub(crate) enum SaveError {
 pub(crate) async fn save_settings(
     store: &Store,
     cell: &SettingsCell,
+    setup: &crate::api::Setup,
     submitted: &HashMap<String, String>,
     env: AppEnv,
     max_blob_bytes: u64,
@@ -952,12 +954,15 @@ pub(crate) async fn save_settings(
         result.map_err(SaveError::Db)?;
     }
     cell.store(settings.clone());
+    // The setup gate derives its state from these settings (D-29).
+    setup.touch();
     Ok(settings)
 }
 
 // A new API key: 32 random bytes, returned once, stored only as a hash.
 pub(crate) async fn mint_key(
     store: &Store,
+    setup: &crate::api::Setup,
     name: &str,
     scope: Scope,
     now: i64,
@@ -968,6 +973,8 @@ pub(crate) async fn mint_key(
     store
         .create_api_key(&credential_hash(text.as_bytes()), name, scope, now)
         .await?;
+    // An admin key may be the last piece setup was waiting for (D-29).
+    setup.touch();
     Ok(text)
 }
 

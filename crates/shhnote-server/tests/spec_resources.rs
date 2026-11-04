@@ -1093,6 +1093,46 @@ async fn spec_sweep_leaves_objects_that_may_still_be_uploads_in_flight() {
     assert!(young_gone && part_gone, "aged leftovers survived");
 }
 
+// Round 2, suspicion 9: an object of ours that the store will not delete is counted and
+// logged; the server still starts and the other orphans still go.
+#[tokio::test]
+async fn spec_sweep_continues_past_an_undeletable_orphan() {
+    let (s3, addr) = fake_bucket().await;
+    let spool = std::env::temp_dir().join("shhnote-spec-resources-s3-stuck-spool");
+    let _ = tokio::fs::remove_dir_all(&spool).await;
+    let endpoint = format!("http://{addr}");
+    let (_app, store, blobs) = build(
+        "s3-orphans-stuck",
+        &[
+            ("SHH_STORAGE", "s3"),
+            ("SHH_S3_BUCKET", FAKE_BUCKET),
+            ("SHH_S3_REGION", "us-east-1"),
+            ("SHH_S3_ENDPOINT", &endpoint),
+            ("SHH_S3_ACCESS_KEY_ID", "test-access-key"),
+            ("SHH_S3_SECRET_ACCESS_KEY", "test-secret-key"),
+            ("SHH_S3_MAX_TOTAL_BYTES", "1000000000"),
+            ("SHH_SPOOL_PATH", spool.to_str().unwrap()),
+        ],
+    )
+    .await;
+    let blobs = blobs.unwrap();
+    {
+        let mut objects = s3.objects.lock().unwrap();
+        objects.insert("blobs/AAAAAAAAAAAAAAAAAAAAAA".to_string(), vec![0u8; 1000]);
+        objects.insert("blobs/zzzzzzzzzzzzzzzzzzzzzz".to_string(), vec![0u8; 1000]);
+    }
+    s3.undeletable
+        .lock()
+        .unwrap()
+        .insert("blobs/AAAAAAAAAAAAAAAAAAAAAA".to_string());
+    let sweep = blobs.collect_orphans(&store).await;
+    let left: Vec<String> = s3.objects.lock().unwrap().keys().cloned().collect();
+    let _ = tokio::fs::remove_dir_all(&spool).await;
+    let sweep = sweep.expect("the sweep failed over an undeletable object");
+    assert_eq!((sweep.removed, sweep.failed), (1, 1), "{sweep:?}");
+    assert_eq!(left, vec!["blobs/AAAAAAAAAAAAAAAAAAAAAA".to_string()]);
+}
+
 // --- revision 3, D5: a fake S3, so the S3 tier's own code runs without a bucket
 
 // Unlike `fake_s3` above, which only answers or hangs, an in-memory bucket behind an axum router: path-style addressing, as with
@@ -1104,6 +1144,8 @@ async fn spec_sweep_leaves_objects_that_may_still_be_uploads_in_flight() {
 struct FakeBucket {
     objects: std::sync::Mutex<std::collections::BTreeMap<String, Vec<u8>>>,
     requests: std::sync::Mutex<Vec<String>>,
+    // Keys whose DELETE the bucket refuses with a 500, as a policy or an outage would.
+    undeletable: std::sync::Mutex<std::collections::BTreeSet<String>>,
 }
 
 const FAKE_BUCKET: &str = "fake";
@@ -1190,6 +1232,9 @@ async fn fake_bucket_request(
             None => StatusCode::NOT_FOUND.into_response(),
         },
         (Method::DELETE, key) => {
+            if s3.undeletable.lock().unwrap().contains(key) {
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
             objects.remove(key);
             StatusCode::NO_CONTENT.into_response()
         }

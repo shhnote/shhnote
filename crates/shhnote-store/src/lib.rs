@@ -18,7 +18,7 @@ pub use stats::{Day, Stats};
 
 pub type Error = sqlx::Error;
 
-const PING_ACQUIRE: std::time::Duration = std::time::Duration::from_secs(2);
+pub(crate) const PING_ACQUIRE: std::time::Duration = std::time::Duration::from_secs(2);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Backend {

@@ -328,16 +328,35 @@ impl Store {
 
     // Like `pending_deletes`, with each row's bucket so the caller can account for the bytes,
     // and at most `limit` rows so one pass over a backlog stays bounded.
-    pub async fn pending_deletes_sized(
+    // Parked rows in key order, starting after `after`, so a scrubber that works in batches
+    // can walk the whole set instead of meeting the same first rows on every pass.
+    pub async fn pending_deletes_after(
         &self,
+        after: Option<&[u8]>,
         limit: i64,
     ) -> Result<Vec<(Vec<u8>, String, u64)>, Error> {
-        let rows = sqlx::query(
-            "SELECT lookup_key, external_ref, bucket FROM secrets WHERE status = 'pending_delete' LIMIT $1",
-        )
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = match after {
+            Some(after) => {
+                sqlx::query(
+                    "SELECT lookup_key, external_ref, bucket FROM secrets \
+                     WHERE status = 'pending_delete' AND lookup_key > $1 \
+                     ORDER BY lookup_key LIMIT $2",
+                )
+                .bind(after.to_vec())
+                .bind(limit)
+                .fetch_all(&self.pool)
+                .await?
+            }
+            None => {
+                sqlx::query(
+                    "SELECT lookup_key, external_ref, bucket FROM secrets \
+                     WHERE status = 'pending_delete' ORDER BY lookup_key LIMIT $1",
+                )
+                .bind(limit)
+                .fetch_all(&self.pool)
+                .await?
+            }
+        };
         rows.into_iter()
             .map(|row| {
                 Ok((

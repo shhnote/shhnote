@@ -1,6 +1,9 @@
 use std::{
     io,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicI64, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -55,36 +58,86 @@ pub struct ApiState {
 }
 
 // Whether setup has been met (D-29). Derived from the store and the settings while unmet,
-// then remembered for the life of the process: an unconfigured instance has no traffic to
-// speak of, so the per-request derivation costs nothing that matters, and once met the gate
-// never re-arms (the two settings cannot be cleared; deleting the last admin key is the
-// operator's own lockout, handled by `reset-admin`).
-#[derive(Default)]
+// then remembered for the life of the process; once met the gate never re-arms (the two
+// settings cannot be cleared; deleting the last admin key is the operator's own lockout,
+// handled by `reset-admin`). A negative answer is kept until an admin write could have
+// changed it, and for at most a second otherwise, so an unconfigured instance does not run a
+// query for every unauthenticated request.
 pub struct Setup {
-    configured: std::sync::atomic::AtomicBool,
+    configured: AtomicBool,
+    dirty: AtomicBool,
+    checked_at: AtomicI64,
+    degraded: AtomicBool,
+}
+
+impl Default for Setup {
+    fn default() -> Self {
+        Self {
+            configured: AtomicBool::new(false),
+            dirty: AtomicBool::new(true),
+            checked_at: AtomicI64::new(0),
+            degraded: AtomicBool::new(false),
+        }
+    }
 }
 
 impl Setup {
     pub fn is_set(&self) -> bool {
-        self.configured.load(std::sync::atomic::Ordering::Relaxed)
+        self.configured.load(Ordering::Relaxed)
     }
 
     fn mark(&self) {
-        self.configured
-            .store(true, std::sync::atomic::Ordering::Relaxed);
+        self.configured.store(true, Ordering::Relaxed);
+    }
+
+    // An admin wrote something setup depends on (a key, the settings): derive again.
+    pub fn touch(&self) {
+        self.dirty.store(true, Ordering::Relaxed);
     }
 }
 
-// True once setup is met; re-derives it while it is not.
-pub async fn ensure_configured(state: &ApiState) -> bool {
-    if state.setup.is_set() {
-        return true;
+// What the gate does with a request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Gate {
+    Configured,
+    Unconfigured,
+    // The database could not say; not the same as "not set up".
+    Degraded,
+}
+
+// `Configured` once setup is met; re-derives the state while it is not, from the cached
+// negative when nothing can have changed it since.
+pub async fn ensure_configured(state: &ApiState) -> Gate {
+    let setup = &state.setup;
+    if setup.is_set() {
+        return Gate::Configured;
     }
-    if is_configured(state).await {
-        state.setup.mark();
-        return true;
+    let now = now();
+    let dirty = setup.dirty.swap(false, Ordering::Relaxed);
+    if !dirty && setup.checked_at.load(Ordering::Relaxed) == now {
+        return if setup.degraded.load(Ordering::Relaxed) {
+            Gate::Degraded
+        } else {
+            Gate::Unconfigured
+        };
     }
-    false
+    match is_configured(state).await {
+        Ok(true) => {
+            setup.mark();
+            Gate::Configured
+        }
+        Ok(false) => {
+            setup.degraded.store(false, Ordering::Relaxed);
+            setup.checked_at.store(now, Ordering::Relaxed);
+            Gate::Unconfigured
+        }
+        Err(e) => {
+            crate::log_error!("setup check: database error: {e}");
+            setup.degraded.store(true, Ordering::Relaxed);
+            setup.checked_at.store(now, Ordering::Relaxed);
+            Gate::Degraded
+        }
+    }
 }
 
 impl ApiState {
@@ -250,7 +303,7 @@ async fn health(State(state): State<ApiState>) -> Response {
             (StatusCode::SERVICE_UNAVAILABLE, "degraded")
         }
     };
-    let configured = ensure_configured(&state).await;
+    let configured = ensure_configured(&state).await == Gate::Configured;
     let mut response = (
         status,
         Json(serde_json::json!({
@@ -267,12 +320,14 @@ async fn health(State(state): State<ApiState>) -> Response {
 }
 
 // Setup is a derived state, never stored (D-29): an admin key exists and the operator has
-// named the site and given a contact address.
-pub async fn is_configured(state: &ApiState) -> bool {
+// named the site and given a contact address. The database is asked only once the settings
+// are set; its failure is reported, not read as "no key".
+pub async fn is_configured(state: &ApiState) -> Result<bool, shhnote_store::Error> {
     let settings = state.settings.load();
-    !settings.site_name.is_empty()
-        && !settings.contact_email.is_empty()
-        && matches!(state.store.admin_key_count().await, Ok(n) if n > 0)
+    if settings.site_name.is_empty() || settings.contact_email.is_empty() {
+        return Ok(false);
+    }
+    Ok(state.store.admin_key_count().await? > 0)
 }
 
 #[derive(Deserialize)]
@@ -630,14 +685,16 @@ impl Drop for OrphanGuard {
     }
 }
 
-// The largest padded size a text-only secret can need: the text limit with room for JSON
-// escaping (worst case doubles it) and the manifest around it.
+// The largest padded size a text-only secret can need. A ladder without a rung that large
+// is refused on save and corrected at startup (SPEC §7.2), so the fallback to the ladder's
+// top rung is only reached by a policy the checks never saw.
 fn text_only_bucket(settings: &Settings) -> u64 {
-    let payload = settings
-        .text_max_bytes
-        .saturating_mul(2)
-        .saturating_add(1024);
-    settings.padding.padded_size(payload).unwrap_or(0)
+    let payload = settings.text_only_payload();
+    settings
+        .padding
+        .padded_size(payload)
+        .or_else(|| settings.padding.largest_valid_at_most(u64::MAX))
+        .unwrap_or(0)
 }
 
 // A JSON body on a credential endpoint. Anything the framework would reject (bad JSON, wrong

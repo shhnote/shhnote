@@ -838,6 +838,45 @@ async fn spec_settings_markup_is_escaped_in_pages() {
     }
 }
 
+// Round 2, R-17: a bad query string on the admin API gets the shared error shape, not the
+// framework's plain-text rejection.
+#[tokio::test]
+async fn spec_admin_stats_query_rejection_uses_the_error_shape() {
+    let (app, _) = build("spec-admin-stats-query").await;
+    let auth = bearer(BOOTSTRAP);
+    let r = admin_api(&app, Method::GET, "/stats?days=abc", &auth, None).await;
+    assert_eq!(r.status, StatusCode::BAD_REQUEST, "{}", r.text());
+    assert_eq!(r.json()["error"]["code"], "invalid_query", "{}", r.text());
+    let r = admin_api(&app, Method::GET, "/stats?days=7", &auth, None).await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.text());
+}
+
+// Round 2, R-16: "files off" with a ladder that has no rung for a text-only secret would
+// refuse every create; the save refuses the combination instead.
+#[tokio::test]
+async fn spec_files_off_needs_a_rung_for_text() {
+    let (app, _) = build("spec-admin-files-off-ladder").await;
+    let auth = bearer(BOOTSTRAP);
+    let r = admin_api(
+        &app,
+        Method::PATCH,
+        "/settings",
+        &auth,
+        Some(json!({"padding_mode": "buckets", "padding_ladder": "65536", "files_enabled": false})),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.text());
+    let r = admin_api(
+        &app,
+        Method::PATCH,
+        "/settings",
+        &auth,
+        Some(json!({"padding_mode": "buckets", "padding_ladder": "65536,262144", "files_enabled": false})),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.text());
+}
+
 // `project_url`: footer link when set, never on /config, same URL rule as `source_url`.
 #[tokio::test]
 async fn spec_project_url_is_footer_only() {

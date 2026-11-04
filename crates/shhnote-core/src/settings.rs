@@ -261,6 +261,15 @@ impl Settings {
             }
             _ => PaddingPolicy::Padme { min: padding_min },
         };
+        // With files off the server accepts nothing above a text-only secret (SPEC §6.1); a
+        // ladder with no rung that large would refuse every secret, text included.
+        if !s.files_enabled && s.padding.padded_size(s.text_only_payload()).is_none() {
+            warnings.push(format!(
+                "setting padding_ladder ignored: with files_enabled off the ladder needs a size of at least {} bytes",
+                s.text_only_payload()
+            ));
+            s.padding = PaddingPolicy::Padme { min: padding_min };
+        }
         if s.min_ttl_secs > s.max_ttl_secs
             || !(s.min_ttl_secs..=s.max_ttl_secs).contains(&s.default_ttl_secs)
         {
@@ -290,6 +299,12 @@ impl Settings {
         } else {
             &self.security_email
         }
+    }
+
+    // The largest payload a text-only secret can need: the text limit with room for JSON
+    // escaping (worst case doubles it) and the manifest around it.
+    pub fn text_only_payload(&self) -> u64 {
+        self.text_max_bytes.saturating_mul(2).saturating_add(1024)
     }
 
     // The padded sizes a policy can produce, the ladder's rungs and `padding_min`, are checked
@@ -668,6 +683,36 @@ mod tests {
 
         let mut padme = Settings::default();
         assert!(padme.check_blob_limit(65536).is_empty());
+    }
+
+    // Round 2, R-16: files off needs a padded size for a text-only secret; a ladder that has
+    // none falls back to Padmé instead of refusing every create.
+    #[test]
+    fn files_off_needs_a_rung_for_text() {
+        let (s, warnings) = Settings::with_overrides(
+            &overrides(&[
+                ("padding_mode", "buckets"),
+                ("padding_ladder", "65536"),
+                ("files_enabled", "false"),
+            ]),
+            AppEnv::Production,
+        );
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("files_enabled"), "{warnings:?}");
+        assert!(matches!(s.padding, PaddingPolicy::Padme { .. }));
+        assert!(!s.files_enabled);
+
+        let (s, warnings) = Settings::with_overrides(
+            &overrides(&[
+                ("padding_mode", "buckets"),
+                ("padding_ladder", "65536,262144"),
+                ("files_enabled", "false"),
+            ]),
+            AppEnv::Production,
+        );
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert!(matches!(s.padding, PaddingPolicy::Buckets { .. }));
+        assert_eq!(s.text_only_payload(), 2 * 65536 + 1024);
     }
 
     // Round 2, suspicion 4: a `padding_min` above the largest blob the instance stores would

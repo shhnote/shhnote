@@ -74,8 +74,20 @@ impl Store {
     }
 
     // Records the UTC day of use, never the time, and writes it at most once per day (D-23).
+    // The day is read first: an `UPDATE` that changes nothing still takes SQLite's write
+    // lock, and keyed requests come far more often than days.
     pub async fn touch_api_key(&self, key_hash: &[u8; 32], now: i64) -> Result<(), Error> {
         let day = now - now.rem_euclid(86_400);
+        let row = sqlx::query("SELECT last_used_on FROM api_keys WHERE key_hash = $1")
+            .bind(key_hash.to_vec())
+            .fetch_optional(&self.pool)
+            .await?;
+        let Some(row) = row else {
+            return Ok(());
+        };
+        if row.try_get::<Option<i64>, _>("last_used_on")? == Some(day) {
+            return Ok(());
+        }
         sqlx::query(
             "UPDATE api_keys SET last_used_on = $2 \
              WHERE key_hash = $1 AND (last_used_on IS NULL OR last_used_on <> $2)",
@@ -147,9 +159,14 @@ impl Store {
             .map(|v| v.unwrap_or(0))
     }
 
+    // Asked by the setup gate for unauthenticated requests, so the wait for a connection is
+    // bounded like `ping`'s: a busy pool makes the gate answer, not queue.
     pub async fn admin_key_count(&self) -> Result<i64, Error> {
+        let mut conn = tokio::time::timeout(crate::PING_ACQUIRE, self.pool.acquire())
+            .await
+            .map_err(|_| Error::PoolTimedOut)??;
         let row = sqlx::query("SELECT COUNT(*) AS n FROM api_keys WHERE scopes = 'admin'")
-            .fetch_one(&self.pool)
+            .fetch_one(&mut *conn)
             .await?;
         row.try_get("n")
     }

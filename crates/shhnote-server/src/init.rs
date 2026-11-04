@@ -321,7 +321,10 @@ mod tests {
     // behind a set value.
     #[test]
     fn reads_lines_the_way_the_server_does() {
-        let dir = dir();
+        // Its own directory: `dir()` is wiped by the tests that share it.
+        let dir = std::env::temp_dir().join(format!("shhnote-init-forms-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
         let values = generate().unwrap();
         let cases: [(&str, Outcome); 7] = [
             ("export SHH_SECRET_KEY=set-by-hand\n", Outcome::Kept),

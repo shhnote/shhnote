@@ -34,6 +34,7 @@ pub(crate) struct Shared {
     offered: i18n::Offered,
     pub(crate) store: Store,
     pub(crate) settings: Arc<SettingsCell>,
+    pub(crate) setup: Arc<crate::api::Setup>,
     pub(crate) limiter: Arc<RateLimiter>,
     // Signs admin sessions; comes from SHH_SECRET_KEY.
     pub(crate) secret_key: Vec<u8>,
@@ -144,6 +145,7 @@ pub fn router(config: &Config, api: &ApiState) -> WebRouters {
             .expect("SHH_LOCALES and SHH_DEFAULT_LOCALE are checked at startup"),
         store: api.store.clone(),
         settings: api.settings.clone(),
+        setup: api.setup.clone(),
         limiter: api.limiter.clone(),
         secret_key: config.secret_key.expose().as_bytes().to_vec(),
         secure_cookies: config.env == AppEnv::Production,

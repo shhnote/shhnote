@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use axum::{
     Json, Router,
-    extract::{FromRequest, Query, Request, State},
+    extract::{FromRequest, Query, Request, State, rejection::QueryRejection},
     http::{HeaderValue, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -136,7 +136,19 @@ struct StatsOut {
     days: Vec<DayOut>,
 }
 
-async fn stats(State(state): State<ApiState>, Query(query): Query<StatsQuery>) -> Response {
+async fn stats(
+    State(state): State<ApiState>,
+    query: Result<Query<StatsQuery>, QueryRejection>,
+) -> Response {
+    // The query string is parsed by hand so a bad `days` gets the shared error shape, not
+    // the framework's plain-text 400.
+    let Ok(Query(query)) = query else {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "invalid_query",
+            "The query string is not valid for this endpoint.",
+        );
+    };
     let days = query.days.unwrap_or(30).clamp(1, 400);
     let totals = match state.store.stats().await {
         Ok(t) => t,
@@ -260,6 +272,7 @@ async fn settings_patch(
         match save_settings(
             &state.store,
             &state.settings,
+            &state.setup,
             &submitted,
             state.env,
             state.limits.max_blob_bytes(),
@@ -348,7 +361,7 @@ async fn keys_create(State(state): State<ApiState>, Strict(body): Strict<NewKey>
         );
     };
     let created_at = now();
-    let key = match mint_key(&state.store, name, scope, created_at).await {
+    let key = match mint_key(&state.store, &state.setup, name, scope, created_at).await {
         Ok(key) => key,
         Err(e) => return db_error(e),
     };

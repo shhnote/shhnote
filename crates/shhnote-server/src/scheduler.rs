@@ -47,32 +47,50 @@ pub fn spawn(
 }
 
 // Deletes parked objects and only then their rows, retrying on every pass until each is
-// confirmed gone (SPEC §5). A row is never removed before its object.
+// confirmed gone (SPEC §5). A row is never removed before its object. Each pass takes the
+// batch after the previous one's last key and starts over once the end is reached, so a set
+// of objects that cannot be deleted delays the ones behind them by a pass, never for ever.
 pub async fn scrub(store: &Store, storage: Option<&Blobs>) {
-    let pending = match store.pending_deletes_sized(SCRUB_BATCH).await {
+    let after = storage.and_then(Blobs::scrub_cursor);
+    let pending = match store
+        .pending_deletes_after(after.as_deref(), SCRUB_BATCH)
+        .await
+    {
         Ok(pending) => pending,
         Err(e) => {
             crate::log_error!("scheduler: listing pending deletes failed: {e}");
             return;
         }
     };
-    if pending.is_empty() {
-        return;
-    }
     let Some(storage) = storage else {
-        crate::log_error!(
-            "scheduler: {} object(s) await deletion but no external tier is configured",
-            pending.len()
-        );
+        if !pending.is_empty() {
+            crate::log_error!(
+                "scheduler: {} object(s) await deletion but no external tier is configured",
+                pending.len()
+            );
+        }
         return;
     };
+    // A short batch means the end of the set: the next pass starts from the top again.
+    let next = if pending.len() == SCRUB_BATCH as usize {
+        pending.last().map(|(lookup_key, _, _)| lookup_key.clone())
+    } else {
+        None
+    };
+    let mut failed = 0usize;
     for (lookup_key, key, bucket) in pending {
         match storage.delete(&key).await {
             Ok(()) => match store.finish_delete(&lookup_key).await {
                 Ok(()) => storage.release_stored(crate::storage::object_bytes(bucket)),
                 Err(e) => crate::log_error!("scheduler: finishing delete failed: {e}"),
             },
-            Err(e) => crate::log_error!("scheduler: deleting object failed: {e}"),
+            Err(_) => failed += 1,
         }
     }
+    if failed > 0 {
+        crate::log_error!(
+            "scheduler: {failed} object deletion(s) failed; they are retried after the rest"
+        );
+    }
+    storage.set_scrub_cursor(next);
 }

@@ -33,6 +33,9 @@ pub struct Blobs {
     // Entries younger than this may belong to an upload still in flight, in this process or
     // in one being replaced, so the startup sweep and the spool cleanup leave them alone.
     upload_window: Duration,
+    // Where the scrubber's last batch ended, so the next one starts behind it (SPEC §5):
+    // objects that cannot be deleted never hide the ones after them.
+    scrub_cursor: Mutex<Option<Vec<u8>>>,
 }
 
 enum Tier {
@@ -108,7 +111,19 @@ impl Blobs {
             tier,
             ledger: Mutex::new(Ledger::default()),
             upload_window,
+            scrub_cursor: Mutex::new(None),
         })
+    }
+
+    pub fn scrub_cursor(&self) -> Option<Vec<u8>> {
+        self.scrub_cursor
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    pub fn set_scrub_cursor(&self, cursor: Option<Vec<u8>>) {
+        *self.scrub_cursor.lock().unwrap_or_else(|e| e.into_inner()) = cursor;
     }
 
     // The hard ceiling for everything stored in this tier, pending deletes included.
@@ -176,8 +191,12 @@ impl Blobs {
                 continue;
             } else if entry.modified.is_none_or(|at| at > oldest_in_flight) {
                 sweep.young += 1;
+            } else if let Err(e) = self.delete(&entry.key).await {
+                // One object of ours that will not go is no reason not to start; it is
+                // counted, logged, and tried again at the next start.
+                crate::log_error!("storage: could not remove an unreferenced object: {e}");
+                sweep.failed += 1;
             } else {
-                self.delete(&entry.key).await?;
                 sweep.removed += 1;
             }
         }
@@ -249,6 +268,7 @@ pub struct Sweep {
     pub removed: usize,
     pub ignored: usize,
     pub young: usize,
+    pub failed: usize,
 }
 
 fn now_secs() -> u64 {

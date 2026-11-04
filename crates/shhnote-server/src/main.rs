@@ -135,6 +135,12 @@ async fn main() {
                         sweep.young
                     );
                 }
+                if sweep.failed > 0 {
+                    shhnote_server::log_warn!(
+                        "storage: could not remove {} unreferenced object(s); they are retried at the next start",
+                        sweep.failed
+                    );
+                }
             }
             Err(e) => {
                 shhnote_server::log_error!("storage error: {e}");

@@ -134,7 +134,8 @@ struct GateState {
 // answer; every other route is 503: the setup page for pages, the error envelope for the API
 // and, in `api` mode, for every path, since no page exists there (D-24).
 async fn setup_gate(State(gate): State<GateState>, req: Request, next: Next) -> Response {
-    if api::ensure_configured(&gate.api).await {
+    let answer = api::ensure_configured(&gate.api).await;
+    if answer == api::Gate::Configured {
         return next.run(req).await;
     }
     let hosts = &gate.hosts;
@@ -153,6 +154,19 @@ async fn setup_gate(State(gate): State<GateState>, req: Request, next: Next) -> 
         || (hosts.admin_host.is_none() && is_admin_path(path));
     if open {
         return next.run(req).await;
+    }
+    // A database that cannot answer is not an instance that is not set up: say so instead
+    // of showing the setup page to a configured site whose database is down.
+    if answer == api::Gate::Degraded {
+        let mut response = api::error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "degraded",
+            "The database is not reachable right now.",
+        );
+        response
+            .headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        return response;
     }
     if is_api || hosts.web == WebMode::Api {
         let mut response = api::error_response(
