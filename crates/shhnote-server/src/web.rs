@@ -418,6 +418,7 @@ const UI_KEYS: &[&str] = &[
     "reveal-decrypting",
     "reveal-wrong-passphrase",
     "reveal-single-view",
+    "reveal-single-view-destroyed",
     "reveal-download",
     "reveal-error-network",
     "reveal-error-busy",

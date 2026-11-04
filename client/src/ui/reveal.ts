@@ -244,6 +244,8 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
 
     // Only a single-view secret announces its fate. A TTL secret says nothing about whether
     // or how long it stays readable, so every recipient learns to keep what they were sent.
+    // "Destroyed" is said only once the server has confirmed it (below); until then the
+    // secret is consumed but still downloadable by this claimant (SPEC §5.1).
     const revealed = $("[data-shh-state=revealed]", page);
     const lifetime = $("[data-shh-lifetime]", revealed);
     if (claimToken !== null) {
@@ -279,8 +281,9 @@ export function wireReveal(page: HTMLElement, options: PageOptions): void {
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
             await api.confirm(lookupValue ?? (await lookup(seed)), token);
-            // Destroyed: nothing left to download again.
+            // Destroyed: nothing left to download again, and the page may say so now.
             if (claimKey) claims.delete(claimKey);
+            $("[data-shh-lifetime-text]", lifetime).textContent = t("reveal-single-view-destroyed");
             break;
           } catch {
             await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
