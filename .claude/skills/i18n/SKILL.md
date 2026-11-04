@@ -8,7 +8,7 @@ description: Add or change user-visible text and translations in shhnote using F
 Two kinds of translated text, both compiled into the server binary:
 
 - **UI text** (labels, buttons, short paragraphs): Fluent messages in `crates/shhnote-server/locales/<lang>/main.ftl`, loaded by `src/i18n.rs` with `fluent-bundle`. We use `fluent-bundle` directly rather than `fluent-templates`, which pulls in twice as many crates.
-- **Long page content** (terms, privacy, security, acceptable use, API docs): Markdown in `crates/shhnote-server/content/<lang>/<page>.md`, turned into HTML once at startup by `src/content.rs`. Start these files at `##`; the page template supplies the `<h1>`. The how-it-works and about pages are templates with Fluent text, not Markdown.
+- **Long page content** (terms, privacy, security, acceptable use, API docs): Markdown in `crates/shhnote-server/content/<lang>/<page>.md`, turned into HTML once at startup by `src/content.rs`. Use `##` and below for headings, never `#`: the page template supplies the `<h1>`; a page may open with a paragraph or a note before its first heading. The how-it-works and about pages are templates with Fluent text, not Markdown.
 
 ## Locales
 
@@ -28,7 +28,7 @@ Two kinds of translated text, both compiled into the server binary:
 ## Using them
 
 - Page handlers build a `Ctx` with `state.ctx(path)`; templates call `{{ ctx.t("key") }}`. For messages with variables, build the text in the handler with `ctx.t_args`.
-- Text that JavaScript shows is passed to it through `data-` attributes rendered from Fluent, never written in the script.
-- For API errors, the stable `code` field is never translated; only `message` is.
+- Text that JavaScript shows is passed to it through the `<script type="application/json" data-shh-i18n>` block rendered from Fluent (the keys in `UI_KEYS` in `web.rs`, mirrored by `UiKey` in `client/src/ui/i18n.ts`), never written in the script.
+- API errors are not translated: `code` is stable and machine-readable, `message` is fixed English; clients show their own text keyed on `code`.
 
 Run `cargo test` after changing translations: it checks that all locales have the same keys and every page.

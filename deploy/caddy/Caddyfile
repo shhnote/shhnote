@@ -8,3 +8,11 @@ secrets.example.com {
 # api.secrets.example.com {
 # 	reverse_proxy 127.0.0.1:3000
 # }
+
+# For SHH_ADMIN_ROUTING=subdomain, the panel on its own host (its own DNS record too). A good
+# place to limit who may reach it at all, for example to an office range:
+# admin.secrets.example.com {
+# 	@outside not remote_ip 203.0.113.0/24
+# 	respond @outside 404
+# 	reverse_proxy 127.0.0.1:3000
+# }

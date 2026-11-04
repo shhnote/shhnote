@@ -16,7 +16,7 @@ The server never sees a file. It receives one opaque encrypted blob per secret (
 ## Receiving
 
 - `POST /secrets` is multipart with `meta` before `blob`, so validate `meta` and decide the tier before reading the body.
-- Stream the blob: to the database row for inline, straight to disk or S3 for external. Never buffer a whole external blob in memory.
+- Inline blobs are read into memory (bounded by `blob_len(inline_max)`) and written in one insert; external blobs are spooled to disk as they arrive and moved into place, or sent to S3, only once complete and length-checked. Never hold a whole external blob in memory.
 - Write external objects under a server-generated key (`blobs/<random>`), never anything derived from client input. Only mark the row `active` once the object is fully stored; on any failure delete the partial object.
 
 ## Serving
@@ -34,7 +34,7 @@ The server never sees a file. It receives one opaque encrypted blob per secret (
 ## Code map
 
 - `crates/shhnote-server/src/storage.rs`: `Blobs` (a struct over a private `Tier` enum of `Local` and `S3`, plus the in-memory ceiling ledger) with `spool`, `put`, `get`, `delete`, `new_key`, `reserve`, `max_total_bytes`, `collect_orphans`; `Blobs::open` runs the startup checks. `Spool` receives a blob chunk by chunk; `finish` turns it into a `Spooled` that removes its file on drop.
-- `api.rs` `create`: `Sink::Memory` until the bytes outgrow `blob_len(inline_max)`, then `Sink::Spool`. Ceiling check via `store.external_bytes()`, `ApiError::StorageFull` is `507 storage_full`. `blob_response` streams external objects.
+- `api.rs` `create`: `Sink::Memory` until the bytes outgrow `blob_len(inline_max)`, then `Sink::Spool`. Ceiling check via `Blobs::reserve` (the in-memory ledger, seeded once from `store.external_bytes()`; the `Reservation` is committed after the row insert and given back on every other path), `ApiError::StorageFull` is `507 storage_full`. `blob_response` streams external objects.
 - `scheduler::scrub` deletes parked objects, then their rows; tests call it directly.
 - Tests: `tests/api.rs` runs the tier flow on local disk always and on S3 when `SHH_TEST_S3_ENDPOINT`, `SHH_TEST_S3_BUCKET`, `SHH_TEST_S3_REGION`, `SHH_TEST_S3_ACCESS_KEY_ID` and `SHH_TEST_S3_SECRET_ACCESS_KEY` are set. Without a bucket, `tests/spec_resources.rs` still covers the S3 client: `fake_bucket` (in-memory, path-style, paged listings) for storing, listing and the orphan sweep, and `fake_s3` (answers or hangs) for the timeouts.
 

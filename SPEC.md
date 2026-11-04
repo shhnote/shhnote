@@ -15,7 +15,7 @@
 | D-5 | One secret carries optional text plus zero or more files, described by a JSON manifest inside the encrypted payload. | Text only, text + files, or files only with one payload structure. |
 | D-6 | Padding policy is an instance setting: `padme` (default) or fixed `buckets`, with a 64 KiB minimum padded size. Advertised by the API, not part of the crypto version. Random padding is rejected. | Low overhead with shared sizes and a published analysis; the minimum makes every small file look like text. |
 | D-7 | Maximum TTL 14 days. | Product decision. |
-| D-8 | Runtime settings live in the database with code defaults; deployment settings in the environment. Admin panel: settings, stats, reports, API keys. | Operators change site policy without redeploying. |
+| D-8 | Runtime settings live in the database with code defaults; deployment settings in the environment. Admin panel: settings, stats (including the daily report counts), API keys. | Operators change site policy without redeploying. |
 | D-9 | Admin bootstrap via `SHH_ADMIN_TOKEN`, then an admin-scoped API key; the token is retired. | No long-lived password in the environment. |
 | D-10 | Environment variables are prefixed `SHH_`. | Avoids collisions in shared environments. |
 | D-11 | API served at `/api` or on an `api.` subdomain, chosen by env. | Deployment flexibility. |

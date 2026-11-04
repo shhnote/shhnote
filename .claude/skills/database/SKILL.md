@@ -10,7 +10,7 @@ Every schema change and query must work on both SQLite and PostgreSQL. A change 
 ## Migrations
 
 - Queries go through sqlx's `Any` driver with `$1` placeholders, so one SQL string serves both engines; dynamic SQL needs `AssertSqlSafe` and a comment saying why it is safe. No compile-time query macros.
-- Each backend has its own folder: `migrations/sqlite/` and `migrations/postgres/`, one new table, or one change to an existing one, per file (never several tables in one), embedded into the binary by the `MIGRATIONS` list in `shhnote-store`; add each new file to that list.
+- Each backend has its own folder at the repository root (not inside the crate): `migrations/sqlite/` and `migrations/postgres/`, one new table, or one change to an existing one, per file (never several tables in one), embedded into the binary by the `MIGRATIONS` list in `shhnote-store`; add each new file to that list.
 - Every migration exists in both folders as `NNNN_<name>.sql`, with the next number and the same name in each. Write the files by hand: migrations are forward-only, so there are no `.up.sql`/`.down.sql` pairs (don't use `sqlx migrate add -r`). The two copies only differ where the SQL dialects differ.
 - Never edit a migration once it has been committed. Add a new one instead.
 - Pick types both backends handle the same way:
@@ -25,7 +25,7 @@ Every schema change and query must work on both SQLite and PostgreSQL. A change 
 - The `secrets` table holds only what `SPEC.md` §3 lists. No `created_at`, no access timestamps, no view counters, no IPs, no foreign keys to anything.
 - Every credential is stored as a SHA-256 hash and looked up by that hash.
 - Terminal transitions (viewed, burned, expired, removed) increment the aggregate counter and delete the row (or set `pending_delete` for external blobs) in one transaction. Status filters are the narrowest possible; mark each with a `// SECURITY:` comment saying why widening it would be a privilege escalation.
-- `stats_daily`, reports, settings and API keys live in their own tables and are never joined to `secrets`. Counting is only ever per day, never finer; totals are sums, the active count is `COUNT(*)`, and there is no separate totals table to keep in step.
+- `stats_daily` (which holds the daily report counts; there is no reports table, D-19), `settings`, `api_keys` and `admin_state` live in their own tables and are never joined to `secrets`. Counting is only ever per day, never finer; totals are sums, the active count is `COUNT(*)`, and there is no separate totals table to keep in step.
 
 ## Queries
 
