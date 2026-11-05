@@ -46,7 +46,7 @@ export function wireCreate(root: HTMLElement, options: PageOptions): void {
   const zone = form.querySelector<HTMLElement>("[data-shh-dropzone]");
   // Filled from `/config` when present; a frontend may instead offer its own `expiry` field.
   const ttlSelect = form.querySelector<HTMLSelectElement>("select[data-shh-ttl]");
-  const dropzone: Dropzone | undefined = zone ? wireDropzone(zone, { t }) : undefined;
+  const dropzone: Dropzone | undefined = zone ? wireDropzone(zone, { t }, root) : undefined;
   show(wrapper);
   prefetchArgon2(page.argon2Url);
 

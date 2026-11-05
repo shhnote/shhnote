@@ -123,7 +123,9 @@ instance refuses the blob's size (its policy changed), reading the files again f
 attempt. Both pages reload themselves when restored from the back-forward cache, since their
 secret material was wiped when they were left.
 
-`wireBurn` and `wireReport` take the same options; only `apiBase` matters to them.
+`wireBurn` and `wireReport` take only `t` and `apiBase` (`Pick<PageOptions, "t" | "apiBase">`):
+passing `argon2Url` or `maxBlobBytes` to them is a type error, since neither would do anything
+there.
 
 **States.** Inside a controller's root, every `[data-shh-state="<name>"]` element is hidden
 except the one for the current state. Elements the markup below calls "shown" start with
@@ -160,6 +162,8 @@ consume a single-view secret.
   those paths (see `docs/deploy/own-frontend.md`).
 - The note is refused when its UTF-8 length exceeds the instance's `text_max_bytes`, with the
   limit shown.
+- The Argon2 module at `argon2Url` is fetched as soon as the form is wired, passphrase or not
+  (D-22), so a page's own `<link rel="prefetch">` for the same URL is harmless and not needed.
 - Strings: `create-encrypting`, `create-uploading`, `create-error-empty`,
   `create-error-too-large`, `create-error-text-too-long` (`{max}`), `create-error-network`,
   `create-error-failed`, `create-error-wasm`, `error-unsupported-protocol`,
@@ -209,7 +213,9 @@ consume a single-view secret.
 - `wireCopy(button, getText)`: copies, then sets `data-shh-copied="true"` on the button for
   1.5 seconds. The button's content is never touched; show "copied" with your own
   CSS. (A third argument is accepted and ignored, for 0.3.0 callers.)
-- `wireDropzone(zone, { t })` returns a `Dropzone` (`files`, `hide()`, `reset()`).
+- `wireDropzone(zone, { t }, root?)` returns a `Dropzone` (`files`, `hide()`, `reset()`). The
+  `dropzone-item` template is looked up in `root` (the zone's parent when none is given),
+  then in the document; `wireCreate` passes its own root.
 - `wirePasswordToggles(root?)`: `[data-shh-pwd-input]` wrapping an `input` and a
   `[data-shh-pwd-toggle]` button; sets `aria-pressed` and `data-shown`.
 - `wireTheme(root?)`: buttons `[data-shh-theme-choice=light|dark|light-hc|dark-hc|auto]` set

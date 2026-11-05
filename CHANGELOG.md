@@ -4,6 +4,14 @@ User-visible changes, newest first. The protocol is specified in `SPEC.md`; the 
 review that preceded 0.3.0, with every finding and fix, has its own record in
 `docs/security-review/CHANGELOG.md`.
 
+## 0.4.1 — 2026-11-04
+
+Client package only (`client/CHANGELOG.md` has the consumer-facing entries, and now ships in
+the package with every added or removed `UiKey` listed per release). The `dropzone-item`
+template is looked up in the `wireCreate` root, as the README says, so two create forms on
+one page each use their own; `wireBurn` and `wireReport` refuse the options they ignore at
+the type level; the README says that the create page fetches the Argon2 module on wire.
+
 ## 0.4.0 — 2026-11-04
 
 The docs, the client package and the server now say the same thing. A frontend can configure

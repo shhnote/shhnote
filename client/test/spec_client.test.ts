@@ -579,6 +579,16 @@ describe("spec: controller options and hooks (revision 3, D3a)", () => {
       assert.throws(() => ui.wireReport(report.root, { t }), /apiBase/);
       ui.wireReport(report.root, options);
       assert.equal(report.form.hidden, false, "the form is shown");
+
+      // Checked by `npm run typecheck`, never run: the options that only the create and reveal
+      // pages use are refused by the burn and report signatures (round 2, E3).
+      const neverCalled = () => {
+        // @ts-expect-error argon2Url is not an option of wireBurn
+        ui.wireBurn(burn.root, { t, apiBase: options.apiBase, argon2Url: "/argon2.wasm" });
+        // @ts-expect-error maxBlobBytes is not an option of wireReport
+        ui.wireReport(report.root, { t, apiBase: options.apiBase, maxBlobBytes: 1 });
+      };
+      void neverCalled;
     });
   });
 
@@ -605,6 +615,51 @@ describe("spec: controller options and hooks (revision 3, D3a)", () => {
     }
     assert.deepEqual(attributes, { "data-shh-ready": "true" });
     assert.equal(tabList.hidden, false);
+  });
+
+  it("each create form's drop zone uses the dropzone-item template inside its own root (round 2, E1)", () => {
+    // Two create forms on one page, each with its own template somewhere inside its root (not
+    // next to the zone). A fake DOM: the zone, its parent with the file list, and the root.
+    function createForm(name: string) {
+      let onChange: (() => void) | undefined;
+      const input = { files: null as unknown as FileList, value: "", addEventListener: (_type: string, handler: () => void) => (onChange = handler) };
+      const items: { from: string }[] = [];
+      const list = { replaceChildren: () => items.splice(0), append: (item: { from: string }) => items.push(item) };
+      const parent = { querySelector: (selector: string) => (selector === "[data-shh-file-list]" ? list : null) };
+      const zone = {
+        parentElement: parent,
+        dataset: {} as Record<string, string>,
+        addEventListener: () => {},
+        querySelector: (selector: string) => (selector === "input[type=file]" ? input : null),
+      };
+      const template = { content: { firstElementChild: { cloneNode: () => ({ from: name, querySelector: () => null }) } } };
+      const root = { querySelector: (selector: string) => (selector === 'template[data-shh-template="dropzone-item"]' ? template : null) };
+      return {
+        root: root as unknown as HTMLElement,
+        zone: zone as unknown as HTMLElement,
+        items,
+        choose: () => {
+          input.files = [{ name: "a.txt", size: 1 }] as unknown as FileList;
+          onChange!();
+        },
+      };
+    }
+    const g = globalThis as { document?: unknown };
+    const saved = g.document;
+    // The document fallback would hand both forms the same template.
+    g.document = { querySelector: () => ({ content: { firstElementChild: { cloneNode: () => ({ from: "document", querySelector: () => null }) } } }) };
+    try {
+      const first = createForm("first");
+      const second = createForm("second");
+      ui.wireDropzone(first.zone, { t }, first.root);
+      ui.wireDropzone(second.zone, { t }, second.root);
+      first.choose();
+      second.choose();
+      assert.deepEqual(first.items.map((item) => item.from), ["first"]);
+      assert.deepEqual(second.items.map((item) => item.from), ["second"]);
+    } finally {
+      g.document = saved;
+    }
   });
 
   it("/ui exports the helpers a frontend needs to match the reference pages", () => {
