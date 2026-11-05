@@ -20,7 +20,8 @@ updates:
       images:
         patterns: ["*"]
 
-  - package-ecosystem: docker
+  # The compose files pin caddy and postgres by digest; "docker" only reads Dockerfiles.
+  - package-ecosystem: docker-compose
     directory: /deploy/docker
     schedule:
       interval: weekly
