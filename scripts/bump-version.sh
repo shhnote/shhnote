@@ -12,7 +12,8 @@
 # Cargo.toml, client/package.json and client/package-lock.json agree (the server and the
 # client package are versioned in lockstep). Touches those files, Cargo.lock and the first
 # "## <version> — unreleased" heading in CHANGELOG.md (stable bumps only), then commits as
-# "release: <version>" and creates the annotated tag v<version>. Push with:
+# "release: <version>" and creates the signed tag v<version>. Both changelogs
+# (CHANGELOG.md, client/CHANGELOG.md) get their "— unreleased" heading dated. Push with:
 #   git push origin main --follow-tags
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -96,18 +97,19 @@ for path in ("client/package.json", "client/package-lock.json"):
 
 if "-rc." not in new:
     today = datetime.date.today().isoformat()
-    s = open("CHANGELOG.md").read()
-    s2, n = re.subn(r"^## [^\n]* — unreleased$", f"## {new} — {today}", s, count=1, flags=re.M)
-    if n:
-        open("CHANGELOG.md", "w").write(s2)
-    else:
-        print("CHANGELOG.md: no '— unreleased' heading; add the release notes by hand", file=sys.stderr)
+    for path in ("CHANGELOG.md", "client/CHANGELOG.md"):
+        s = open(path).read()
+        s2, n = re.subn(r"^## [^\n]* — unreleased$", f"## {new} — {today}", s, count=1, flags=re.M)
+        if n:
+            open(path, "w").write(s2)
+        else:
+            print(f"{path}: no '— unreleased' heading; add the release notes by hand", file=sys.stderr)
 PY
 
 # Cargo.lock records the workspace crates' version; a metadata-only command refreshes it.
 cargo metadata --format-version 1 --offline >/dev/null
 
-git add Cargo.toml Cargo.lock client/package.json client/package-lock.json CHANGELOG.md
+git add Cargo.toml Cargo.lock client/package.json client/package-lock.json CHANGELOG.md client/CHANGELOG.md
 git --no-pager diff --cached --stat
 # -S / -s force a signature and fail if no signing key is configured in this environment
 # (commit.gpgsign alone is silently skipped where it is unset).
