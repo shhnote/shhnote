@@ -198,7 +198,7 @@ async fn spec_r2_pass3_top_bucket_of_default_external_tier_is_accepted() {
         &[
             ("SHH_STORAGE", "local"),
             ("SHH_LOCAL_PATH", root.to_str().unwrap()),
-            ("SHH_LOCAL_MAX_TOTAL_BYTES", "200000000"),
+            ("SHH_LOCAL_MAX_TOTAL_BYTES", "200000000B"),
         ],
         &[],
     )
@@ -230,9 +230,9 @@ async fn spec_r2_pass3_server_serves_blobs_longer_than_advertised_max_blob_bytes
         &[
             ("SHH_STORAGE", "local"),
             ("SHH_LOCAL_PATH", root.to_str().unwrap()),
-            ("SHH_LOCAL_MAX_TOTAL_BYTES", "10000000"),
-            ("SHH_INLINE_MAX", "65536"),
-            ("SHH_EXTERNAL_MAX_OBJECT", "1048576"),
+            ("SHH_LOCAL_MAX_TOTAL_BYTES", "10000000B"),
+            ("SHH_INLINE_MAX", "65536B"),
+            ("SHH_EXTERNAL_MAX_OBJECT", "1048576B"),
         ],
         &[],
     )
@@ -387,7 +387,7 @@ async fn spec_r2_pass3_files_disabled_with_a_short_ladder_still_accepts_text() {
     let (_, warnings) = Settings::with_overrides(
         &[
             ("padding_mode", "buckets"),
-            ("padding_ladder", "65536"),
+            ("padding_ladder", "64K"),
             ("files_enabled", "false"),
         ]
         .into_iter()
@@ -403,7 +403,7 @@ async fn spec_r2_pass3_files_disabled_with_a_short_ladder_still_accepts_text() {
         &[],
         &[
             ("padding_mode", "buckets"),
-            ("padding_ladder", "65536,262144"),
+            ("padding_ladder", "64K,256K"),
             ("files_enabled", "false"),
         ],
     )

@@ -9,5 +9,6 @@ pub mod kdf;
 pub mod padding;
 pub mod secret;
 pub mod settings;
+pub mod size;
 
 pub use error::Error;

@@ -1,3 +1,4 @@
+use crate::size::{format_size, parse_size};
 use std::{
     collections::HashMap,
     fmt,
@@ -528,17 +529,17 @@ fn endpoint_is_private(endpoint: &str) -> bool {
 
 impl Storage {
     fn from_vars(vars: &Vars, env: AppEnv) -> Result<Self, ConfigError> {
-        let inline_max = vars.parse_or("SHH_INLINE_MAX", DEFAULT_INLINE_MAX)?;
+        let inline_max = vars.size_or("SHH_INLINE_MAX", DEFAULT_INLINE_MAX)?;
         if inline_max < MIN_INLINE_MAX {
             return Err(invalid(
                 "SHH_INLINE_MAX",
-                format!("must be at least {MIN_INLINE_MAX} bytes"),
+                format!("must be at least {}", format_size(MIN_INLINE_MAX)),
             ));
         }
         if inline_max > MAX_INLINE_MAX {
             return Err(invalid(
                 "SHH_INLINE_MAX",
-                format!("must be at most {MAX_INLINE_MAX} bytes"),
+                format!("must be at most {}", format_size(MAX_INLINE_MAX)),
             ));
         }
 
@@ -553,7 +554,7 @@ impl Storage {
                 vars.reject_tier("SHH_STORAGE", S3_VARS)?;
                 Some(ExternalStorage::Local {
                     path: vars.get("SHH_LOCAL_PATH").unwrap_or("storage/blobs").into(),
-                    max_total_bytes: vars.positive("SHH_LOCAL_MAX_TOTAL_BYTES")?,
+                    max_total_bytes: vars.positive_size("SHH_LOCAL_MAX_TOTAL_BYTES")?,
                 })
             }
             "s3" => {
@@ -575,7 +576,7 @@ impl Storage {
                     secret_access_key: Secret(
                         vars.required("SHH_S3_SECRET_ACCESS_KEY")?.to_string(),
                     ),
-                    max_total_bytes: vars.positive("SHH_S3_MAX_TOTAL_BYTES")?,
+                    max_total_bytes: vars.positive_size("SHH_S3_MAX_TOTAL_BYTES")?,
                     spool_path: vars.get("SHH_SPOOL_PATH").unwrap_or("storage/spool").into(),
                 })
             }
@@ -591,7 +592,7 @@ impl Storage {
             }
             (None, None) => inline_max,
             (Some(_), _) => {
-                let max = vars.parse_or("SHH_EXTERNAL_MAX_OBJECT", DEFAULT_EXTERNAL_MAX_OBJECT)?;
+                let max = vars.size_or("SHH_EXTERNAL_MAX_OBJECT", DEFAULT_EXTERNAL_MAX_OBJECT)?;
                 if max < inline_max {
                     return Err(invalid(
                         "SHH_EXTERNAL_MAX_OBJECT",
@@ -601,7 +602,7 @@ impl Storage {
                 if max > MAX_EXTERNAL_MAX_OBJECT {
                     return Err(invalid(
                         "SHH_EXTERNAL_MAX_OBJECT",
-                        format!("must be at most {MAX_EXTERNAL_MAX_OBJECT} bytes"),
+                        format!("must be at most {}", format_size(MAX_EXTERNAL_MAX_OBJECT)),
                     ));
                 }
                 max
@@ -705,8 +706,15 @@ impl Vars<'_> {
         }
     }
 
-    fn positive(&self, name: &'static str) -> Result<u64, ConfigError> {
-        let value: u64 = self.required(name)?.parse().map_err(|e| invalid(name, e))?;
+    fn size_or(&self, name: &'static str, default: u64) -> Result<u64, ConfigError> {
+        match self.get(name) {
+            None => Ok(default),
+            Some(value) => parse_size(value).map_err(|e| invalid(name, e)),
+        }
+    }
+
+    fn positive_size(&self, name: &'static str) -> Result<u64, ConfigError> {
+        let value = parse_size(self.required(name)?).map_err(|e| invalid(name, e))?;
         if value == 0 {
             return Err(invalid(name, "must be greater than 0"));
         }
@@ -840,7 +848,7 @@ mod tests {
             ("SHH_S3_REGION", "us-east-1"),
             ("SHH_S3_ACCESS_KEY_ID", "id"),
             ("SHH_S3_SECRET_ACCESS_KEY", "secret"),
-            ("SHH_S3_MAX_TOTAL_BYTES", "10000000000"),
+            ("SHH_S3_MAX_TOTAL_BYTES", "10G"),
         ]
     }
 
@@ -953,7 +961,7 @@ mod tests {
         let vars = with(&[("SHH_S3_BUCKET", "shhnote")]);
         assert_eq!(invalid_name(Config::from_vars(&vars)), "SHH_S3_BUCKET");
 
-        let vars = with(&[("SHH_EXTERNAL_MAX_OBJECT", "1000000")]);
+        let vars = with(&[("SHH_EXTERNAL_MAX_OBJECT", "1M")]);
         assert_eq!(
             invalid_name(Config::from_vars(&vars)),
             "SHH_EXTERNAL_MAX_OBJECT"
@@ -1003,7 +1011,7 @@ mod tests {
     #[test]
     fn external_max_object_must_cover_inline_max() {
         let mut changes = s3_vars();
-        changes.push(("SHH_EXTERNAL_MAX_OBJECT", "1000000"));
+        changes.push(("SHH_EXTERNAL_MAX_OBJECT", "1M"));
         assert_eq!(
             invalid_name(Config::from_vars(&with(&changes))),
             "SHH_EXTERNAL_MAX_OBJECT"
@@ -1071,13 +1079,13 @@ mod tests {
 
     #[test]
     fn size_limits_have_ceilings() {
-        let vars = with(&[("SHH_INLINE_MAX", "68719476736")]);
+        let vars = with(&[("SHH_INLINE_MAX", "64G")]);
         assert_eq!(invalid_name(Config::from_vars(&vars)), "SHH_INLINE_MAX");
         let mut changes = vec![
             ("SHH_STORAGE", "local"),
             ("SHH_LOCAL_PATH", "/tmp/x"),
-            ("SHH_LOCAL_MAX_TOTAL_BYTES", "1000"),
-            ("SHH_EXTERNAL_MAX_OBJECT", "8589934592"),
+            ("SHH_LOCAL_MAX_TOTAL_BYTES", "1K"),
+            ("SHH_EXTERNAL_MAX_OBJECT", "8G"),
         ];
         let vars = with(&changes);
         assert_eq!(
@@ -1085,13 +1093,21 @@ mod tests {
             "SHH_EXTERNAL_MAX_OBJECT"
         );
         changes.pop();
-        changes.push(("SHH_EXTERNAL_MAX_OBJECT", "4294967296"));
+        changes.push(("SHH_EXTERNAL_MAX_OBJECT", "4G"));
         assert!(Config::from_vars(&with(&changes)).is_ok());
     }
 
     #[test]
+    fn sizes_take_a_unit() {
+        let config = Config::from_vars(&with(&[("SHH_INLINE_MAX", "4M")])).unwrap();
+        assert_eq!(config.storage.inline_max, 4 * MIB);
+        let vars = with(&[("SHH_INLINE_MAX", "4194304")]);
+        assert_eq!(invalid_name(Config::from_vars(&vars)), "SHH_INLINE_MAX");
+    }
+
+    #[test]
     fn inline_max_has_a_floor() {
-        let vars = with(&[("SHH_INLINE_MAX", "1000")]);
+        let vars = with(&[("SHH_INLINE_MAX", "1K")]);
         assert_eq!(invalid_name(Config::from_vars(&vars)), "SHH_INLINE_MAX");
     }
 

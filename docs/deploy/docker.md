@@ -85,7 +85,7 @@ Everything the app writes is under the `shhnote-data` volume at `/data`: the SQL
 
 ```sh
 SHH_STORAGE=local
-SHH_LOCAL_MAX_TOTAL_BYTES=10737418240     # hard ceiling for the blobs directory
+SHH_LOCAL_MAX_TOTAL_BYTES=10G     # hard ceiling for the blobs directory
 ```
 
 For S3, see [operations](operations.md#storage-tiers).

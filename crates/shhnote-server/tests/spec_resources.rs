@@ -43,7 +43,7 @@ fn base_vars() -> HashMap<String, String> {
         ("SHH_URL", "http://localhost:3000"),
         ("SHH_SECRET_KEY", &"s".repeat(44)),
         ("SHH_DB", "sqlite"),
-        ("SHH_INLINE_MAX", "65536"),
+        ("SHH_INLINE_MAX", "65536B"),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -283,7 +283,7 @@ async fn wait_until(mut check: impl FnMut() -> bool) -> bool {
 // part after the blob is ignored, which the spec does not forbid.
 #[tokio::test]
 async fn spec_multipart_shapes() {
-    let (app, _store, _blobs, root) = local("shapes", "1000000000").await;
+    let (app, _store, _blobs, root) = local("shapes", "1000000000B").await;
     let blob = raw_blob(65536);
 
     // Blob first.
@@ -331,7 +331,7 @@ async fn spec_multipart_shapes() {
 // A valid upload of the same order of size still goes through.
 #[tokio::test]
 async fn spec_invalid_declared_length_is_refused_before_spooling() {
-    let (app, _store, _blobs, root) = local("declared-length", "1000000000").await;
+    let (app, _store, _blobs, root) = local("declared-length", "1000000000B").await;
     let tmp = root.join("tmp");
     let meta_text = meta(&keys(), "ttl").to_string();
     // 1 MiB is a valid bucket and the next one is 32 KiB further: 20 KiB past it, the window
@@ -375,7 +375,7 @@ async fn spec_invalid_declared_length_is_refused_before_spooling() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn spec_spool_bytes_count_toward_the_ceiling() {
     const CEILING: u64 = 300_000;
-    let (app, store, _blobs, root) = local("spool-ceiling", &CEILING.to_string()).await;
+    let (app, store, _blobs, root) = local("spool-ceiling", &format!("{CEILING}B")).await;
     // Fill the tier so a new large create must get 507.
     for _ in 0..2 {
         assert_eq!(
@@ -440,7 +440,7 @@ async fn spec_spool_bytes_count_toward_the_ceiling() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn spec_concurrent_creates_respect_the_ceiling() {
     const CEILING: u64 = 300_000; // room for two 128 KiB objects
-    let (app, store, _blobs, root) = local("ceiling-race", &CEILING.to_string()).await;
+    let (app, store, _blobs, root) = local("ceiling-race", &format!("{CEILING}B")).await;
     let blob = Arc::new(raw_blob(LARGE));
     let mut tasks = Vec::new();
     for _ in 0..16 {
@@ -473,7 +473,7 @@ async fn spec_concurrent_creates_respect_the_ceiling() {
 // half by the request future being dropped (what hyper does on disconnect). No spool survives.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn spec_aborted_uploads_leave_no_spool_files() {
-    let (app, _store, _blobs, root) = local("aborts", "1000000000").await;
+    let (app, _store, _blobs, root) = local("aborts", "1000000000B").await;
     let tmp = root.join("tmp");
     for i in 0..100 {
         // The previous upload's file may still be on its way out; wait for this one's own.
@@ -517,7 +517,7 @@ async fn spec_fifty_concurrent_reveals_have_one_winner() {
             let (app, _, _) = build("race-inline", &[]).await;
             (app, None)
         } else {
-            let (app, _, _, root) = local("race-local", "1000000000").await;
+            let (app, _, _, root) = local("race-local", "1000000000B").await;
             (app, Some(root))
         };
         let bucket = if tier == "inline" { 65536 } else { LARGE };
@@ -562,7 +562,7 @@ async fn spec_fifty_concurrent_reveals_have_one_winner() {
 // left untouched by the attempt (the object is opened before the claim is committed).
 #[tokio::test]
 async fn spec_missing_object_is_the_uniform_negative() {
-    let (app, _store, _blobs, root) = local("missing-object", "1000000000").await;
+    let (app, _store, _blobs, root) = local("missing-object", "1000000000B").await;
     let ttl = keys();
     let single = keys();
     for (k, lifetime) in [(&ttl, "ttl"), (&single, "single_view")] {
@@ -635,7 +635,7 @@ fn split_response(raw: &[u8]) -> (String, Vec<u8>) {
 // that, and a short one leaves the client with a truncated body it will reject.
 #[tokio::test]
 async fn spec_object_shorter_or_longer_than_bucket() {
-    let (app, _store, _blobs, root) = local("object-size", "1000000000").await;
+    let (app, _store, _blobs, root) = local("object-size", "1000000000B").await;
     let addr = serve(app.clone()).await;
     let expected = blob_len(LARGE) as usize;
     for (label, change) in [("shorter", -1000i64), ("longer", 1000)] {
@@ -687,7 +687,7 @@ async fn spec_object_shorter_or_longer_than_bucket() {
 // line and one that stalls mid-upload, and the stalled upload's spool goes with it.
 #[tokio::test]
 async fn spec_stalled_clients_are_timed_out() {
-    let (app, _store, _blobs, root) = local("slow", "1000000000").await;
+    let (app, _store, _blobs, root) = local("slow", "1000000000B").await;
     let addr = serve(app).await;
 
     let mut headers_only = TcpStream::connect(addr).await.unwrap();
@@ -812,7 +812,7 @@ async fn s3(name: &str, hang: Arc<AtomicBool>) -> (Router, Store, Arc<Blobs>, Pa
             ("SHH_S3_ENDPOINT", &endpoint),
             ("SHH_S3_ACCESS_KEY_ID", "AKIDREVIEW"),
             ("SHH_S3_SECRET_ACCESS_KEY", "review-secret"),
-            ("SHH_S3_MAX_TOTAL_BYTES", "1000000000"),
+            ("SHH_S3_MAX_TOTAL_BYTES", "1000000000B"),
             ("SHH_SPOOL_PATH", spool.to_str().unwrap()),
         ],
     )
@@ -877,7 +877,7 @@ fn spec_production_refuses_plain_http_s3_endpoint() {
         ("SHH_S3_ENDPOINT", "http://s3.example.com"),
         ("SHH_S3_ACCESS_KEY_ID", "a"),
         ("SHH_S3_SECRET_ACCESS_KEY", "s"),
-        ("SHH_S3_MAX_TOTAL_BYTES", "1000"),
+        ("SHH_S3_MAX_TOTAL_BYTES", "1000B"),
     ] {
         vars.insert(k.into(), v.into());
     }
@@ -922,7 +922,7 @@ async fn spec_spool_path_is_not_wiped_recursively() {
         ("SHH_S3_ENDPOINT", endpoint.as_str()),
         ("SHH_S3_ACCESS_KEY_ID", "a"),
         ("SHH_S3_SECRET_ACCESS_KEY", "s"),
-        ("SHH_S3_MAX_TOTAL_BYTES", "1000"),
+        ("SHH_S3_MAX_TOTAL_BYTES", "1000B"),
         ("SHH_SPOOL_PATH", dir.to_str().unwrap()),
     ] {
         vars.insert(k.into(), v.into());
@@ -956,7 +956,7 @@ async fn spec_spool_path_is_not_wiped_recursively() {
 // ceiling counts what the tier holds (`blob_len(bucket)`, not `bucket`).
 #[tokio::test]
 async fn spec_orphan_objects_are_collected_at_startup() {
-    let (app, store, _blobs, root) = local("orphans", "1000000000").await;
+    let (app, store, _blobs, root) = local("orphans", "1000000000B").await;
     let k = keys();
     assert_eq!(
         create(&app, &k, "ttl", &raw_blob(LARGE)).await.status,
@@ -970,7 +970,7 @@ async fn spec_orphan_objects_are_collected_at_startup() {
     for (k, v) in [
         ("SHH_STORAGE", "local"),
         ("SHH_LOCAL_PATH", root.to_str().unwrap()),
-        ("SHH_LOCAL_MAX_TOTAL_BYTES", "1000000000"),
+        ("SHH_LOCAL_MAX_TOTAL_BYTES", "1000000000B"),
     ] {
         vars.insert(k.into(), v.into());
     }
@@ -996,7 +996,7 @@ async fn spec_orphan_objects_are_collected_at_startup() {
 // other entry alone, counting them, so a stray file never stops the server at startup.
 #[tokio::test]
 async fn spec_orphan_sweep_ignores_stray_files() {
-    let (app, store, _blobs, root) = local("orphans-stray", "1000000000").await;
+    let (app, store, _blobs, root) = local("orphans-stray", "1000000000B").await;
     let k = keys();
     assert_eq!(
         create(&app, &k, "ttl", &raw_blob(LARGE)).await.status,
@@ -1024,7 +1024,7 @@ async fn spec_orphan_sweep_ignores_stray_files() {
     for (k, v) in [
         ("SHH_STORAGE", "local"),
         ("SHH_LOCAL_PATH", root.to_str().unwrap()),
-        ("SHH_LOCAL_MAX_TOTAL_BYTES", "1000000000"),
+        ("SHH_LOCAL_MAX_TOTAL_BYTES", "1000000000B"),
     ] {
         vars.insert(k.into(), v.into());
     }
@@ -1051,7 +1051,7 @@ async fn spec_orphan_sweep_ignores_stray_files() {
 // alone and the rows are re-read after the listing; once it is older than the window it goes.
 #[tokio::test]
 async fn spec_sweep_leaves_objects_that_may_still_be_uploads_in_flight() {
-    let (_app, store, _blobs, root) = local("orphans-young", "1000000000").await;
+    let (_app, store, _blobs, root) = local("orphans-young", "1000000000B").await;
     let blobs_dir = root.join("blobs");
     let young = blobs_dir.join("CCCCCCCCCCCCCCCCCCCCCC");
     std::fs::write(&young, vec![0u8; 1000]).unwrap();
@@ -1062,7 +1062,7 @@ async fn spec_sweep_leaves_objects_that_may_still_be_uploads_in_flight() {
     for (k, v) in [
         ("SHH_STORAGE", "local"),
         ("SHH_LOCAL_PATH", root.to_str().unwrap()),
-        ("SHH_LOCAL_MAX_TOTAL_BYTES", "1000000000"),
+        ("SHH_LOCAL_MAX_TOTAL_BYTES", "1000000000B"),
     ] {
         vars.insert(k.into(), v.into());
     }
@@ -1110,7 +1110,7 @@ async fn spec_sweep_continues_past_an_undeletable_orphan() {
             ("SHH_S3_ENDPOINT", &endpoint),
             ("SHH_S3_ACCESS_KEY_ID", "test-access-key"),
             ("SHH_S3_SECRET_ACCESS_KEY", "test-secret-key"),
-            ("SHH_S3_MAX_TOTAL_BYTES", "1000000000"),
+            ("SHH_S3_MAX_TOTAL_BYTES", "1000000000B"),
             ("SHH_SPOOL_PATH", spool.to_str().unwrap()),
         ],
     )
@@ -1260,7 +1260,7 @@ async fn spec_orphan_sweep_on_s3_follows_pages_and_ignores_strays() {
             ("SHH_S3_ENDPOINT", &endpoint),
             ("SHH_S3_ACCESS_KEY_ID", "test-access-key"),
             ("SHH_S3_SECRET_ACCESS_KEY", "test-secret-key"),
-            ("SHH_S3_MAX_TOTAL_BYTES", "1000000000"),
+            ("SHH_S3_MAX_TOTAL_BYTES", "1000000000B"),
             ("SHH_SPOOL_PATH", spool.to_str().unwrap()),
         ],
     )
@@ -1346,7 +1346,7 @@ async fn spec_orphan_sweep_on_s3_follows_pages_and_ignores_strays() {
 #[tokio::test]
 async fn spec_stalled_upload_does_not_block_shutdown() {
     use shhnote_server::drain::{Drain, track};
-    let (app, _store, _blobs, root) = local("shutdown", "1000000000").await;
+    let (app, _store, _blobs, root) = local("shutdown", "1000000000B").await;
     let drain = Arc::new(Drain::default());
     let app = app.layer(axum::middleware::from_fn_with_state(drain.clone(), track));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

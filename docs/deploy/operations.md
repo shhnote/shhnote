@@ -20,7 +20,7 @@ Deployment settings come from the environment (or a `.env` file in the working d
 | `SHH_DB` | yes | `sqlite` or `postgres`. |
 | `SHH_SQLITE_PATH` | | Default `storage/shhnote.db`, relative to the working directory. |
 | `SHH_PG_HOST`, `SHH_PG_PORT`, `SHH_PG_DATABASE`, `SHH_PG_USERNAME`, `SHH_PG_PASSWORD` | with postgres | Connection details. |
-| `SHH_STORAGE` | | `inline` (default: blobs above the inline ceiling are refused), `local` or `s3`. |
+| `SHH_STORAGE` | | `inline` (default: blobs above the inline ceiling are refused), `local` or `s3`. The size variables below take a unit: `100B`, `64K`, `10M`, `1G` (powers of 1024); a bare number is refused. |
 | `SHH_INLINE_MAX` | | Largest padded blob kept in the database (default 2 MiB, minimum 64 KiB). At most 64 MiB. |
 | `SHH_EXTERNAL_MAX_OBJECT` | with local/s3 | Largest padded blob the external tier accepts (default 64 MiB, at most 4 GiB). |
 | `SHH_MAX_UPLOADS` | optional | Uploads in flight at once; further creates get `503 too_busy` until one finishes (default 64). Each slot can hold up to `SHH_INLINE_MAX` in memory. |

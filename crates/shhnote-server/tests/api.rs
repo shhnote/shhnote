@@ -1000,7 +1000,7 @@ async fn external_server_with(
         ("SHH_SECRET_KEY", &"s".repeat(44)),
         ("SHH_DB", "sqlite"),
         // The smallest inline ceiling, so a 128 KiB bucket is external.
-        ("SHH_INLINE_MAX", "65536"),
+        ("SHH_INLINE_MAX", "65536B"),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -1148,7 +1148,7 @@ async fn local_tier_round_trips_and_scrubs() {
         &[
             ("SHH_STORAGE", "local"),
             ("SHH_LOCAL_PATH", root.to_str().unwrap()),
-            ("SHH_LOCAL_MAX_TOTAL_BYTES", "300000"),
+            ("SHH_LOCAL_MAX_TOTAL_BYTES", "300000B"),
         ],
     )
     .await;
@@ -1191,7 +1191,7 @@ async fn s3_tier_round_trips_and_scrubs() {
         })
         .collect();
     tier.push(("SHH_STORAGE", "s3"));
-    tier.push(("SHH_S3_MAX_TOTAL_BYTES", "300000"));
+    tier.push(("SHH_S3_MAX_TOTAL_BYTES", "300000B"));
     let (app, store, blobs) = external_server("api-s3-tier", &tier).await;
     external_tier_flow(&app, &store, &blobs).await;
 }
@@ -1205,7 +1205,7 @@ async fn inline_disabled_sends_every_blob_external() {
         &[
             ("SHH_STORAGE", "local"),
             ("SHH_LOCAL_PATH", root.to_str().unwrap()),
-            ("SHH_LOCAL_MAX_TOTAL_BYTES", "300000"),
+            ("SHH_LOCAL_MAX_TOTAL_BYTES", "300000B"),
         ],
         &[("inline_enabled", "false")],
     )
@@ -1501,7 +1501,7 @@ async fn admin_api_bootstraps_keys_settings_and_stats() {
         "PATCH",
         "/api/v1/admin/settings",
         &admin_key,
-        Some(json!({"padding_mode": "buckets", "padding_ladder": [65536, 1_073_741_824u64]})),
+        Some(json!({"padding_mode": "buckets", "padding_ladder": ["64K", "1G"]})),
     )
     .await;
     assert_eq!(oversized.status, StatusCode::UNPROCESSABLE_ENTITY);

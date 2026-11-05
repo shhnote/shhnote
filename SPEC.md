@@ -275,7 +275,7 @@ Burn and report match `status = 'active'` only; a claimed secret is already cons
 
 The padded size is chosen by an instance setting, served by `GET /config`. The server accepts a blob only if its length corresponds to a valid padded size under the current policy. Decryption reads `payload_len` and never needs the policy, so the policy can change at any time without affecting stored secrets.
 
-Settings: `padding_mode` (`padme` | `buckets`), `padding_min` (smallest padded size, padme mode), `padding_ladder` (buckets mode). The one not in use is kept, so switching modes back restores it.
+Settings: `padding_mode` (`padme` | `buckets`), `padding_min` (smallest padded size, padme mode), `padding_ladder` (buckets mode). Sizes are written with a unit (`64K`, `1M`, `1G`; `B` for bytes), as in §7.1; the one not in use is kept, so switching modes back restores it.
 
 **`padme` (default).** Deterministic padding from Nikitin et al., *PURBs* (2019): for `L = max(payload_len + 4, padding_min)`,
 
@@ -315,7 +315,7 @@ Default `padding_min` is 64 KiB: a trivial upload per text secret, and every fil
 | `SHH_TRUSTED_PROXIES` | Addresses or CIDR ranges of reverse proxies whose `X-Forwarded-For` is honoured; never `0.0.0.0`, `::` or a `/0`; prefixes shorter than /8 (v4) or /32 (v6), mapped and transition ranges, and non-network base addresses are rejected |
 | `SHH_DB` | `sqlite` / `postgres` |
 | `SHH_SQLITE_PATH`, `SHH_PG_*` | connection details |
-| `SHH_STORAGE` | `inline` / `local` / `s3` |
+| `SHH_STORAGE` | `inline` / `local` / `s3`. Sizes below take a unit (`100B`, `64K`, `10M`, `1G`, powers of 1024); a bare number is refused |
 | `SHH_INLINE_MAX` | largest padded size stored in the database (default 2 MiB, at most 64 MiB) |
 | `SHH_LOCAL_PATH`, `SHH_LOCAL_MAX_TOTAL_BYTES` | local tier |
 | `SHH_S3_BUCKET`, `SHH_S3_REGION`, `SHH_S3_ENDPOINT`, `SHH_S3_ACCESS_KEY_ID`, `SHH_S3_SECRET_ACCESS_KEY`, `SHH_S3_MAX_TOTAL_BYTES` | S3 tier; bucket versioning must be off |
@@ -332,7 +332,7 @@ Unknown `SHH_*` variables and variables for a disabled storage tier fail startup
 
 Site name, contact and security emails, source-code link, TTL presets and default TTL (≤ 14 days), padding mode / minimum / ladder (§6.2), file secrets on/off (hides the input and caps the accepted size at a text-only secret), inline tier on/off, text size hint, rate-limit thresholds for anonymous and for `user`-key requests, salt-rotation interval, claim window, daily-stats retention (default 365 days; older days are folded into their year's 1 January row so totals are never lost; -1 never folds), regions list (D-12), whether creation requires a `user` key.
 
-Every setting is range-checked as a whole: `padding_min ≥ 65536`, ladder monotone, `claim_window_secs` in `60..=86400`, `rate_user_multiplier ≥ 1`, every preset within `[min_ttl, max_ttl]`, `max_ttl ≤ 14 d` (refused, not clamped), `daily_retention_days ≥ 1` or `-1`, region and source URLs `https://` only (`http://` when `SHH_ENV` is `local`). `allowed_origins` is a list of `https://` origins (scheme + host, optional port; `http://` only when `SHH_ENV` is `local`), validated as origins, no wildcards, no paths. Arithmetic on settings is checked or saturating.
+Every setting is range-checked as a whole: `padding_min ≥ 64K`, ladder monotone, `claim_window_secs` in `60..=86400`, `rate_user_multiplier ≥ 1`, every preset within `[min_ttl, max_ttl]`, `max_ttl ≤ 14 d` (refused, not clamped), `daily_retention_days ≥ 1` or `-1`, region and source URLs `https://` only (`http://` when `SHH_ENV` is `local`). `allowed_origins` is a list of `https://` origins (scheme + host, optional port; `http://` only when `SHH_ENV` is `local`), validated as origins, no wildcards, no paths. Arithmetic on settings is checked or saturating.
 
 ---
 

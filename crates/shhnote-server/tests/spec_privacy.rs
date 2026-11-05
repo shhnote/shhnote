@@ -704,7 +704,7 @@ async fn spec_s3_error_log_text_never_names_the_object() {
         ("SHH_S3_ENDPOINT", format!("http://127.0.0.1:{port}")),
         ("SHH_S3_ACCESS_KEY_ID", "id".to_string()),
         ("SHH_S3_SECRET_ACCESS_KEY", "secret".to_string()),
-        ("SHH_S3_MAX_TOTAL_BYTES", "1000000000".to_string()),
+        ("SHH_S3_MAX_TOTAL_BYTES", "1000000000B".to_string()),
         ("SHH_SPOOL_PATH", spool.display().to_string()),
     ]
     .into_iter()

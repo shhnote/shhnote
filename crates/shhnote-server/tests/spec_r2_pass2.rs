@@ -61,7 +61,7 @@ fn base_vars() -> HashMap<String, String> {
         ("SHH_URL", "http://localhost:3000"),
         ("SHH_SECRET_KEY", &"s".repeat(44)),
         ("SHH_DB", "sqlite"),
-        ("SHH_INLINE_MAX", "65536"),
+        ("SHH_INLINE_MAX", "65536B"),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -140,7 +140,7 @@ async fn local(name: &str, ceiling: u64, extra: &[(&str, &str)]) -> (Built, Path
         ("SHH_STORAGE", "local"),
         ("SHH_LOCAL_PATH", root.to_str().unwrap()),
     ];
-    let ceiling = ceiling.to_string();
+    let ceiling = format!("{ceiling}B");
     tier.push(("SHH_LOCAL_MAX_TOTAL_BYTES", &ceiling));
     tier.extend_from_slice(extra);
     let built = build_with(name, &tier, &[], true).await;
@@ -371,7 +371,7 @@ async fn spec_r2_pass2_s3_headers_only_body_hangs_open_scrub_and_create() {
             ("SHH_S3_ENDPOINT", &endpoint),
             ("SHH_S3_ACCESS_KEY_ID", "AKIDREVIEW"),
             ("SHH_S3_SECRET_ACCESS_KEY", "review-secret"),
-            ("SHH_S3_MAX_TOTAL_BYTES", "1000000000"),
+            ("SHH_S3_MAX_TOTAL_BYTES", "1000000000B"),
             ("SHH_SPOOL_PATH", spool.to_str().unwrap()),
         ],
         &[],
@@ -663,7 +663,7 @@ async fn spec_r2_pass2_largest_advertised_bucket_is_accepted() {
     let (built, root) = local(
         "max-bucket",
         400 * 1024 * 1024,
-        &[("SHH_EXTERNAL_MAX_OBJECT", "67108864")],
+        &[("SHH_EXTERNAL_MAX_OBJECT", "67108864B")],
     )
     .await;
     let config = send(

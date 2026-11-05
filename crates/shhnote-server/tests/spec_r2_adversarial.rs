@@ -356,8 +356,8 @@ async fn spec_r2_a_mixed_concurrent_takers_at_most_one_wins() {
             vec![
                 ("SHH_STORAGE", "local"),
                 ("SHH_LOCAL_PATH", root.to_str().unwrap()),
-                ("SHH_LOCAL_MAX_TOTAL_BYTES", "100000000"),
-                ("SHH_INLINE_MAX", "65536"),
+                ("SHH_LOCAL_MAX_TOTAL_BYTES", "100000000B"),
+                ("SHH_INLINE_MAX", "65536B"),
             ]
         } else {
             vec![]
@@ -865,7 +865,7 @@ async fn spec_r2_h_request_dropped_during_put_leaves_uncounted_object_and_breaks
     let spool = scratch("h-spool");
     let endpoint = format!("http://{addr}");
     let bucket = 131_072u64;
-    let ceiling = object_bytes(bucket).to_string();
+    let ceiling = format!("{}B", object_bytes(bucket));
     let s = srv(
         "h-zombie-s3",
         &[
@@ -877,7 +877,7 @@ async fn spec_r2_h_request_dropped_during_put_leaves_uncounted_object_and_breaks
             ("SHH_S3_SECRET_ACCESS_KEY", "s"),
             ("SHH_S3_MAX_TOTAL_BYTES", &ceiling),
             ("SHH_SPOOL_PATH", spool.to_str().unwrap()),
-            ("SHH_INLINE_MAX", "65536"),
+            ("SHH_INLINE_MAX", "65536B"),
         ],
         NO_LIMITS,
     )
@@ -1672,20 +1672,20 @@ async fn spec_r2_n_settings_patch_cannot_widen_policy() {
         json!({"ttl_presets": "60,1300000"}),
         json!({"default_ttl_secs": 15 * 86400}),
         json!({"min_ttl_secs": 3600, "max_ttl_secs": 1800}),
-        json!({"padding_min": 65535}),
-        json!({"padding_min": 0}),
-        json!({"padding_min": -65536}),
-        json!({"padding_min": "65536.0"}),
-        json!({"padding_mode": "buckets", "padding_ladder": [65536, 65536]}),
-        json!({"padding_mode": "buckets", "padding_ladder": [32768, 65536]}),
-        json!({"padding_mode": "buckets", "padding_ladder": [65536, 3 * 1024 * 1024]}),
-        json!({"padding_mode": "buckets", "padding_ladder": [65536, 131072, 1048576, 2097152, 4194304]}),
+        json!({"padding_min": "65535B"}),
+        json!({"padding_min": "0B"}),
+        json!({"padding_min": "-64K"}),
+        json!({"padding_min": "65536"}),
+        json!({"padding_mode": "buckets", "padding_ladder": ["64K", "64K"]}),
+        json!({"padding_mode": "buckets", "padding_ladder": ["32K", "64K"]}),
+        json!({"padding_mode": "buckets", "padding_ladder": ["64K", "3M"]}),
+        json!({"padding_mode": "buckets", "padding_ladder": ["64K", "128K", "1M", "2M", "4M"]}),
         json!({"padding_mode": "buckets"}),
         json!({"padding_mode": "random"}),
         json!({"claim_window_secs": 59}),
         json!({"claim_window_secs": 86401}),
         json!({"rate_user_multiplier": 0}),
-        json!({"text_max_bytes": 2 * 1024 * 1024}),
+        json!({"text_max_bytes": "2M"}),
         json!({"allowed_origins": ["https://a.example/path"]}),
         json!({"allowed_origins": ["*"]}),
         json!({"allowed_origins": "https://a.example, *"}),
@@ -1767,7 +1767,7 @@ async fn spec_r2_n_settings_patch_cannot_widen_policy() {
         "PATCH",
         "/api/v1/admin/settings",
         ADMIN_KEY,
-        Some(json!({"padding_min": 131072})),
+        Some(json!({"padding_min": "128K"})),
     )
     .await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.text());
@@ -1797,8 +1797,8 @@ async fn spec_r2_o_two_sweepers_count_each_row_once_and_parked_rows_stay_dark() 
         &[
             ("SHH_STORAGE", "local"),
             ("SHH_LOCAL_PATH", root.to_str().unwrap()),
-            ("SHH_LOCAL_MAX_TOTAL_BYTES", "100000000"),
-            ("SHH_INLINE_MAX", "65536"),
+            ("SHH_LOCAL_MAX_TOTAL_BYTES", "100000000B"),
+            ("SHH_INLINE_MAX", "65536B"),
         ],
         NO_LIMITS,
     )
@@ -2287,8 +2287,8 @@ async fn spec_r2_u_orphan_sweep_keeps_referenced_and_strange_entries() {
         &[
             ("SHH_STORAGE", "local"),
             ("SHH_LOCAL_PATH", root.to_str().unwrap()),
-            ("SHH_LOCAL_MAX_TOTAL_BYTES", "100000000"),
-            ("SHH_INLINE_MAX", "65536"),
+            ("SHH_LOCAL_MAX_TOTAL_BYTES", "100000000B"),
+            ("SHH_INLINE_MAX", "65536B"),
         ],
         NO_LIMITS,
     )
@@ -2340,7 +2340,7 @@ async fn spec_r2_u_orphan_sweep_keeps_referenced_and_strange_entries() {
         Config::from_vars(&base_vars(&[
             ("SHH_STORAGE", "local"),
             ("SHH_LOCAL_PATH", root.to_str().unwrap()),
-            ("SHH_LOCAL_MAX_TOTAL_BYTES", "100000000"),
+            ("SHH_LOCAL_MAX_TOTAL_BYTES", "100000000B"),
         ]))
         .unwrap()
         .storage
@@ -2403,8 +2403,8 @@ async fn spec_r2_v_invalid_declared_lengths_never_touch_disk() {
         &[
             ("SHH_STORAGE", "local"),
             ("SHH_LOCAL_PATH", root.to_str().unwrap()),
-            ("SHH_LOCAL_MAX_TOTAL_BYTES", "100000000"),
-            ("SHH_INLINE_MAX", "65536"),
+            ("SHH_LOCAL_MAX_TOTAL_BYTES", "100000000B"),
+            ("SHH_INLINE_MAX", "65536B"),
         ],
         NO_LIMITS,
     )

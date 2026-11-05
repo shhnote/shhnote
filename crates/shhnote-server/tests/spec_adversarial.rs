@@ -644,7 +644,7 @@ async fn local_srv(name: &str, ceiling: &str) -> (Srv, PathBuf) {
             ("SHH_STORAGE", "local"),
             ("SHH_LOCAL_PATH", root.to_str().unwrap()),
             ("SHH_LOCAL_MAX_TOTAL_BYTES", ceiling),
-            ("SHH_INLINE_MAX", "65536"),
+            ("SHH_INLINE_MAX", "65536B"),
         ],
         NO_LIMITS,
     )
@@ -659,7 +659,7 @@ async fn local_srv(name: &str, ceiling: &str) -> (Srv, PathBuf) {
 #[tokio::test]
 async fn spec_disconnect_after_upload_leaves_no_uncounted_object() {
     let ceiling = 300_000u64;
-    let (s, root) = local_srv("h-zombie", &ceiling.to_string()).await;
+    let (s, root) = local_srv("h-zombie", &format!("{ceiling}B")).await;
     let blobs = s.blobs.clone().unwrap();
     let blobs_dir = root.join("blobs");
     let bucket = 131_072u64;
@@ -1161,7 +1161,7 @@ async fn spec_ttl_is_capped_at_14_days_whatever_is_patched() {
     assert_eq!(
         patch(
             &s,
-            json!({"padding_mode": "buckets", "padding_ladder": [131072, 1048576]})
+            json!({"padding_mode": "buckets", "padding_ladder": ["128K", "1M"]})
         )
         .await
         .status,
@@ -1183,7 +1183,7 @@ async fn spec_ttl_is_capped_at_14_days_whatever_is_patched() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn spec_pending_delete_is_never_served_and_counts_once() {
-    let (s, root) = local_srv("o-sched", "100000000").await;
+    let (s, root) = local_srv("o-sched", "100000000B").await;
     let blobs = s.blobs.clone().unwrap();
     const LARGE: u64 = 131_072;
     // A claimed external secret whose window lapses.

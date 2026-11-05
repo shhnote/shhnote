@@ -734,7 +734,7 @@ async fn spec_settings_patch_rejects_values_that_break_the_instance() {
     let mut accepted = Vec::new();
     for (key, value) in bad {
         let body = if key == "padding_mode/ladder" {
-            json!({"padding_mode": "buckets", "padding_ladder": "0,1,5"})
+            json!({"padding_mode": "buckets", "padding_ladder": "0B,1B,5B"})
         } else {
             json!({ key: value })
         };
@@ -862,7 +862,7 @@ async fn spec_files_off_needs_a_rung_for_text() {
         Method::PATCH,
         "/settings",
         &auth,
-        Some(json!({"padding_mode": "buckets", "padding_ladder": "65536", "files_enabled": false})),
+        Some(json!({"padding_mode": "buckets", "padding_ladder": "64K", "files_enabled": false})),
     )
     .await;
     assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.text());
@@ -871,7 +871,7 @@ async fn spec_files_off_needs_a_rung_for_text() {
         Method::PATCH,
         "/settings",
         &auth,
-        Some(json!({"padding_mode": "buckets", "padding_ladder": "65536,262144", "files_enabled": false})),
+        Some(json!({"padding_mode": "buckets", "padding_ladder": "64K,256K", "files_enabled": false})),
     )
     .await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.text());

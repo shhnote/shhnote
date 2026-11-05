@@ -83,7 +83,7 @@ Migrations are applied at startup and are forward-only; keep the backup until th
 
 ```sh
 SHH_STORAGE=local
-SHH_LOCAL_MAX_TOTAL_BYTES=10737418240
+SHH_LOCAL_MAX_TOTAL_BYTES=10G
 ```
 
 Blobs go to `/var/lib/shhnote/storage/blobs`. The ceiling is the only hard limit: when it is reached, large secrets are refused and small ones keep working.
