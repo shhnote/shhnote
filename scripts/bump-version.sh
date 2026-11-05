@@ -6,6 +6,9 @@
 #                                                 (0.3.0 -> 0.4.0-rc.1, 0.4.0-rc.1 -> 0.4.0-rc.2)
 #   scripts/bump-version.sh release               drop the pre-release suffix (0.4.0-rc.2 -> 0.4.0)
 #   scripts/bump-version.sh 1.2.3                 set an exact version
+#   scripts/bump-version.sh tag                   tag the version the files already carry
+#                                                 (after a bump made by hand); dates the
+#                                                 changelogs if still "— unreleased"
 #   scripts/bump-version.sh <mode> --yes          skip the confirmation prompt
 #
 # Preconditions: on main, clean working tree, not behind origin/main, and the versions in
@@ -43,6 +46,9 @@ current="$cargo_v"
 git rev-parse -q --verify "refs/tags/v$current" >/dev/null && tagged="(tagged)" || tagged="(not tagged)"
 
 # ---- next version --------------------------------------------------------------------
+if [ "$mode" = "tag" ]; then
+  next="$current"
+else
 next=$(python3 - "$current" "$mode" <<'PY'
 import re, sys
 cur, mode = sys.argv[1], sys.argv[2]
@@ -68,13 +74,21 @@ else:
     sys.exit(f"unknown mode {mode!r}")
 PY
 )
+fi
 git rev-parse -q --verify "refs/tags/v$next" >/dev/null && { echo "tag v$next already exists" >&2; exit 1; }
+if [ "$mode" != "tag" ] && [ "$tagged" = "(not tagged)" ]; then
+  echo "note: $current has no tag yet; 'scripts/bump-version.sh tag' tags it as is" >&2
+fi
 
 echo "branch:  main (up to date with origin)"
 echo "current: $current $tagged"
 echo "next:    $next"
 if [ "$yes" != "--yes" ]; then
-  read -r -p "Bump to $next, commit and tag v$next? [y/N] " answer
+  if [ "$mode" = "tag" ]; then
+    read -r -p "Tag the current version as v$next (dating changelogs if needed)? [y/N] " answer
+  else
+    read -r -p "Bump to $next, commit and tag v$next? [y/N] " answer
+  fi
   case "$answer" in y|Y|yes) ;; *) echo "aborted"; exit 1;; esac
 fi
 
@@ -113,9 +127,13 @@ git add Cargo.toml Cargo.lock client/package.json client/package-lock.json CHANG
 git --no-pager diff --cached --stat
 # -S / -s force a signature and fail if no signing key is configured in this environment
 # (commit.gpgsign alone is silently skipped where it is unset).
-git commit --quiet -S -m "release: $next"
+if git diff --cached --quiet; then
+  echo "(files already at $next; nothing to commit)"
+else
+  git commit --quiet -S -m "release: $next"
+fi
 git tag -s "v$next" -m "v$next"
-git verify-commit HEAD >/dev/null 2>&1 || { echo "commit is not signed; check user.signingkey here" >&2; exit 1; }
+git verify-commit HEAD >/dev/null 2>&1 || { echo "HEAD is not signed; check user.signingkey here" >&2; exit 1; }
 git verify-tag "v$next" >/dev/null 2>&1 || { echo "tag is not signed; check user.signingkey here" >&2; exit 1; }
 echo
 echo "committed and tagged v$next (both signed). Push with:"
