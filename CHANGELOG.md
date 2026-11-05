@@ -4,7 +4,7 @@ User-visible changes, newest first. The protocol is specified in `SPEC.md`; the 
 review that preceded 0.3.0, with every finding and fix, has its own record in
 `docs/security-review/CHANGELOG.md`.
 
-## 0.4.0 — unreleased
+## 0.4.0 — 2026-11-04
 
 The docs, the client package and the server now say the same thing. A frontend can configure
 the `/ui` controllers in code and bring its own markup, and the reference pages honour the
