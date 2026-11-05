@@ -109,8 +109,12 @@ cargo metadata --format-version 1 --offline >/dev/null
 
 git add Cargo.toml Cargo.lock client/package.json client/package-lock.json CHANGELOG.md
 git --no-pager diff --cached --stat
-git commit --quiet -m "release: $next"
-git tag -a "v$next" -m "v$next"
+# -S / -s force a signature and fail if no signing key is configured in this environment
+# (commit.gpgsign alone is silently skipped where it is unset).
+git commit --quiet -S -m "release: $next"
+git tag -s "v$next" -m "v$next"
+git verify-commit HEAD >/dev/null 2>&1 || { echo "commit is not signed; check user.signingkey here" >&2; exit 1; }
+git verify-tag "v$next" >/dev/null 2>&1 || { echo "tag is not signed; check user.signingkey here" >&2; exit 1; }
 echo
-echo "committed and tagged v$next. Push with:"
+echo "committed and tagged v$next (both signed). Push with:"
 echo "  git push origin main --follow-tags"
