@@ -424,8 +424,8 @@ async fn spec_r2_pass3_host_matching_edge_cases_do_not_panic_or_cross_routers() 
         &[
             ("SHH_ENV", "production"),
             ("SHH_URL", "https://Example.com:8443"),
-            ("SHH_API_ROUTING", "subdomain"),
-            ("SHH_ADMIN_ROUTING", "subdomain"),
+            ("SHH_API_ROUTING", "domain"),
+            ("SHH_ADMIN_ROUTING", "domain"),
         ],
         &[],
     )

@@ -26,7 +26,7 @@ export function checkProtocol(config: Pick<InstanceConfig, "fragment_version">):
 // password managers. Nothing here touches the DOM; pass your own fetch where needed.
 export interface ClientOptions {
   // The instance's API base, versioned: "https://example.com/api/v1" (path routing) or
-  // "https://api.example.com/v1" (subdomain routing).
+  // "https://api.example.com/v1" (domain routing).
   apiBase: string;
   fetch?: Fetch;
   // Needed only for passphrase-protected secrets: `await Argon2.load(wasmBytes)`.

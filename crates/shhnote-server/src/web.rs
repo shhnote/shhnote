@@ -40,7 +40,7 @@ pub(crate) struct Shared {
     pub(crate) secret_key: Vec<u8>,
     pub(crate) secure_cookies: bool,
     pub(crate) env: AppEnv,
-    // `/admin` on the main domain, or nothing on the admin subdomain (D-25).
+    // `/admin` on the main domain, or nothing on the admin domain (D-25).
     admin_prefix: &'static str,
     // The panel's origin when it has its own host, for links rendered on another host.
     admin_origin: Option<String>,
@@ -130,14 +130,11 @@ impl SetupRenderer {
 pub fn router(config: &Config, api: &ApiState) -> WebRouters {
     let admin_prefix = match config.admin_routing {
         AdminRouting::Path => "/admin",
-        AdminRouting::Subdomain { .. } => "",
+        AdminRouting::Domain { .. } => "",
     };
     let admin_origin = match &config.admin_routing {
         AdminRouting::Path => None,
-        AdminRouting::Subdomain { host } => {
-            let scheme = config.url.split("://").next().unwrap_or("https");
-            Some(format!("{scheme}://{host}"))
-        }
+        AdminRouting::Domain { url, .. } => Some(url.clone()),
     };
     let shared = Arc::new(Shared {
         i18n: I18n::load(),
@@ -162,7 +159,7 @@ pub fn router(config: &Config, api: &ApiState) -> WebRouters {
         fresh_keys: Mutex::new(Vec::new()),
     });
 
-    let own_admin_host = matches!(config.admin_routing, AdminRouting::Subdomain { .. });
+    let own_admin_host = matches!(config.admin_routing, AdminRouting::Domain { .. });
     let offered = shared.offered.clone();
     let mut web = statics(&shared);
     let mut admin = own_admin_host.then(|| statics(&shared));
@@ -775,10 +772,10 @@ async fn redirect_to_locale(State(offered): State<i18n::Offered>, req: Request) 
 }
 
 fn content_security_policy(config: &Config) -> HeaderValue {
-    // When the API is on its own subdomain, the page's scripts need permission to call it.
+    // When the API is on its own domain, the page's scripts need permission to call it.
     let connect = match config.api_routing {
         ApiRouting::Path => "'self'".to_string(),
-        ApiRouting::Subdomain { .. } => format!("'self' {}", config.api_url),
+        ApiRouting::Domain { .. } => format!("'self' {}", config.api_url),
     };
     // 'wasm-unsafe-eval' is for the Argon2id module; it allows WebAssembly only, not eval().
     let policy = format!(

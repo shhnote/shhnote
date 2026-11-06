@@ -287,7 +287,7 @@ async fn spec_headers_every_api_response_is_no_store() {
         &[
             ("SHH_ENV", "production"),
             ("SHH_URL", "https://example.com"),
-            ("SHH_API_ROUTING", "subdomain"),
+            ("SHH_API_ROUTING", "domain"),
         ],
     )
     .await;
@@ -403,7 +403,7 @@ async fn spec_hsts_on_every_production_response() {
         &[
             ("SHH_ENV", "production"),
             ("SHH_URL", "https://example.com"),
-            ("SHH_API_ROUTING", "subdomain"),
+            ("SHH_API_ROUTING", "domain"),
         ],
     )
     .await;
@@ -676,7 +676,7 @@ async fn spec_admin_subdomain_routing() {
         &[
             ("SHH_ENV", "production"),
             ("SHH_URL", "https://example.com"),
-            ("SHH_ADMIN_ROUTING", "subdomain"),
+            ("SHH_ADMIN_ROUTING", "domain"),
         ],
     )
     .await;
@@ -1029,7 +1029,7 @@ async fn spec_setup_gate() {
         &[
             ("SHH_ENV", "production"),
             ("SHH_URL", "https://example.com"),
-            ("SHH_ADMIN_ROUTING", "subdomain"),
+            ("SHH_ADMIN_ROUTING", "domain"),
         ],
     )
     .await;

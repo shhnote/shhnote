@@ -104,7 +104,7 @@ fn allow_origin(seen: &Seen) -> Option<String> {
 async fn spec_r2_pass6_cors_is_api_only_and_exact() {
     let app = build(
         "review-r2-pass6-cors",
-        &[("SHH_API_ROUTING", "subdomain")],
+        &[("SHH_API_ROUTING", "domain")],
         true,
     )
     .await;
@@ -179,8 +179,8 @@ async fn spec_r2_pass6_setup_gate_under_subdomain_routing() {
     let app = build(
         "review-r2-pass6-gate",
         &[
-            ("SHH_API_ROUTING", "subdomain"),
-            ("SHH_ADMIN_ROUTING", "subdomain"),
+            ("SHH_API_ROUTING", "domain"),
+            ("SHH_ADMIN_ROUTING", "domain"),
             ("SHH_WEB", "api"),
         ],
         false,

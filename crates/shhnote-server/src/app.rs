@@ -43,11 +43,11 @@ fn core(config: &Config, state: ApiState) -> Router {
         setup,
     } = web::router(config, &state);
     let api_host = match &config.api_routing {
-        ApiRouting::Subdomain { host } => Some(host.clone()),
+        ApiRouting::Domain { host } => Some(host.clone()),
         ApiRouting::Path => None,
     };
     let admin_host = match &config.admin_routing {
-        AdminRouting::Subdomain { host } => Some(host.clone()),
+        AdminRouting::Domain { host, .. } => Some(host.clone()),
         AdminRouting::Path => None,
     };
     let hosts_known = Hosts {
@@ -71,13 +71,13 @@ fn core(config: &Config, state: ApiState) -> Router {
         .layer(middleware::from_fn_with_state(cors_state, cors))
         .layer(middleware::map_response(crate::admin::no_store));
 
-    // Each subdomain gets its own router; everything else is the website.
+    // Each own domain gets its own router; everything else is the website.
     let mut hosts: Vec<(String, Router)> = Vec::new();
     match &config.api_routing {
         ApiRouting::Path => web = web.nest("/api", api),
-        ApiRouting::Subdomain { host } => hosts.push((host.clone(), api)),
+        ApiRouting::Domain { host } => hosts.push((host.clone(), api)),
     }
-    if let (AdminRouting::Subdomain { host }, Some(admin)) = (&config.admin_routing, admin) {
+    if let (AdminRouting::Domain { host, .. }, Some(admin)) = (&config.admin_routing, admin) {
         hosts.push((host.clone(), admin));
     }
     let app = if hosts.is_empty() {
@@ -315,7 +315,7 @@ async fn cors(State(state): State<CorsState>, req: Request, next: Next) -> Respo
     response
 }
 
-// Sends requests for a subdomain (`api.`, `admin.`) to its router, and everything else to
+// Sends requests for the API or admin domain to its router, and everything else to
 // the website.
 fn route_by_host(hosts: Vec<(String, Router)>, web: Router) -> Router {
     Router::new().fallback(move |req: Request| {
@@ -530,7 +530,7 @@ mod tests {
         let api_app = build(&[
             ("SHH_ENV", "production"),
             ("SHH_URL", "https://example.com"),
-            ("SHH_API_ROUTING", "subdomain"),
+            ("SHH_API_ROUTING", "domain"),
         ])
         .await;
         assert_eq!(location(&api_app, "api.example.com", "/v1/").await, "/v1");
@@ -541,7 +541,7 @@ mod tests {
         let app = build(&[
             ("SHH_ENV", "production"),
             ("SHH_URL", "https://example.com"),
-            ("SHH_API_ROUTING", "subdomain"),
+            ("SHH_API_ROUTING", "domain"),
         ])
         .await;
 
@@ -561,11 +561,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn chosen_domains_route_the_api_and_the_panel() {
+        let app = build(&[
+            ("SHH_ENV", "production"),
+            ("SHH_URL", "https://eu.example.com"),
+            ("SHH_API_ROUTING", "domain"),
+            ("SHH_API_DOMAIN", "api-eu.example.com"),
+            ("SHH_ADMIN_ROUTING", "domain"),
+            ("SHH_ADMIN_DOMAIN", "panel-eu.example.com"),
+        ])
+        .await;
+
+        let (status, body) = get(&app, "api-eu.example.com", "/v1").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains(r#""version":"v1""#));
+        let (status, body) = get(&app, "eu.example.com", "/en").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains(r#"data-shh-api="https://api-eu.example.com/v1""#));
+        let (status, _) = get(&app, "panel-eu.example.com", "/en/login").await;
+        assert_eq!(status, StatusCode::OK);
+
+        // The default names mean nothing once others are chosen: they fall through to the
+        // website, which redirects to a language and knows no API there.
+        let (status, _) = get(&app, "api.eu.example.com", "/en/v1").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _) = get(&app, "admin.eu.example.com", "/en/login").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
     async fn subdomain_api_sends_cors_for_the_site_origin_only() {
         let app = build(&[
             ("SHH_ENV", "production"),
             ("SHH_URL", "https://example.com"),
-            ("SHH_API_ROUTING", "subdomain"),
+            ("SHH_API_ROUTING", "domain"),
         ])
         .await;
         let send = |method: &str, host: &str, path: &str| {

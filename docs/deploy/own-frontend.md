@@ -71,7 +71,7 @@ the instance's bundles instead, `/static/argon2.wasm` is on the same origin and 
 The frontend lives wherever static sites live (an object store, a CDN, another host); the
 instance answers on `api.secrets.example.com` and the panel on `admin.secrets.example.com`.
 
-Instance settings: `SHH_WEB=api`, `SHH_API_ROUTING=subdomain`, `SHH_ADMIN_ROUTING=subdomain`,
+Instance settings: `SHH_WEB=api`, `SHH_API_ROUTING=domain`, `SHH_ADMIN_ROUTING=domain` (with `SHH_API_DOMAIN` and `SHH_ADMIN_DOMAIN` if the default `api.` and `admin.` names are not wanted),
 `SHH_URL=https://secrets.example.com` (the site origin, even though the instance serves no
 page there). `allowed_origins` stays empty: the API always answers CORS requests from the
 `SHH_URL` origin. Add an entry only for a frontend on some other origin, such as a preview

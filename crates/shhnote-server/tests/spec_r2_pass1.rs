@@ -472,7 +472,7 @@ async fn spec_r2_pass1_admin_path_form_is_an_ordinary_404_in_subdomain_mode() {
     let env: &[(&str, &str)] = &[
         ("SHH_ENV", "production"),
         ("SHH_URL", "https://example.com"),
-        ("SHH_ADMIN_ROUTING", "subdomain"),
+        ("SHH_ADMIN_ROUTING", "domain"),
     ];
     let srv = server("r2p1-admin-sub", env, &[], true).await;
     for path in ["/en/admin", "/en/admin/login", "/en/admin/keys"] {

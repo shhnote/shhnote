@@ -36,7 +36,7 @@ description: Add or change a website page in shhnote-server using Askama templat
 - Share and burn links shown to users have no locale (`/s#…`, `/burn#…`); the server redirects to the visitor's language and the fragment survives the redirect.
 - Admin pages live in `admin.rs`: each handler starts with `authenticate`, every form carries `admin.csrf` (checked by `check_csrf`), templates extend `base.html` and call `nav::admin_nav(ctx, admin)`. Database errors go through `db_error` so they are logged.
 - Every page gets the CSP, `Referrer-Policy: no-referrer`, `nosniff` and `X-Frame-Options: DENY` from the `security_headers` layer. Pages showing secret content also send `Cache-Control: no-store`.
-- Links to the API come from `config.api_url`, since the API may be on its own subdomain.
+- Links to the API come from `config.api_url`, since the API may be on its own domain.
 
 ## Checking the result
 

@@ -2096,7 +2096,7 @@ async fn spec_r2_s_api_mode_and_admin_subdomain_serve_only_their_own() {
         &[
             ("SHH_ENV", "production"),
             ("SHH_URL", "https://example.com"),
-            ("SHH_ADMIN_ROUTING", "subdomain"),
+            ("SHH_ADMIN_ROUTING", "domain"),
         ],
         &[],
     )
