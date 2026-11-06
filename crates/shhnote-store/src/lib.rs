@@ -169,6 +169,12 @@ const MIGRATIONS: &[(i64, &str, &str, &str)] = &[
         include_str!("../../../migrations/sqlite/0006_admin_state.sql"),
         include_str!("../../../migrations/postgres/0006_admin_state.sql"),
     ),
+    (
+        7,
+        "size_units",
+        include_str!("../../../migrations/sqlite/0007_size_units.sql"),
+        include_str!("../../../migrations/postgres/0007_size_units.sql"),
+    ),
 ];
 
 fn migrator(backend: Backend) -> Migrator {

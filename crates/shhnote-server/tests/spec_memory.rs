@@ -206,10 +206,10 @@ fn spec_meta_part_is_bounded_before_it_is_buffered() {
         let app = app(
             "spec-memory-meta",
             &[
-                ("SHH_INLINE_MAX", "65536"),
+                ("SHH_INLINE_MAX", "65536B"),
                 ("SHH_STORAGE", "local"),
                 ("SHH_LOCAL_PATH", root.to_str().unwrap()),
-                ("SHH_LOCAL_MAX_TOTAL_BYTES", "1000000000"),
+                ("SHH_LOCAL_MAX_TOTAL_BYTES", "1000000000B"),
             ],
             &[],
         )

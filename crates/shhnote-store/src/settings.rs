@@ -36,3 +36,38 @@ impl Store {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Values stored before sizes took a unit are bytes; migration 7 appends the unit so they
+    // keep their meaning. Replayed here against old-style rows, since a fresh database has
+    // already run it.
+    #[tokio::test]
+    async fn size_units_migration_rewrites_old_values() {
+        let path = crate::sqlite_path_for_tests("size-units-migration");
+        let store = Store::connect_url(&format!("sqlite://{}?mode=rwc", path.display()))
+            .await
+            .unwrap();
+        for (key, value) in [
+            ("padding_min", "131072"),
+            ("padding_ladder", "65536, 1048576,4194304"),
+            ("text_max_bytes", "65536"),
+            ("site_name", "shh"),
+        ] {
+            store.set_setting(key, value).await.unwrap();
+        }
+        for statement in include_str!("../../../migrations/sqlite/0007_size_units.sql")
+            .lines()
+            .filter(|l| l.starts_with("UPDATE"))
+        {
+            sqlx::query(statement).execute(&store.pool).await.unwrap();
+        }
+        let all = store.setting_overrides().await.unwrap();
+        assert_eq!(all["padding_min"], "131072B");
+        assert_eq!(all["padding_ladder"], "65536B,1048576B,4194304B");
+        assert_eq!(all["text_max_bytes"], "65536B");
+        assert_eq!(all["site_name"], "shh");
+    }
+}

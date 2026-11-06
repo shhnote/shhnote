@@ -1,3 +1,4 @@
+use crate::size::{format_size, parse_size};
 use std::{
     collections::{BTreeMap, HashMap},
     sync::{Arc, RwLock},
@@ -181,10 +182,10 @@ impl Settings {
                     _ => Err("must be padme or buckets".into()),
                 },
                 // D-6: 64 KiB is a floor the instance may raise, never lower.
-                "padding_min" => parse(value)
-                    .and_then(|v: u64| at_least(v, PaddingPolicy::DEFAULT_MIN))
+                "padding_min" => parse_size(value)
+                    .and_then(|v| size_at_least(v, PaddingPolicy::DEFAULT_MIN))
                     .map(|v| padding_min = v),
-                "padding_ladder" => parse_list(value)
+                "padding_ladder" => size_list(value)
                     .and_then(ladder)
                     .map(|v| padding_ladder = v),
                 "claim_window_secs" => parse(value)
@@ -208,8 +209,8 @@ impl Settings {
                             .map(|()| v)
                     })
                     .map(|v| s.ttl_presets = v),
-                "text_max_bytes" => parse(value)
-                    .and_then(|v| within(v, TEXT_MAX_RANGE))
+                "text_max_bytes" => parse_size(value)
+                    .and_then(|v| size_within(v, TEXT_MAX_RANGE))
                     .map(|v| s.text_max_bytes = v),
                 "files_enabled" => parse(value).map(|v| s.files_enabled = v),
                 "inline_enabled" => parse(value).map(|v| s.inline_enabled = v),
@@ -265,8 +266,8 @@ impl Settings {
         // ladder with no rung that large would refuse every secret, text included.
         if !s.files_enabled && s.padding.padded_size(s.text_only_payload()).is_none() {
             warnings.push(format!(
-                "setting padding_ladder ignored: with files_enabled off the ladder needs a size of at least {} bytes",
-                s.text_only_payload()
+                "setting padding_ladder ignored: with files_enabled off the ladder needs a size of at least {}",
+                format_size(s.text_only_payload())
             ));
             s.padding = PaddingPolicy::Padme { min: padding_min };
         }
@@ -317,8 +318,9 @@ impl Settings {
         let mut reasons = Vec::new();
         if self.padding_min > max_blob_bytes {
             reasons.push(format!(
-                "setting padding_min ignored: {} is above the largest blob this instance stores ({max_blob_bytes} bytes)",
-                self.padding_min
+                "setting padding_min ignored: {} is above the largest blob this instance stores ({})",
+                format_size(self.padding_min),
+                format_size(max_blob_bytes)
             ));
             self.padding_min = PaddingPolicy::DEFAULT_MIN;
             if let PaddingPolicy::Padme { min } = &mut self.padding {
@@ -333,19 +335,28 @@ impl Settings {
                 min: self.padding_min,
             };
             reasons.push(format!(
-                "setting padding_ladder ignored: {largest} is above the largest blob this instance stores ({max_blob_bytes} bytes)"
+                "setting padding_ladder ignored: {} is above the largest blob this instance stores ({})",
+                format_size(largest),
+                format_size(max_blob_bytes)
             ));
         }
         reasons
     }
 
     pub fn as_strings(&self) -> BTreeMap<&'static str, String> {
-        let sizes = |v: &[u64]| v.iter().map(u64::to_string).collect::<Vec<_>>().join(",");
+        let sizes = |v: &[u64]| {
+            v.iter()
+                .map(|&b| format_size(b))
+                .collect::<Vec<_>>()
+                .join(",")
+        };
         // The setting that is not in use is written too, so a save never drops it.
         let (padding_mode, padding_min, padding_ladder) = match &self.padding {
-            PaddingPolicy::Padme { min } => ("padme", min.to_string(), sizes(&self.padding_ladder)),
+            PaddingPolicy::Padme { min } => {
+                ("padme", format_size(*min), sizes(&self.padding_ladder))
+            }
             PaddingPolicy::Buckets { ladder } => {
-                ("buckets", self.padding_min.to_string(), sizes(ladder))
+                ("buckets", format_size(self.padding_min), sizes(ladder))
             }
         };
         let list = |v: &[i64]| v.iter().map(i64::to_string).collect::<Vec<_>>().join(",");
@@ -365,7 +376,7 @@ impl Settings {
             ("default_ttl_secs", self.default_ttl_secs.to_string()),
             ("ttl_presets", list(&self.ttl_presets)),
             ("allowed_origins", self.allowed_origins.join(",")),
-            ("text_max_bytes", self.text_max_bytes.to_string()),
+            ("text_max_bytes", format_size(self.text_max_bytes)),
             ("files_enabled", self.files_enabled.to_string()),
             ("inline_enabled", self.inline_enabled.to_string()),
             (
@@ -440,6 +451,35 @@ fn at_least<T: PartialOrd + std::fmt::Display>(value: T, floor: T) -> Result<T, 
     }
 }
 
+// Size settings report their bounds in the same unit form they are written in.
+fn size_within(value: u64, range: std::ops::RangeInclusive<u64>) -> Result<u64, String> {
+    if range.contains(&value) {
+        Ok(value)
+    } else {
+        Err(format!(
+            "must be between {} and {}",
+            format_size(*range.start()),
+            format_size(*range.end())
+        ))
+    }
+}
+
+fn size_at_least(value: u64, floor: u64) -> Result<u64, String> {
+    if value >= floor {
+        Ok(value)
+    } else {
+        Err(format!("must be at least {}", format_size(floor)))
+    }
+}
+
+fn size_list(value: &str) -> Result<Vec<u64>, String> {
+    // An empty value is an empty list (the admin form sends "" for an unused ladder).
+    if value.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    value.split(',').map(parse_size).collect()
+}
+
 fn rate(value: &str) -> Result<u32, String> {
     parse(value).and_then(|v| within(v, 0..=RATE_MAX_PER_HOUR))
 }
@@ -455,7 +495,7 @@ fn ladder(entries: Vec<u64>) -> Result<Vec<u64>, String> {
     } else {
         Err(format!(
             "must be strictly increasing, starting at {} or above",
-            PaddingPolicy::DEFAULT_MIN
+            format_size(PaddingPolicy::DEFAULT_MIN)
         ))
     }
 }
@@ -570,7 +610,7 @@ mod tests {
         let overrides: HashMap<String, String> = [
             ("site_name", "Example"),
             ("padding_mode", "buckets"),
-            ("padding_ladder", "65536, 131072"),
+            ("padding_ladder", "64K, 128K"),
             ("max_ttl_secs", "99999999"),
             ("files_enabled", "maybe"),
             ("nonsense", "1"),
@@ -598,13 +638,13 @@ mod tests {
     fn padding_min_is_kept_in_buckets_mode() {
         let pairs = overrides(&[
             ("padding_mode", "buckets"),
-            ("padding_ladder", "65536,131072"),
-            ("padding_min", "131072"),
+            ("padding_ladder", "64K,128K"),
+            ("padding_min", "128K"),
         ]);
         let (s, warnings) = Settings::with_overrides(&pairs, AppEnv::Production);
         assert!(warnings.is_empty(), "{warnings:?}");
         assert!(matches!(s.padding, PaddingPolicy::Buckets { .. }));
-        assert_eq!(s.as_strings()["padding_min"], "131072");
+        assert_eq!(s.as_strings()["padding_min"], "128K");
         // Saved and loaded again, then switched back: the floor is the one the admin set.
         let mut stored: HashMap<String, String> = s
             .as_strings()
@@ -618,8 +658,8 @@ mod tests {
         let (low, warnings) = Settings::with_overrides(
             &overrides(&[
                 ("padding_mode", "buckets"),
-                ("padding_ladder", "65536"),
-                ("padding_min", "1024"),
+                ("padding_ladder", "64K"),
+                ("padding_min", "1K"),
             ]),
             AppEnv::Production,
         );
@@ -630,14 +670,11 @@ mod tests {
     // The same for the ladder: saving with Padmé in use keeps it for the next switch back.
     #[test]
     fn padding_ladder_is_kept_in_padme_mode() {
-        let pairs = overrides(&[
-            ("padding_mode", "padme"),
-            ("padding_ladder", "65536,131072"),
-        ]);
+        let pairs = overrides(&[("padding_mode", "padme"), ("padding_ladder", "64K,128K")]);
         let (s, warnings) = Settings::with_overrides(&pairs, AppEnv::Production);
         assert!(warnings.is_empty(), "{warnings:?}");
         assert_eq!(s.padding, PaddingPolicy::Padme { min: 65536 });
-        assert_eq!(s.as_strings()["padding_ladder"], "65536,131072");
+        assert_eq!(s.as_strings()["padding_ladder"], "64K,128K");
         let mut stored: HashMap<String, String> = s
             .as_strings()
             .into_iter()
@@ -667,8 +704,8 @@ mod tests {
     fn ladder_sizes_must_fit_the_instance() {
         let pairs = overrides(&[
             ("padding_mode", "buckets"),
-            ("padding_ladder", "65536,1048576"),
-            ("padding_min", "131072"),
+            ("padding_ladder", "64K,1M"),
+            ("padding_min", "128K"),
         ]);
         let (mut fits, _) = Settings::with_overrides(&pairs, AppEnv::Production);
         assert!(fits.check_blob_limit(1048576).is_empty());
@@ -692,7 +729,7 @@ mod tests {
         let (s, warnings) = Settings::with_overrides(
             &overrides(&[
                 ("padding_mode", "buckets"),
-                ("padding_ladder", "65536"),
+                ("padding_ladder", "64K"),
                 ("files_enabled", "false"),
             ]),
             AppEnv::Production,
@@ -705,7 +742,7 @@ mod tests {
         let (s, warnings) = Settings::with_overrides(
             &overrides(&[
                 ("padding_mode", "buckets"),
-                ("padding_ladder", "65536,262144"),
+                ("padding_ladder", "64K,256K"),
                 ("files_enabled", "false"),
             ]),
             AppEnv::Production,
@@ -719,10 +756,8 @@ mod tests {
     // make every create fail; it falls back to the default floor, in either mode.
     #[test]
     fn padding_min_must_fit_the_instance() {
-        let (mut padme, _) = Settings::with_overrides(
-            &overrides(&[("padding_min", "4294967296")]),
-            AppEnv::Production,
-        );
+        let (mut padme, _) =
+            Settings::with_overrides(&overrides(&[("padding_min", "4G")]), AppEnv::Production);
         let reasons = padme.check_blob_limit(2 * 1024 * 1024);
         assert_eq!(reasons.len(), 1, "{reasons:?}");
         assert!(reasons[0].contains("padding_min"), "{reasons:?}");
@@ -739,8 +774,8 @@ mod tests {
         let (mut buckets, _) = Settings::with_overrides(
             &overrides(&[
                 ("padding_mode", "buckets"),
-                ("padding_ladder", "65536,4194304"),
-                ("padding_min", "4194304"),
+                ("padding_ladder", "64K,4M"),
+                ("padding_min", "4M"),
             ]),
             AppEnv::Production,
         );
@@ -754,10 +789,8 @@ mod tests {
             }
         );
 
-        let (mut fits, _) = Settings::with_overrides(
-            &overrides(&[("padding_min", "2097152")]),
-            AppEnv::Production,
-        );
+        let (mut fits, _) =
+            Settings::with_overrides(&overrides(&[("padding_min", "2M")]), AppEnv::Production);
         assert!(fits.check_blob_limit(2 * 1024 * 1024).is_empty());
         assert_eq!(fits.padding_min, 2097152);
     }
@@ -852,18 +885,18 @@ mod tests {
     #[test]
     fn out_of_range_values_are_refused() {
         for (key, value) in [
-            ("padding_min", "0"),
-            ("padding_min", "65535"),
-            ("padding_ladder", "0,1,5"),
-            ("padding_ladder", "131072,65536"),
+            ("padding_min", "0B"),
+            ("padding_min", "65535B"),
+            ("padding_ladder", "0B,1B,5B"),
+            ("padding_ladder", "128K,64K"),
             ("claim_window_secs", "-1"),
             ("claim_window_secs", "9223372036854775807"),
             ("min_ttl_secs", "-100"),
             ("max_ttl_secs", "2592000"),
             ("ttl_presets", "-5"),
             ("ttl_presets", "2592000"),
-            ("text_max_bytes", "0"),
-            ("text_max_bytes", "18446744073709551615"),
+            ("text_max_bytes", "0B"),
+            ("text_max_bytes", "18446744073709551615B"),
             ("rate_user_multiplier", "0"),
             ("rate_user_multiplier", "4294967295"),
             ("rate_create_per_hour", "4294967295"),

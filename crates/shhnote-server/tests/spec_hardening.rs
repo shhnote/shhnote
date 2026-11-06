@@ -222,10 +222,10 @@ async fn spec_blob_files_are_private() {
     let root = std::env::temp_dir().join(format!("spec-hardening-perms-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let config = Config::from_vars(&vars(&[
-        ("SHH_INLINE_MAX", "65536"),
+        ("SHH_INLINE_MAX", "65536B"),
         ("SHH_STORAGE", "local"),
         ("SHH_LOCAL_PATH", root.to_str().unwrap()),
-        ("SHH_LOCAL_MAX_TOTAL_BYTES", "100000000"),
+        ("SHH_LOCAL_MAX_TOTAL_BYTES", "100000000B"),
     ]))
     .unwrap();
     let blobs = Blobs::open(config.storage.external.as_ref().unwrap())
@@ -266,10 +266,10 @@ async fn spec_existing_tier_dirs_are_made_private() {
         std::fs::set_permissions(root.join(dir), std::fs::Permissions::from_mode(0o755)).unwrap();
     }
     let config = Config::from_vars(&vars(&[
-        ("SHH_INLINE_MAX", "65536"),
+        ("SHH_INLINE_MAX", "65536B"),
         ("SHH_STORAGE", "local"),
         ("SHH_LOCAL_PATH", root.to_str().unwrap()),
-        ("SHH_LOCAL_MAX_TOTAL_BYTES", "100000000"),
+        ("SHH_LOCAL_MAX_TOTAL_BYTES", "100000000B"),
     ]))
     .unwrap();
     Blobs::open(config.storage.external.as_ref().unwrap())
@@ -353,10 +353,10 @@ fn spec_config_rules_hold() {
     assert!(reject(&[("SHH_ENV", "production"), ("SHH_DEBUG", "true")]));
     assert!(reject(&[("SHH_LOCAL_PATH", "x")]));
     assert!(reject(&[("SHH_S3_BUCKET", "x")]));
-    assert!(reject(&[("SHH_EXTERNAL_MAX_OBJECT", "99999999")]));
+    assert!(reject(&[("SHH_EXTERNAL_MAX_OBJECT", "99999999B")]));
     assert!(reject(&[
         ("SHH_STORAGE", "local"),
-        ("SHH_LOCAL_MAX_TOTAL_BYTES", "1"),
+        ("SHH_LOCAL_MAX_TOTAL_BYTES", "1B"),
         ("SHH_S3_REGION", "x"),
     ]));
     assert!(reject(&[("SHH_SECRET_KEY", "short")]));

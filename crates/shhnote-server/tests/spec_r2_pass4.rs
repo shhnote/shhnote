@@ -1178,12 +1178,9 @@ async fn spec_r2_settings_form_crafted_durations_and_padding_preservation() {
         vec![("default_ttl_secs", "30")],
         vec![("min_ttl_secs", "7200"), ("default_ttl_secs", "3600")],
         vec![("salt_rotation_secs", "0")],
-        vec![("padding_min", "65535")],
+        vec![("padding_min", "65535B")],
         vec![("padding_mode", "buckets"), ("padding_ladder", "")],
-        vec![
-            ("padding_mode", "buckets"),
-            ("padding_ladder", "65536,4294967296"),
-        ],
+        vec![("padding_mode", "buckets"), ("padding_ladder", "64K,4G")],
     ] {
         let r = post(with(&changes)).await;
         assert_eq!(
@@ -1227,8 +1224,8 @@ async fn spec_r2_settings_form_crafted_durations_and_padding_preservation() {
     // the other mode preserves both through the panel.
     let r = post(with(&[
         ("padding_mode", "buckets"),
-        ("padding_ladder", "65536,131072"),
-        ("padding_min", "131072"),
+        ("padding_ladder", "64K,128K"),
+        ("padding_min", "128K"),
     ]))
     .await;
     assert_eq!(r.status, StatusCode::SEE_OTHER, "{}", r.body);
@@ -1239,7 +1236,7 @@ async fn spec_r2_settings_form_crafted_durations_and_padding_preservation() {
             s["padding_min"].as_str(),
             s["padding_ladder"].as_str()
         ),
-        ("buckets", "131072", "65536,131072")
+        ("buckets", "128K", "64K,128K")
     );
     let r = post(with(&[("padding_mode", "padme")])).await;
     assert_eq!(r.status, StatusCode::SEE_OTHER);
@@ -1250,13 +1247,13 @@ async fn spec_r2_settings_form_crafted_durations_and_padding_preservation() {
             s["padding_min"].as_str(),
             s["padding_ladder"].as_str()
         ),
-        ("padme", "131072", "65536,131072")
+        ("padme", "128K", "64K,128K")
     );
     let r = post(with(&[("padding_mode", "buckets")])).await;
     assert_eq!(r.status, StatusCode::SEE_OTHER);
     assert_eq!(
         state.settings.load().as_strings()["padding_ladder"],
-        "65536,131072"
+        "64K,128K"
     );
 }
 
