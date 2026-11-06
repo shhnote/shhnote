@@ -1,6 +1,6 @@
 {
   "name": "@shhnote/client",
-  "version": "0.6.0-rc.1",
+  "version": "0.6.0-rc.2",
   "description": "shhnote client: the protocol, the API client and the reference page controllers for building secret-sharing frontends against a shhnote instance",
   "license": "AGPL-3.0-only",
   "repository": {
