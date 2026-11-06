@@ -17,7 +17,7 @@ env:
 
 jobs:
   version:
-    # The tag must match the version written in the files (scripts/bump-version.sh keeps
+    # The tag must match the version written in the files (scripts/release.sh keeps
     # them together), or the release stops here before anything is built or published.
     permissions:
       contents: read
