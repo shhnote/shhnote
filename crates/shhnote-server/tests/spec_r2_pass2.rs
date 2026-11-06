@@ -764,6 +764,10 @@ async fn spec_r2_pass2_reservation_is_released_on_duplicate_and_disconnect() {
         StatusCode::CREATED
     );
     assert!(wait_until(|| dir_stats(&root.join("blobs")).0 == 1).await);
+    // The object is removed first and the reservation given back after, in a background
+    // task; the next upload needs that room, so wait for the ledger, not the directory.
+    let blobs = built.blobs.clone().unwrap();
+    assert!(wait_until(|| blobs.reserved_bytes() == 0).await);
 
     // Disconnect after spilling.
     let (tx, body) = channel_body();

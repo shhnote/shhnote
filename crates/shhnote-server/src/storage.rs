@@ -164,6 +164,11 @@ impl Blobs {
     }
 
     // The scrubber confirmed an object is gone: it no longer counts.
+    // Bytes held by uploads in flight and by objects not yet confirmed deleted.
+    pub fn reserved_bytes(&self) -> u64 {
+        self.ledger().reserved
+    }
+
     pub fn release_stored(&self, bytes: u64) {
         let mut ledger = self.ledger();
         if let Some(stored) = &mut ledger.stored {
