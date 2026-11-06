@@ -4,12 +4,14 @@ secrets.example.com {
 	reverse_proxy 127.0.0.1:3000
 }
 
-# For SHH_API_ROUTING=subdomain, add the API host (it needs its own DNS record):
+# For SHH_API_ROUTING=domain, add the API host (api.<domain>, or what SHH_API_DOMAIN names;
+# it needs its own DNS record):
 # api.secrets.example.com {
 # 	reverse_proxy 127.0.0.1:3000
 # }
 
-# For SHH_ADMIN_ROUTING=subdomain, the panel on its own host (its own DNS record too). A good
+# For SHH_ADMIN_ROUTING=domain, the panel on its own host (admin.<domain> or SHH_ADMIN_DOMAIN;
+# its own DNS record too). A good
 # place to limit who may reach it at all, for example to an office range:
 # admin.secrets.example.com {
 # 	@outside not remote_ip 203.0.113.0/24

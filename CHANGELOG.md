@@ -4,6 +4,21 @@ User-visible changes, newest first. The protocol is specified in `SPEC.md`; the 
 review that preceded 0.3.0, with every finding and fix, has its own record in
 `docs/security-review/CHANGELOG.md`.
 
+## Unreleased
+
+### Changed
+- Sizes in `.env` (`SHH_INLINE_MAX`, `SHH_EXTERNAL_MAX_OBJECT`, `SHH_LOCAL_MAX_TOTAL_BYTES`,
+  `SHH_S3_MAX_TOTAL_BYTES`) and in the admin panel (`padding_min`, `padding_ladder`,
+  `text_max_bytes`) are written with a unit: `100B`, `64K`, `10M`, `1G` (powers of 1024).
+  A bare number is refused, so add a suffix to `.env` values before upgrading; stored
+  settings are converted by a migration. The admin API takes these settings as strings
+  with a unit. `/config` still reports bytes.
+- `SHH_API_ROUTING` and `SHH_ADMIN_ROUTING` take `domain` instead of `subdomain` (the old
+  value is refused with a hint). New `SHH_API_DOMAIN` and `SHH_ADMIN_DOMAIN` name the API
+  and panel hosts under that routing, so an instance at `eu.example.com` can answer on
+  `api-eu.example.com` instead of `api.eu.example.com`; the defaults are unchanged.
+- The operations guide says what changing `SHH_URL` affects.
+
 ## 0.4.1 — 2026-11-04
 
 Client package only (`client/CHANGELOG.md` has the consumer-facing entries, and now ships in

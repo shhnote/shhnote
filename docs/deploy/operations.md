@@ -12,8 +12,10 @@ Deployment settings come from the environment (or a `.env` file in the working d
 | `SHH_ADMIN_TOKEN` | at first | Bootstrap credential for the admin panel and admin API, at least 32 characters. Stops working as soon as the first admin API key exists; remove it then. |
 | `SHH_HOST`, `SHH_PORT` | | Bind address, default `127.0.0.1:3000`. Containers set `0.0.0.0`. |
 | `SHH_TRUSTED_PROXIES` | behind a proxy | Addresses or CIDR ranges whose `X-Forwarded-For` is honoured. |
-| `SHH_API_ROUTING` | | `path` (API at `/api`, default) or `subdomain` (API at `api.<host>`). |
-| `SHH_ADMIN_ROUTING` | | `path` (panel at `/<locale>/admin`, default) or `subdomain` (panel at `admin.<host>/<locale>/`; the path form is then 404). |
+| `SHH_API_ROUTING` | | `path` (API at `/api`, default) or `domain` (API on its own host name: `api.<host>` of `SHH_URL`, or `SHH_API_DOMAIN`). |
+| `SHH_API_DOMAIN` | with `domain` | The API host name, optional port, e.g. `api-eu.example.com`. Default `api.<host>`. Must differ from the site host. |
+| `SHH_ADMIN_ROUTING` | | `path` (panel at `/<locale>/admin`, default) or `domain` (panel at `<host>/<locale>/` on its own host name; the path form is then 404). |
+| `SHH_ADMIN_DOMAIN` | with `domain` | The panel host name, optional port. Default `admin.<host>`. Must differ from the site and API hosts. |
 | `SHH_WEB` | | `full` (the built-in website, default) or `api` (API, admin panel and `/static/*` only; every other page is 404, for a frontend of your own). |
 | `SHH_LOCALES`, `SHH_DEFAULT_LOCALE` | | Languages offered (default all: `en`, `de`) and where unmatched browsers land. |
 | `SHH_LOG_LEVEL` | | `error` (default), `warn`, `info`, `debug`, `trace`. Nothing per request is logged at any level. |
@@ -36,12 +38,21 @@ Deployment settings come from the environment (or a `.env` file in the working d
 | `shhnote` | Runs the server. SIGTERM or Ctrl-C answers new requests with 503, finishes the ones in flight (up to 30 s), closes idle connections and cuts stuck ones after a further 5 s, then exits. Give it a stop budget of 45 s (the shipped unit, compose and Fly files do). |
 | `shhnote init` | Generates `SHH_SECRET_KEY` and `SHH_ADMIN_TOKEN` and prints them as `KEY=value` lines. `shhnote init --env <path>` writes them into that file instead: creates it (owner-readable only), fills an empty `KEY=` line in place, appends a missing key, and never overwrites a value that is set. The file is replaced whole through a temp file and a rename in its directory, keeping its permissions (and its owner and group when run as root), so it is never left half-written; the directory must be writable, and a bind-mounted single file cannot be updated this way (use the printing form there). Needs no configuration; the first command of every install. |
 | `shhnote check` | Loads the configuration and pings the database; exit code 0 when a start would succeed. |
-| `shhnote health` | Asks the running server's health endpoint (`/api/v1/health`, or `/v1/health` on the `api.` host under subdomain routing); used as the container health check. |
+| `shhnote health` | Asks the running server's health endpoint (`/api/v1/health`, or `/v1/health` on the API host under domain routing); used as the container health check. |
 | `shhnote reset-admin` | Deletes every admin API key, so `SHH_ADMIN_TOKEN` works again. For lockouts. |
 
 ## First admin, and retiring the token
 
-Until setup is done the site serves only its admin panel and admin API (every other page and API call answers 503 with a setup page; `/health` says `configured: false`). Setup is three things: sign in at `/en/admin` with `SHH_ADMIN_TOKEN`, create an admin API key (keep it in a password manager; it is shown once), then sign in with the key and set the site name and the contact address under Settings. The token, and any session signed in with it, stops working as soon as the first admin key exists; if it is still set, the server logs a warning at startup. Remove it. The admin JSON API under `/api/v1/admin` (`api.<host>/v1/admin` under subdomain routing; see [admin API](../admin-api.md)) takes the same keys as `Authorization: Bearer`.
+Until setup is done the site serves only its admin panel and admin API (every other page and API call answers 503 with a setup page; `/health` says `configured: false`). Setup is three things: sign in at `/en/admin` with `SHH_ADMIN_TOKEN`, create an admin API key (keep it in a password manager; it is shown once), then sign in with the key and set the site name and the contact address under Settings. The token, and any session signed in with it, stops working as soon as the first admin key exists; if it is still set, the server logs a warning at startup. Remove it. The admin JSON API under `/api/v1/admin` (`<API domain>/v1/admin` under domain routing; see [admin API](../admin-api.md)) takes the same keys as `Authorization: Bearer`.
+
+## Changing the public address
+
+`SHH_URL` is read at startup and nothing derived from it is stored: secrets, blobs, keys and settings carry no host name, share links are built in the browser from the page's own origin, and admin cookies are scoped by the browser to the host that set them. Moving an instance from a temporary host name (say `new.example.com`) to its final one is therefore an edit of `SHH_URL`, the proxy and DNS, and a restart. Four things to check by hand:
+
+- **Links already handed out** point at the old host. They keep working only while that name still reaches the instance, so keep it routed until those secrets have expired, or accept that they break. Under `domain` routing the old API host stops matching at once, so keep its name too, or pick a fixed `SHH_API_DOMAIN` from the start.
+- **Settings that hold the old address**: the `regions` list, `allowed_origins`, and perhaps `source_url` or `project_url`. Change them in the panel.
+- **Derived host names** under `domain` routing move with the site unless `SHH_API_DOMAIN` and `SHH_ADMIN_DOMAIN` pin them. `new.example.com` otherwise gets `api.new.example.com`; two instances such as `example.com` and `eu.example.com` get `api.example.com` and `api.eu.example.com`, where `api-eu.example.com` may be wanted. Setting the two variables gives each instance the names you choose, and keeps them when `SHH_URL` changes.
+- **Admins sign in again**, since the session cookie belongs to the old host.
 
 ## Backups
 

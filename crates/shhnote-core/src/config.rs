@@ -28,7 +28,9 @@ const KNOWN: &[&str] = &[
     "SHH_DEBUG",
     "SHH_URL",
     "SHH_API_ROUTING",
+    "SHH_API_DOMAIN",
     "SHH_ADMIN_ROUTING",
+    "SHH_ADMIN_DOMAIN",
     "SHH_WEB",
     "SHH_SECRET_KEY",
     "SHH_HOST",
@@ -120,20 +122,22 @@ impl WebMode {
     }
 }
 
-// The admin panel at `/{locale}/admin` on the main domain, or at `admin.<host>/{locale}/`
-// on its own subdomain, which is easy to firewall (D-25).
+// The admin panel at `/{locale}/admin` on the main domain, or at `<host>/{locale}/` on its
+// own domain (`admin.<site host>` unless `SHH_ADMIN_DOMAIN` says otherwise), which is easy
+// to firewall (D-25). `url` is that domain's origin, for links from other hosts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AdminRouting {
     Path,
-    Subdomain { host: String },
+    Domain { host: String, url: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApiRouting {
     // The API lives under `/api` on the main domain.
     Path,
-    // The API lives on its own subdomain, at `host`.
-    Subdomain { host: String },
+    // The API lives on its own domain, at `host` (`api.<site host>` unless `SHH_API_DOMAIN`
+    // says otherwise); `Config::api_url` is its origin.
+    Domain { host: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -371,50 +375,81 @@ impl Config {
             ));
         }
 
-        let (api_routing, api_url) = match vars.get("SHH_API_ROUTING").unwrap_or("path") {
+        let site_host = authority
+            .rsplit_once(':')
+            .map_or(authority, |(host, _port)| host)
+            .to_ascii_lowercase();
+        let routing = |name: &'static str| match vars.get(name).unwrap_or("path") {
+            "path" => Ok(false),
             // Local development always uses path routing, so no extra DNS setup is needed.
-            "path" | "subdomain" if env == AppEnv::Local => {
-                (ApiRouting::Path, format!("{url}/api"))
-            }
-            "path" => (ApiRouting::Path, format!("{url}/api")),
-            "subdomain" => {
-                let host = authority
-                    .rsplit_once(':')
-                    .map_or(authority, |(host, _port)| host);
-                if host.parse::<IpAddr>().is_ok() || host.starts_with('[') {
-                    return Err(invalid(
-                        "SHH_API_ROUTING",
-                        "subdomain needs SHH_URL to use a domain name, not an IP address",
-                    ));
-                }
-                let api_url = format!("{scheme}://api.{}", authority.to_ascii_lowercase());
-                (
-                    ApiRouting::Subdomain {
-                        host: format!("api.{}", host.to_ascii_lowercase()),
-                    },
-                    api_url,
-                )
-            }
-            _ => return Err(invalid("SHH_API_ROUTING", "must be path or subdomain")),
+            "domain" => Ok(env != AppEnv::Local),
+            "subdomain" => Err(invalid(name, "subdomain is now called domain")),
+            _ => Err(invalid(name, "must be path or domain")),
         };
-        let admin_routing = match vars.get("SHH_ADMIN_ROUTING").unwrap_or("path") {
-            "path" | "subdomain" if env == AppEnv::Local => AdminRouting::Path,
-            "path" => AdminRouting::Path,
-            "subdomain" => {
-                let host = authority
-                    .rsplit_once(':')
-                    .map_or(authority, |(host, _port)| host);
-                if host.parse::<IpAddr>().is_ok() || host.starts_with('[') {
-                    return Err(invalid(
-                        "SHH_ADMIN_ROUTING",
-                        "subdomain needs SHH_URL to use a domain name, not an IP address",
-                    ));
-                }
-                AdminRouting::Subdomain {
-                    host: format!("admin.{}", host.to_ascii_lowercase()),
+        // The domain variables only mean something with domain routing, so like the storage
+        // tier variables they are refused otherwise; local keeps them, since it ignores the
+        // routing choice rather than refusing it.
+        let own_domain = |routing: &'static str,
+                          name: &'static str,
+                          prefix: &str|
+         -> Result<String, ConfigError> {
+            if site_host.parse::<IpAddr>().is_ok() || site_host.starts_with('[') {
+                return Err(invalid(
+                    routing,
+                    "domain needs SHH_URL to use a domain name, not an IP address",
+                ));
+            }
+            match vars.get(name) {
+                None => Ok(format!("{prefix}.{}", authority.to_ascii_lowercase())),
+                Some(value) => {
+                    let value = domain_authority(value).map_err(|e| invalid(name, e))?;
+                    if host_of(&value) == site_host {
+                        return Err(invalid(name, "must differ from the SHH_URL host"));
+                    }
+                    Ok(value)
                 }
             }
-            _ => return Err(invalid("SHH_ADMIN_ROUTING", "must be path or subdomain")),
+        };
+
+        let (api_routing, api_url) = if routing("SHH_API_ROUTING")? {
+            let authority = own_domain("SHH_API_ROUTING", "SHH_API_DOMAIN", "api")?;
+            (
+                ApiRouting::Domain {
+                    host: host_of(&authority).to_string(),
+                },
+                format!("{scheme}://{authority}"),
+            )
+        } else {
+            if vars.get("SHH_API_DOMAIN").is_some() && env != AppEnv::Local {
+                return Err(invalid(
+                    "SHH_API_DOMAIN",
+                    "only applies when SHH_API_ROUTING is domain",
+                ));
+            }
+            (ApiRouting::Path, format!("{url}/api"))
+        };
+        let admin_routing = if routing("SHH_ADMIN_ROUTING")? {
+            let authority = own_domain("SHH_ADMIN_ROUTING", "SHH_ADMIN_DOMAIN", "admin")?;
+            if let ApiRouting::Domain { host } = &api_routing
+                && host == host_of(&authority)
+            {
+                return Err(invalid(
+                    "SHH_ADMIN_DOMAIN",
+                    "must differ from the API domain",
+                ));
+            }
+            AdminRouting::Domain {
+                host: host_of(&authority).to_string(),
+                url: format!("{scheme}://{authority}"),
+            }
+        } else {
+            if vars.get("SHH_ADMIN_DOMAIN").is_some() && env != AppEnv::Local {
+                return Err(invalid(
+                    "SHH_ADMIN_DOMAIN",
+                    "only applies when SHH_ADMIN_ROUTING is domain",
+                ));
+            }
+            AdminRouting::Path
         };
 
         let host = vars.parse_or("SHH_HOST", IpAddr::V4(Ipv4Addr::LOCALHOST))?;
@@ -525,6 +560,38 @@ fn endpoint_is_private(endpoint: &str) -> bool {
         }
         Err(_) => false,
     }
+}
+
+// A domain for the API or the panel: a host name with an optional port, lowercased. No
+// scheme or path, since the scheme always follows SHH_URL, and no IP address, since the
+// server tells the hosts apart by name.
+fn domain_authority(value: &str) -> Result<String, String> {
+    let value = value.trim().trim_end_matches('/').to_ascii_lowercase();
+    if value.contains("://") || value.contains(['/', '@', '?', '#', ' ']) {
+        return Err("must be a host name with an optional port, like api.example.com".into());
+    }
+    let host = host_of(&value);
+    let port = value[host.len()..].strip_prefix(':');
+    if host.is_empty()
+        || host.starts_with('[')
+        || host.parse::<IpAddr>().is_ok()
+        || !host.split('.').all(|label| {
+            !label.is_empty()
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+        || port.is_some_and(|p| p.parse::<u16>().is_err())
+    {
+        return Err("must be a host name with an optional port, like api.example.com".into());
+    }
+    Ok(value)
+}
+
+fn host_of(authority: &str) -> &str {
+    authority
+        .rsplit_once(':')
+        .map_or(authority, |(host, _port)| host)
 }
 
 impl Storage {
@@ -880,16 +947,16 @@ mod tests {
     }
 
     #[test]
-    fn api_subdomain_routing() {
+    fn api_domain_routing() {
         let vars = with(&[
             ("SHH_ENV", "production"),
             ("SHH_URL", "https://Example.com:8443"),
-            ("SHH_API_ROUTING", "subdomain"),
+            ("SHH_API_ROUTING", "domain"),
         ]);
         let config = Config::from_vars(&vars).unwrap();
         assert_eq!(
             config.api_routing,
-            ApiRouting::Subdomain {
+            ApiRouting::Domain {
                 host: "api.example.com".into()
             }
         );
@@ -897,8 +964,60 @@ mod tests {
     }
 
     #[test]
+    fn api_domain_can_be_chosen() {
+        let vars = with(&[
+            ("SHH_ENV", "production"),
+            ("SHH_URL", "https://eu.example.com"),
+            ("SHH_API_ROUTING", "domain"),
+            ("SHH_API_DOMAIN", "API-EU.example.com:8443/"),
+        ]);
+        let config = Config::from_vars(&vars).unwrap();
+        assert_eq!(
+            config.api_routing,
+            ApiRouting::Domain {
+                host: "api-eu.example.com".into()
+            }
+        );
+        assert_eq!(config.api_url, "https://api-eu.example.com:8443");
+
+        for bad in [
+            "https://api.example.com",
+            "api.example.com/v1",
+            "203.0.113.5",
+            "api_eu.example.com",
+            "api.example.com:http",
+            "eu.example.com",
+        ] {
+            let vars = with(&[
+                ("SHH_ENV", "production"),
+                ("SHH_URL", "https://eu.example.com"),
+                ("SHH_API_ROUTING", "domain"),
+                ("SHH_API_DOMAIN", bad),
+            ]);
+            assert_eq!(
+                invalid_name(Config::from_vars(&vars)),
+                "SHH_API_DOMAIN",
+                "{bad}"
+            );
+        }
+        // Without domain routing the variable is a mistake, except on local, which ignores
+        // the routing choice altogether.
+        let vars = with(&[
+            ("SHH_ENV", "production"),
+            ("SHH_URL", "https://eu.example.com"),
+            ("SHH_API_DOMAIN", "api-eu.example.com"),
+        ]);
+        assert_eq!(invalid_name(Config::from_vars(&vars)), "SHH_API_DOMAIN");
+        let vars = with(&[
+            ("SHH_API_ROUTING", "domain"),
+            ("SHH_API_DOMAIN", "api-eu.example.com"),
+        ]);
+        assert!(Config::from_vars(&vars).is_ok());
+    }
+
+    #[test]
     fn local_always_uses_api_path_routing() {
-        let vars = with(&[("SHH_API_ROUTING", "subdomain")]);
+        let vars = with(&[("SHH_API_ROUTING", "domain")]);
         assert_eq!(
             Config::from_vars(&vars).unwrap().api_routing,
             ApiRouting::Path
@@ -906,13 +1025,25 @@ mod tests {
     }
 
     #[test]
-    fn api_subdomain_needs_a_domain_name() {
+    fn api_domain_needs_a_domain_name() {
         let vars = with(&[
             ("SHH_ENV", "production"),
             ("SHH_URL", "http://127.0.0.1:3000"),
-            ("SHH_API_ROUTING", "subdomain"),
+            ("SHH_API_ROUTING", "domain"),
         ]);
         assert_eq!(invalid_name(Config::from_vars(&vars)), "SHH_API_ROUTING");
+    }
+
+    #[test]
+    fn the_old_routing_name_is_refused_with_a_hint() {
+        let vars = with(&[("SHH_API_ROUTING", "subdomain")]);
+        match Config::from_vars(&vars) {
+            Err(ConfigError::Invalid { name, reason }) => {
+                assert_eq!(name, "SHH_API_ROUTING");
+                assert!(reason.contains("domain"), "{reason}");
+            }
+            other => panic!("expected an invalid-value error, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1040,16 +1171,45 @@ mod tests {
         let vars = with(&[
             ("SHH_ENV", "production"),
             ("SHH_URL", "https://Example.com"),
-            ("SHH_ADMIN_ROUTING", "subdomain"),
+            ("SHH_ADMIN_ROUTING", "domain"),
         ]);
         assert_eq!(
             Config::from_vars(&vars).unwrap().admin_routing,
-            AdminRouting::Subdomain {
-                host: "admin.example.com".into()
+            AdminRouting::Domain {
+                host: "admin.example.com".into(),
+                url: "https://admin.example.com".into(),
             }
         );
+        let vars = with(&[
+            ("SHH_ENV", "production"),
+            ("SHH_URL", "https://new.example.com"),
+            ("SHH_ADMIN_ROUTING", "domain"),
+            ("SHH_ADMIN_DOMAIN", "panel.example.com"),
+        ]);
+        assert_eq!(
+            Config::from_vars(&vars).unwrap().admin_routing,
+            AdminRouting::Domain {
+                host: "panel.example.com".into(),
+                url: "https://panel.example.com".into(),
+            }
+        );
+        // The panel and the API cannot share a host: the router picks one per host.
+        let vars = with(&[
+            ("SHH_ENV", "production"),
+            ("SHH_URL", "https://example.com"),
+            ("SHH_API_ROUTING", "domain"),
+            ("SHH_ADMIN_ROUTING", "domain"),
+            ("SHH_ADMIN_DOMAIN", "api.example.com"),
+        ]);
+        assert_eq!(invalid_name(Config::from_vars(&vars)), "SHH_ADMIN_DOMAIN");
+        let vars = with(&[
+            ("SHH_ENV", "production"),
+            ("SHH_URL", "https://example.com"),
+            ("SHH_ADMIN_DOMAIN", "panel.example.com"),
+        ]);
+        assert_eq!(invalid_name(Config::from_vars(&vars)), "SHH_ADMIN_DOMAIN");
         // Local always uses the path form.
-        let vars = with(&[("SHH_ADMIN_ROUTING", "subdomain")]);
+        let vars = with(&[("SHH_ADMIN_ROUTING", "domain")]);
         assert_eq!(
             Config::from_vars(&vars).unwrap().admin_routing,
             AdminRouting::Path
@@ -1057,7 +1217,7 @@ mod tests {
         let vars = with(&[
             ("SHH_ENV", "production"),
             ("SHH_URL", "https://203.0.113.5"),
-            ("SHH_ADMIN_ROUTING", "subdomain"),
+            ("SHH_ADMIN_ROUTING", "domain"),
         ]);
         assert_eq!(invalid_name(Config::from_vars(&vars)), "SHH_ADMIN_ROUTING");
         let vars = with(&[("SHH_ADMIN_ROUTING", "elsewhere")]);

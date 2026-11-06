@@ -2,7 +2,7 @@
 
 The admin panel's operations are available as JSON, for operators who script their instance.
 
-**Base path:** `/api/v1/admin` on the site's host (`SHH_API_ROUTING=path`, and always with `SHH_ENV=local`), or `/v1/admin` on the `api.` host (`SHH_API_ROUTING=subdomain`). The paths below are relative to it. `SHH_ADMIN_ROUTING` moves only the panel, not this API. The API answers before setup is complete (D-29), so a first admin key can be provisioned with the bootstrap token without opening the panel.
+**Base path:** `/api/v1/admin` on the site's host (`SHH_API_ROUTING=path`, and always with `SHH_ENV=local`), or `/v1/admin` on the API host (`SHH_API_ROUTING=domain`). The paths below are relative to it. `SHH_ADMIN_ROUTING` moves only the panel, not this API. The API answers before setup is complete (D-29), so a first admin key can be provisioned with the bootstrap token without opening the panel.
 
 Every request needs `Authorization: Bearer <key>` with an **admin**-scoped key; on a fresh install the bootstrap token from `SHH_ADMIN_TOKEN` is accepted instead, until the first admin key exists. Anything else gets **401 `unauthorized`**, and repeated failures from one client are rate-limited like panel logins (**429 `rate_limited`**). Responses carry `Cache-Control: no-store`.
 

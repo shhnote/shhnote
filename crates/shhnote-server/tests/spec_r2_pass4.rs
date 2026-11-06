@@ -303,7 +303,7 @@ async fn spec_r2_header_walk_every_mode() {
             vec![
                 ("SHH_ENV", "production"),
                 ("SHH_URL", "https://example.com"),
-                ("SHH_ADMIN_ROUTING", "subdomain"),
+                ("SHH_ADMIN_ROUTING", "domain"),
             ],
             "example.com",
             "/api",
@@ -314,7 +314,7 @@ async fn spec_r2_header_walk_every_mode() {
             vec![
                 ("SHH_ENV", "production"),
                 ("SHH_URL", "https://example.com"),
-                ("SHH_ADMIN_ROUTING", "subdomain"),
+                ("SHH_ADMIN_ROUTING", "domain"),
             ],
             "admin.example.com",
             "/api",
@@ -325,7 +325,7 @@ async fn spec_r2_header_walk_every_mode() {
             vec![
                 ("SHH_ENV", "production"),
                 ("SHH_URL", "https://example.com"),
-                ("SHH_API_ROUTING", "subdomain"),
+                ("SHH_API_ROUTING", "domain"),
             ],
             "api.example.com",
             "",
@@ -344,7 +344,7 @@ async fn spec_r2_header_walk_every_mode() {
                 ("SHH_ENV", "production"),
                 ("SHH_URL", "https://example.com"),
                 ("SHH_WEB", "api"),
-                ("SHH_ADMIN_ROUTING", "subdomain"),
+                ("SHH_ADMIN_ROUTING", "domain"),
             ],
             "example.com",
             "/api",
@@ -356,7 +356,7 @@ async fn spec_r2_header_walk_every_mode() {
                 ("SHH_ENV", "production"),
                 ("SHH_URL", "https://example.com"),
                 ("SHH_WEB", "api"),
-                ("SHH_ADMIN_ROUTING", "subdomain"),
+                ("SHH_ADMIN_ROUTING", "domain"),
             ],
             "admin.example.com",
             "/api",
@@ -405,7 +405,7 @@ async fn spec_r2_setup_gate_closed_routes_in_every_mode() {
             vec![
                 ("SHH_ENV", "production"),
                 ("SHH_URL", "https://example.com"),
-                ("SHH_ADMIN_ROUTING", "subdomain"),
+                ("SHH_ADMIN_ROUTING", "domain"),
             ],
             "example.com",
             "admin.example.com",
@@ -417,8 +417,8 @@ async fn spec_r2_setup_gate_closed_routes_in_every_mode() {
                 ("SHH_ENV", "production"),
                 ("SHH_URL", "https://example.com"),
                 ("SHH_WEB", "api"),
-                ("SHH_ADMIN_ROUTING", "subdomain"),
-                ("SHH_API_ROUTING", "subdomain"),
+                ("SHH_ADMIN_ROUTING", "domain"),
+                ("SHH_API_ROUTING", "domain"),
             ],
             "example.com",
             "admin.example.com",
@@ -626,7 +626,7 @@ async fn spec_r2_setup_page_login_link_is_dead_in_admin_subdomain_mode() {
         &[
             ("SHH_ENV", "production"),
             ("SHH_URL", "https://example.com"),
-            ("SHH_ADMIN_ROUTING", "subdomain"),
+            ("SHH_ADMIN_ROUTING", "domain"),
         ],
         false,
     )
@@ -731,7 +731,7 @@ async fn spec_r2_admin_subdomain_host_matching_and_cookie_scope() {
         &[
             ("SHH_ENV", "production"),
             ("SHH_URL", "https://example.com"),
-            ("SHH_ADMIN_ROUTING", "subdomain"),
+            ("SHH_ADMIN_ROUTING", "domain"),
         ],
         true,
     )

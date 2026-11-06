@@ -64,7 +64,7 @@ secrets.example.com {
 }
 ```
 
-The same file carries commented site blocks for `api.<domain>` (`SHH_API_ROUTING=subdomain`) and `admin.<domain>` (`SHH_ADMIN_ROUTING=subdomain`, with a `remote_ip` allow-list so only your own range reaches the panel). Other proxies: [reverse proxies](reverse-proxies.md). Then open `https://<domain>/en/admin`, sign in with the bootstrap token, create an admin API key, sign in with it, and set the site name and contact address under "Settings": until then every public page answers 503 with a setup page and every public API call `503 not_configured`; only the admin panel, the admin API, `/static/*` and `/health` work. Then remove `SHH_ADMIN_TOKEN` from the environment file (`systemctl restart shhnote` afterwards; the token stops working anyway once an admin key exists).
+The same file carries commented site blocks for the API host (`SHH_API_ROUTING=domain`: `api.<domain>`, or whatever `SHH_API_DOMAIN` names) and the panel host (`SHH_ADMIN_ROUTING=domain`: `admin.<domain>` or `SHH_ADMIN_DOMAIN`, with a `remote_ip` allow-list so only your own range reaches the panel). Other proxies: [reverse proxies](reverse-proxies.md). Then open `https://<domain>/en/admin`, sign in with the bootstrap token, create an admin API key, sign in with it, and set the site name and contact address under "Settings": until then every public page answers 503 with a setup page and every public API call `503 not_configured`; only the admin panel, the admin API, `/static/*` and `/health` work. Then remove `SHH_ADMIN_TOKEN` from the environment file (`systemctl restart shhnote` afterwards; the token stops working anyway once an admin key exists).
 
 ## Upgrades
 

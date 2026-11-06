@@ -161,7 +161,7 @@ fn cookie_value(headers: &HeaderMap) -> Option<&str> {
 }
 
 // No `Domain` attribute: the cookie belongs to the host that serves the panel, the main
-// domain or the admin subdomain, and to nothing else (SPEC §8).
+// domain or the admin domain, and to nothing else (SPEC §8).
 fn set_cookie(state: &PageState, value: &str, max_age: i64) -> HeaderValue {
     let secure = if state.shared.secure_cookies {
         "; Secure"

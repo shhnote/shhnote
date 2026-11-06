@@ -4,12 +4,13 @@
 	reverse_proxy shhnote:3000
 }
 
-# For SHH_API_ROUTING=subdomain, serve the API host too (both names need DNS records):
+# For SHH_API_ROUTING=domain, serve the API host too (api.<domain>, or what SHH_API_DOMAIN
+# names; both names need DNS records):
 # api.{$DOMAIN} {
 # 	reverse_proxy shhnote:3000
 # }
 
-# For SHH_ADMIN_ROUTING=subdomain, the panel on its own host. A good place to limit who may
+# For SHH_ADMIN_ROUTING=domain, the panel on its own host (admin.<domain> or SHH_ADMIN_DOMAIN). A good place to limit who may
 # reach it at all, for example to an office range:
 # admin.{$DOMAIN} {
 # 	@outside not remote_ip 203.0.113.0/24
