@@ -1,7 +1,3 @@
-// Round-2 pass 3 (Rust-specific correctness) review tests. Each test pins the behaviour
-// observed during the review; the ones marked FINDING assert the current (wrong) behaviour
-// so they start passing in the other direction once the finding is fixed.
-
 use std::{collections::HashMap, fs, process::Command, sync::Arc};
 
 use axum::{
@@ -18,8 +14,8 @@ use shhnote_server::{api::ApiState, app, storage::Blobs};
 use shhnote_store::{Scope, Store, sqlite_path_for_tests};
 use tower::ServiceExt;
 
-const ADMIN_KEY: &str = "review-admin-key-of-at-least-32-characters-ok";
-const BOUNDARY: &str = "----review-r2-pass3-boundary";
+const ADMIN_KEY: &str = "correctness-admin-key-of-at-least-32-characters";
+const BOUNDARY: &str = "----correctness-boundary";
 
 struct Reply {
     status: StatusCode,
@@ -107,7 +103,7 @@ async fn configured(
     store
         .create_api_key(
             &credential_hash(ADMIN_KEY.as_bytes()),
-            "review",
+            "test",
             Scope::Admin,
             0,
         )
@@ -176,25 +172,25 @@ async fn create(app: &Router, blob_bytes: usize) -> Reply {
     send(app, req).await
 }
 
-// A scratch directory on the project drive (the shared /tmp is nearly full during this
-// review, and the local tier only needs a directory it can rename within).
+// A scratch directory under the gitignored `target/` rather than /tmp, which can be small;
+// the local tier only needs a directory it can rename within.
 fn scratch(name: &str) -> std::path::PathBuf {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/review-r2-pass3/tmp")
+        .join("../../target/test-correctness/tmp")
         .join(format!("{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir
 }
 
-// R-6 (round 2): with the default external cap (64 MiB) the top bucket's blob is
+// SPEC §4: with the default external cap (64 MiB) the top bucket's blob is
 // `blob_len(64 MiB) = 64 MiB + 16 479` bytes; the route's body limit is `blob_len(max)` plus
 // the framing slack, so a client that pads to the bucket the instance advertises gets 201.
 #[tokio::test]
-async fn spec_r2_pass3_top_bucket_of_default_external_tier_is_accepted() {
+async fn spec_top_bucket_of_the_default_external_tier_is_accepted() {
     let root = scratch("top-bucket-64");
     let (app, _, _) = configured(
-        "review-r2-pass3-top-bucket-64",
+        "correctness-top-bucket-64",
         &[
             ("SHH_STORAGE", "local"),
             ("SHH_LOCAL_PATH", root.to_str().unwrap()),
@@ -206,7 +202,7 @@ async fn spec_r2_pass3_top_bucket_of_default_external_tier_is_accepted() {
     let config = get(&app, Some("localhost"), "/api/v1/config").await.json();
     let max = config["max_blob_bytes"].as_u64().unwrap();
     assert_eq!(max, 64 << 20, "default SHH_EXTERNAL_MAX_OBJECT");
-    // The arithmetic the old limit tripped over: the tags alone exceed 16 KiB here.
+    // Why a fixed 16 KiB of slack is not enough: the tags alone exceed it here.
     assert!(
         blob_len(max) > max + 16 * 1024,
         "{} vs {}",
@@ -219,14 +215,14 @@ async fn spec_r2_pass3_top_bucket_of_default_external_tier_is_accepted() {
     let _ = fs::remove_dir_all(&root);
 }
 
-// R-6 (round 2): `max_blob_bytes` is a bucket (SPEC §4). The server stores a blob at the top
+// `max_blob_bytes` is a bucket (SPEC §4). The server stores a blob at the top
 // bucket and serves it with a Content-Length of `blob_len(max_blob_bytes)`, above the number
 // itself; the client caps the body at that length, not at the bucket.
 #[tokio::test]
-async fn spec_r2_pass3_server_serves_blobs_longer_than_advertised_max_blob_bytes() {
+async fn spec_server_serves_blobs_longer_than_the_advertised_max_blob_bytes() {
     let root = scratch("top-bucket-1m");
     let (app, _, _) = configured(
-        "review-r2-pass3-top-bucket-1m",
+        "correctness-top-bucket-1m",
         &[
             ("SHH_STORAGE", "local"),
             ("SHH_LOCAL_PATH", root.to_str().unwrap()),
@@ -265,16 +261,13 @@ async fn spec_r2_pass3_server_serves_blobs_longer_than_advertised_max_blob_bytes
     let _ = fs::remove_dir_all(&root);
 }
 
-// R-9 (round 2): `shhnote init --env` reads a line the way the server's `.env` reader does,
+// `shhnote init --env` reads a line the way the server's `.env` reader does,
 // so `export KEY=value` and `KEY = value` count as set and are kept. Observed through
 // `shhnote check`: a deliberately too-short key makes `check` fail before `init` and still
 // after it, since the operator's line is the only one.
 #[test]
-fn spec_r2_pass3_init_env_keeps_values_set_with_export_or_spaces() {
-    let dir = std::env::temp_dir().join(format!(
-        "shhnote-review-r2-pass3-init-{}",
-        std::process::id()
-    ));
+fn spec_init_env_keeps_values_set_with_export_or_spaces() {
+    let dir = std::env::temp_dir().join(format!("shhnote-correctness-init-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     let db = dir.join("db.sqlite");
@@ -333,12 +326,12 @@ fn spec_r2_pass3_init_env_keeps_values_set_with_export_or_spaces() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-// R-9 (round 2): a value the server's reader takes as empty (`KEY=""`, `KEY= # comment`) is
+// A value the server's `.env` reader takes as empty (`KEY=""`, `KEY= # comment`) is
 // empty to `init` too, and is filled in.
 #[test]
-fn spec_r2_pass3_init_env_fills_values_dotenvy_reads_as_empty() {
+fn spec_init_env_fills_values_dotenvy_reads_as_empty() {
     let dir = std::env::temp_dir().join(format!(
-        "shhnote-review-r2-pass3-init-empty-{}",
+        "shhnote-correctness-init-empty-{}",
         std::process::id()
     ));
     let _ = fs::remove_dir_all(&dir);
@@ -363,11 +356,11 @@ fn spec_r2_pass3_init_env_fills_values_dotenvy_reads_as_empty() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-// R-11 (round 2): before setup (D-29) the gate opens exactly the panel's routes; an unknown
+// Before setup (D-29) the gate opens exactly the panel's routes; an unknown
 // path under `/{locale}/admin` is a public page and gets the setup page like any other.
 #[tokio::test]
-async fn spec_r2_pass3_setup_gate_unknown_admin_path_gets_the_setup_page() {
-    let app = unconfigured("review-r2-pass3-gate-admin-404", &[]).await;
+async fn spec_setup_gate_unknown_admin_path_gets_the_setup_page() {
+    let app = unconfigured("correctness-gate-admin-404", &[]).await;
     let gated = get(&app, Some("localhost"), "/en/s").await;
     assert_eq!(gated.status, StatusCode::SERVICE_UNAVAILABLE);
     let unknown = get(&app, Some("localhost"), "/en/admin/no-such-page").await;
@@ -379,11 +372,11 @@ async fn spec_r2_pass3_setup_gate_unknown_admin_path_gets_the_setup_page() {
     assert_eq!(login.status, StatusCode::OK);
 }
 
-// R-16 (round 2): with files switched off the accepted size is `padded_size(2 × text_max +
+// With files switched off the accepted size is `padded_size(2 × text_max +
 // 1 KiB)`; a ladder with no rung that big is refused on save and corrected at startup (back
 // to Padmé), so a text secret is always accepted.
 #[tokio::test]
-async fn spec_r2_pass3_files_disabled_with_a_short_ladder_still_accepts_text() {
+async fn spec_files_disabled_with_a_short_ladder_still_accepts_text() {
     let (_, warnings) = Settings::with_overrides(
         &[
             ("padding_mode", "buckets"),
@@ -399,7 +392,7 @@ async fn spec_r2_pass3_files_disabled_with_a_short_ladder_still_accepts_text() {
     assert!(warnings[0].contains("files_enabled"), "{warnings:?}");
 
     let (app, _, _) = configured(
-        "review-r2-pass3-text-only-cap",
+        "correctness-text-only-cap",
         &[],
         &[
             ("padding_mode", "buckets"),
@@ -418,9 +411,9 @@ async fn spec_r2_pass3_files_disabled_with_a_short_ladder_still_accepts_text() {
 // would send. Behaviour pinned here; none of it is a bypass, since the admin router still
 // demands a session.
 #[tokio::test]
-async fn spec_r2_pass3_host_matching_edge_cases_do_not_panic_or_cross_routers() {
+async fn spec_host_matching_edge_cases_do_not_panic_or_cross_routers() {
     let (app, _, _) = configured(
-        "review-r2-pass3-hosts",
+        "correctness-hosts",
         &[
             ("SHH_ENV", "production"),
             ("SHH_URL", "https://Example.com:8443"),
@@ -505,9 +498,9 @@ async fn spec_r2_pass3_host_matching_edge_cases_do_not_panic_or_cross_routers() 
 // CORS (D-26): `null`, malformed and unlisted origins get no allow-origin header, the
 // preflight still answers (without one), `Vary: Origin` is always there and nothing panics.
 #[tokio::test]
-async fn spec_r2_pass3_cors_rejects_null_and_malformed_origins() {
+async fn spec_cors_rejects_null_and_malformed_origins() {
     let (app, _, _) = configured(
-        "review-r2-pass3-cors",
+        "correctness-cors",
         &[
             ("SHH_ENV", "production"),
             ("SHH_URL", "https://example.com"),
@@ -581,10 +574,10 @@ async fn spec_r2_pass3_cors_rejects_null_and_malformed_origins() {
     }
 }
 
-// R-17 (round 2): a bad `?days=` on the admin API gets the shared JSON error shape.
+// SPEC §8: a bad `?days=` on the admin API gets the shared JSON error shape.
 #[tokio::test]
-async fn spec_r2_pass3_admin_stats_query_rejection_uses_the_shared_error_shape() {
-    let (app, _, _) = configured("review-r2-pass3-admin-query", &[], &[]).await;
+async fn spec_admin_stats_query_rejection_uses_the_shared_error_shape() {
+    let (app, _, _) = configured("correctness-admin-query", &[], &[]).await;
     let req = Request::get("/api/v1/admin/stats?days=abc")
         .header(header::HOST, "localhost")
         .header(header::AUTHORIZATION, format!("Bearer {ADMIN_KEY}"))
@@ -600,12 +593,12 @@ async fn spec_r2_pass3_admin_stats_query_rejection_uses_the_shared_error_shape()
     );
 }
 
-// Round-1 regression check (S-6, S-18 analogue for the drain): the drain's 503 carries
-// `no-store`, `Connection: close` and the SPEC §11 headers.
+// While draining, the 503 carries `no-store`, `Connection: close` and the SPEC §11 headers,
+// like every other answer.
 #[tokio::test]
-async fn spec_r2_pass3_drain_503_carries_no_store_and_security_headers() {
+async fn spec_drain_503_carries_no_store_and_security_headers() {
     let config = Config::from_vars(&base_vars(&[])).unwrap();
-    let store = store("review-r2-pass3-drain").await;
+    let store = store("correctness-drain").await;
     let drain = Arc::new(shhnote_server::drain::Drain::default());
     let app = app::router_with_drain(
         &config,

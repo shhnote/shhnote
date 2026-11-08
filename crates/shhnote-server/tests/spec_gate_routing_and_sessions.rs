@@ -1,9 +1,3 @@
-// Security review round 2, pass 4 (web layer, admin, authentication). Probes the surfaces
-// added since round 1: the setup gate, SHH_WEB=api, SHH_ADMIN_ROUTING=subdomain, CORS, the
-// admin duration form, placeholders in content pages, `shhnote init`. Tests named
-// `review_*` print what they saw (run with --nocapture) and assert the SPEC properties;
-// `finding_*` tests pin a finding and FAIL while it is open.
-
 use std::{collections::HashMap, net::SocketAddr};
 
 use axum::{
@@ -18,8 +12,8 @@ use shhnote_server::{api::ApiState, app};
 use shhnote_store::{Scope, Store, sqlite_path_for_tests};
 use tower::ServiceExt;
 
-const ADMIN_KEY: &str = "review-r2-admin-key-of-at-least-32-characters";
-const BOOTSTRAP: &str = "review-r2-bootstrap-token-of-at-least-32-chars";
+const ADMIN_KEY: &str = "test-admin-key-of-at-least-32-characters";
+const BOOTSTRAP: &str = "test-bootstrap-token-of-at-least-32-chars";
 
 async fn parts(name: &str, extra: &[(&str, &str)], configured: bool) -> (Config, ApiState, Store) {
     let mut vars: HashMap<String, String> = [
@@ -281,10 +275,10 @@ fn missing(seen: &[Seen], hsts: bool) -> Vec<String> {
         .collect()
 }
 
-// Item 1: every route, in every mode, configured and not. Prints the table the findings
-// file carries and asserts the SPEC §11 header set on every response.
+// SPEC §11: every route, in every mode, configured and not, carries the full header set.
+// Prints a table of what each response sent (run with --nocapture).
 #[tokio::test]
-async fn spec_r2_header_walk_every_mode() {
+async fn spec_security_headers_on_every_route_in_every_mode() {
     #[allow(clippy::type_complexity)]
     let modes: Vec<(&str, Vec<(&str, &str)>, &str, &str, bool)> = vec![
         ("full/path/local", vec![], "localhost", "/api", false),
@@ -367,7 +361,7 @@ async fn spec_r2_header_walk_every_mode() {
     for configured in [true, false] {
         for (i, (name, extra, host, api, hsts)) in modes.iter().enumerate() {
             let app = build(
-                &format!("r2p4-walk-{i}-{}", u8::from(configured)),
+                &format!("routing-walk-{i}-{}", u8::from(configured)),
                 extra,
                 configured,
             )
@@ -389,7 +383,7 @@ async fn spec_r2_header_walk_every_mode() {
 // `/static/*` answer; everything else is 503 with `no-store`, the setup page for pages and
 // `not_configured` for the API, whatever the method. Both web modes, both admin routings.
 #[tokio::test]
-async fn spec_r2_setup_gate_closed_routes_in_every_mode() {
+async fn spec_setup_gate_closes_all_but_open_routes_in_every_mode() {
     #[allow(clippy::type_complexity)]
     let modes: Vec<(&str, Vec<(&str, &str)>, &str, &str, &str)> = vec![
         ("full/path", vec![], "localhost", "localhost", "/api"),
@@ -426,7 +420,7 @@ async fn spec_r2_setup_gate_closed_routes_in_every_mode() {
         ),
     ];
     for (i, (name, extra, host, admin_host, api)) in modes.iter().enumerate() {
-        let app = build(&format!("r2p4-gate-{i}"), extra, false).await;
+        let app = build(&format!("routing-gate-{i}"), extra, false).await;
         let api_host = if api.is_empty() {
             "api.example.com"
         } else {
@@ -617,12 +611,12 @@ async fn spec_r2_setup_gate_closed_routes_in_every_mode() {
     }
 }
 
-// D-29: the setup page must link the admin login (SPEC D-29). With the panel on its own host
-// the link is rendered as `/{locale}/login` on the MAIN host, where it does not exist.
+// D-29: the setup page links the admin login. With the panel on its own host, that link must
+// point at the admin host, since `/{locale}/login` does not exist on the main host.
 #[tokio::test]
-async fn spec_r2_setup_page_login_link_is_dead_in_admin_subdomain_mode() {
+async fn spec_setup_page_login_link_reaches_the_panel_under_admin_domain_routing() {
     let app = build(
-        "r2p4-setup-link",
+        "routing-setup-link",
         &[
             ("SHH_ENV", "production"),
             ("SHH_URL", "https://example.com"),
@@ -650,13 +644,12 @@ async fn spec_r2_setup_page_login_link_is_dead_in_admin_subdomain_mode() {
     );
 }
 
-// D-29: the gate is derived while unmet and remembered once met. Observed: within a process
-// it never re-arms; a restart (a fresh router over the same database) re-derives it, so
-// after `reset-admin` or deleting the last admin key the whole site is 503 again on the next
-// start. Recorded, not a finding: the spec says the state is derived.
+// D-29: the gate is derived while unmet and remembered once met. Within a process it never
+// re-arms; a restart (a fresh router over the same database) derives it again, so after
+// `reset-admin` or deleting the last admin key the whole site is 503 on the next start.
 #[tokio::test]
-async fn spec_r2_setup_gate_rearm_after_restart() {
-    let (config, state, store) = parts("r2p4-rearm", &[], true).await;
+async fn spec_setup_gate_rearms_only_after_restart() {
+    let (config, state, store) = parts("routing-rearm", &[], true).await;
     let app = app::router(&config, state.clone());
     assert_eq!(get(&app, "localhost", "/en").await.status, StatusCode::OK);
     store
@@ -689,8 +682,8 @@ async fn spec_r2_setup_gate_rearm_after_restart() {
 // D-29: neither the panel form nor the API can empty site_name / contact_email once set;
 // a save that fails validation for another field also changes nothing.
 #[tokio::test]
-async fn spec_r2_setup_cannot_be_cleared_by_panel_form() {
-    let app = build("r2p4-clear", &[], true).await;
+async fn spec_setup_fields_cannot_be_cleared_by_panel_form() {
+    let app = build("routing-clear", &[], true).await;
     let cookie = login(&app, "localhost", "/en/admin/login", ADMIN_KEY).await;
     let page = get_with_cookie(&app, "localhost", "/en/admin/settings", &cookie).await;
     let csrf = csrf_of(&page.body);
@@ -725,9 +718,9 @@ async fn spec_r2_setup_cannot_be_cleared_by_panel_form() {
 
 // D-25: host matching and what a request on the wrong host can reach.
 #[tokio::test]
-async fn spec_r2_admin_subdomain_host_matching_and_cookie_scope() {
+async fn spec_admin_domain_host_matching_and_cookie_scope() {
     let app = build(
-        "r2p4-admin-host",
+        "routing-admin-host",
         &[
             ("SHH_ENV", "production"),
             ("SHH_URL", "https://example.com"),
@@ -761,7 +754,7 @@ async fn spec_r2_admin_subdomain_host_matching_and_cookie_scope() {
         assert_eq!(r.status, StatusCode::NOT_FOUND, "{host:?} path form");
     }
     // A forged Host from a public client reaches the panel: host-based routing, by design;
-    // the deploy docs put the allow-list in the proxy. Recorded.
+    // the deploy docs put the allow-list in the proxy. Printed only.
     let forged = send(
         &app,
         Req {
@@ -903,9 +896,9 @@ async fn spec_r2_admin_subdomain_host_matching_and_cookie_scope() {
 
 // SPEC §4 / D-26: the CORS layer, edge by edge.
 #[tokio::test]
-async fn spec_r2_cors_edges() {
+async fn spec_cors_matches_listed_origins_exactly() {
     let (config, state, store) = parts(
-        "r2p4-cors",
+        "routing-cors",
         &[
             ("SHH_ENV", "production"),
             ("SHH_URL", "https://example.com"),
@@ -1050,7 +1043,8 @@ async fn spec_r2_cors_edges() {
         assert_eq!(acao(&r), None, "{p}");
         println!("{p} OPTIONS/GET with Origin -> {}", r.status);
     }
-    // The admin API IS inside the CORS layer: a listed origin may call it with a Bearer key.
+    // The admin API from a listed origin with a Bearer key (SPEC §4: same-origin only, no
+    // CORS headers). Printed only.
     let admin_pre = send(
         &app,
         Req {
@@ -1119,11 +1113,11 @@ async fn spec_r2_cors_edges() {
     let _ = store;
 }
 
-// Item 5/addition: the duration dropdowns are a UI convenience; the server must validate the
+// SPEC §7.2: the duration dropdowns are a UI convenience; the server must validate the
 // posted seconds, not the choice list. A crafted form may post any value.
 #[tokio::test]
-async fn spec_r2_settings_form_crafted_durations_and_padding_preservation() {
-    let (config, state, _) = parts("r2p4-form", &[], true).await;
+async fn spec_settings_form_validates_posted_values_and_keeps_padding_fields() {
+    let (config, state, _) = parts("routing-form", &[], true).await;
     let app = app::router(&config, state.clone());
     let cookie = login(&app, "localhost", "/en/admin/login", ADMIN_KEY).await;
     let page = get_with_cookie(&app, "localhost", "/en/admin/settings", &cookie).await;
@@ -1257,11 +1251,11 @@ async fn spec_r2_settings_form_crafted_durations_and_padding_preservation() {
     );
 }
 
-// Item 6: settings values rendered into the Markdown content pages. `{{site_name}}` is
-// substituted into already-rendered HTML without escaping.
+// `{{site_name}}` in the Markdown content pages is substituted into already-rendered HTML,
+// so markup in the setting must come out escaped there.
 #[tokio::test]
-async fn spec_r2_site_name_is_injected_unescaped_into_content_pages() {
-    let (config, state, _) = parts("r2p4-sitename", &[], true).await;
+async fn spec_site_name_is_escaped_in_content_pages() {
+    let (config, state, _) = parts("routing-sitename", &[], true).await;
     let app = app::router(&config, state.clone());
     let auth = format!("Bearer {ADMIN_KEY}");
     let name = r#"Acme <b data-x="1">bold</b><meta http-equiv="refresh" content="0;url=https://evil.example">"#;
@@ -1301,11 +1295,11 @@ async fn spec_r2_site_name_is_injected_unescaped_into_content_pages() {
     assert!(raw.is_empty(), "site_name rendered unescaped on: {raw:?}");
 }
 
-// Item 6 and the data-shh-i18n block: nothing an admin sets can reach the JSON strings block,
-// the footer version, the `data-shh-*` attributes or the `<template>` elements unescaped.
+// Nothing an admin sets can reach the `data-shh-i18n` JSON strings block, the footer
+// version, the `data-shh-*` attributes or the `<template>` elements unescaped.
 #[tokio::test]
-async fn spec_r2_templates_escape_settings_and_version() {
-    let (config, state, _) = parts("r2p4-escape", &[], true).await;
+async fn spec_templates_escape_settings_and_version() {
+    let (config, state, _) = parts("routing-escape", &[], true).await;
     let app = app::router(&config, state.clone());
     let auth = format!("Bearer {ADMIN_KEY}");
     let body = serde_json::json!({
@@ -1376,11 +1370,11 @@ async fn spec_r2_templates_escape_settings_and_version() {
     );
 }
 
-// Items 2–4 re-run after the S-39/S-40/S-43 rework: sessions, CSRF on every state-changing
-// route, login, bootstrap, and the admin API's cookie refusal.
+// SPEC §8: sessions, CSRF on every state-changing route, login, bootstrap, and the admin
+// API's cookie refusal.
 #[tokio::test]
-async fn spec_r2_session_csrf_login_regressions() {
-    let (config, state, store) = parts("r2p4-session", &[], false).await;
+async fn spec_admin_sessions_csrf_and_login() {
+    let (config, state, store) = parts("routing-session", &[], false).await;
     let app = app::router(&config, state.clone());
     // Bootstrap login while no admin key exists.
     let boot = login(&app, "localhost", "/en/admin/login", BOOTSTRAP).await;
@@ -1393,7 +1387,7 @@ async fn spec_r2_session_csrf_login_regressions() {
     let page = get_with_cookie(&app, "localhost", "/en/admin/keys", &boot).await;
     let csrf = csrf_of(&page.body);
     let boot_csrf = csrf.clone();
-    // Every POST route without the token: 403 (logout included, S-40).
+    // Every POST route without the token: 403 (logout included).
     for route in [
         "/en/admin/settings",
         "/en/admin/keys",
@@ -1448,7 +1442,7 @@ async fn spec_r2_session_csrf_login_regressions() {
         "a CSRF-less POST minted a key"
     );
     // Mint the first admin key through the bootstrap session: redirect to login?new=<nonce>,
-    // key shown once, bootstrap session dead (S-39, S-43).
+    // key shown once, bootstrap session dead.
     let r = post_form(
         &app,
         "localhost",
@@ -1690,7 +1684,8 @@ async fn spec_r2_session_csrf_login_regressions() {
     .await;
     assert_eq!(r.status, StatusCode::UNAUTHORIZED);
     // The last admin key is gone: the bootstrap token works again for a NEW login. What the
-    // OLD bootstrap cookie does now is pinned by `finding_s39_bootstrap_session_revives_...`.
+    // OLD bootstrap cookie does now is pinned by
+    // `spec_bootstrap_session_stays_dead_after_last_admin_key_is_deleted`.
     println!(
         "old bootstrap cookie after the last admin key was deleted through the panel: {}",
         get_with_cookie(&app, "localhost", "/en/admin", &boot)
@@ -1711,14 +1706,14 @@ async fn spec_r2_session_csrf_login_regressions() {
     );
 }
 
-// S-39 regression: a bootstrap session must be "invalid once any admin key exists" and never
-// come back. `reset-admin` records `bootstrap_sessions_valid_after`; deleting the last admin
-// key through the panel or the admin API does not, so a bootstrap cookie issued before the
-// first key (younger than 12 h) is accepted again.
+// SPEC §8: a bootstrap session is invalid once any admin key exists and never comes back,
+// also when the last admin key is deleted through the panel or the admin API rather than
+// by `reset-admin`, while the old cookie is still younger than its 12 h lifetime.
 #[tokio::test]
-async fn spec_r2_s39_bootstrap_session_revives_when_last_admin_key_is_deleted_in_panel_or_api() {
+async fn spec_bootstrap_session_stays_dead_after_last_admin_key_is_deleted() {
     for via in ["panel", "api"] {
-        let (config, state, store) = parts(&format!("r2p4-s39-{via}"), &[], false).await;
+        let (config, state, store) =
+            parts(&format!("routing-bootstrap-revive-{via}"), &[], false).await;
         let app = app::router(&config, state.clone());
         let boot = login(&app, "localhost", "/en/admin/login", BOOTSTRAP).await;
         let page = get_with_cookie(&app, "localhost", "/en/admin/keys", &boot).await;
@@ -1808,8 +1803,8 @@ async fn spec_r2_s39_bootstrap_session_revives_when_last_admin_key_is_deleted_in
 // Login rate limit: web login refuses even the right credential once limited; the admin API
 // consults the bucket before the lookup. Both share the bucket per client.
 #[tokio::test]
-async fn spec_r2_login_limit_shared_and_checked_first() {
-    let (config, state, _) = parts("r2p4-login-limit", &[], true).await;
+async fn spec_login_limit_is_shared_and_checked_first() {
+    let (config, state, _) = parts("routing-login-limit", &[], true).await;
     let app = app::router(&config, state.clone());
     let mut limited_after = None;
     for i in 0..100 {
@@ -1863,12 +1858,12 @@ async fn spec_r2_login_limit_shared_and_checked_first() {
     assert_eq!(r.headers[header::RETRY_AFTER], "60");
 }
 
-// `shhnote init --env`: what counts as "set". A line with spaces around `=` is not
-// recognised, so a second definition is appended.
+// SPEC §8: `shhnote init --env` succeeds on lines with spaces around `=` or an `export`
+// prefix. Prints what counts as "set" and which definition `check` reads (--nocapture).
 #[test]
-fn spec_r2_init_env_edge_cases() {
+fn spec_init_env_handles_spaced_and_exported_lines() {
     use std::{fs, process::Command};
-    let dir = std::env::temp_dir().join(format!("shhnote-r2p4-init-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("shhnote-routing-init-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     let env = dir.join("env");

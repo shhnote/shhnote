@@ -519,14 +519,15 @@ async fn create(
         match &mut sink {
             Sink::Memory(buf) => buf.extend_from_slice(&chunk),
             Sink::Spool(spool) => {
-                spool.write(&chunk).await.map_err(ApiError::internal)?;
-                let written = spool.bytes_written();
+                // Checked before the write, so the spool never holds more than was reserved.
+                let written = spool.bytes_written() + chunk.len() as u64;
                 if written > cap {
                     return Err(ApiError::bad_request("invalid_blob_length"));
                 }
                 if let Some(err) = too_big(written) {
                     return Err(err);
                 }
+                spool.write(&chunk).await.map_err(ApiError::internal)?;
             }
         }
     }

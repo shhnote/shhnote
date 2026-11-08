@@ -414,7 +414,7 @@ async fn destroy(
     Ok(total)
 }
 
-// Rows destroyed per sweep transaction (suspicion 4): about a second of work on a slow disk
+// Rows destroyed per sweep transaction: about a second of work on a slow disk
 // at the largest inline size, so other writers wait well under `busy_timeout`.
 const SWEEP_BATCH: i64 = 200;
 

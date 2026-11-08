@@ -1,12 +1,47 @@
 # Changelog
 
-User-visible changes, newest first. The protocol is specified in `SPEC.md`; the security
-review that preceded 0.3.0, with every finding and fix, has its own record in
-`docs/security-review/CHANGELOG.md`.
+Every change, newest first: what users and operators see, and the work behind it (tests, CI,
+tooling, the release process). Each version is one list, in this order: new features and
+enhancements, fixes, removals, then internal changes. The protocol is specified in `SPEC.md`.
+
+The two security reviews behind 0.3.0 and 0.4.0 are archived at the `v0.7.0` tag, in
+[`docs/security-review/`](https://github.com/shhnote/shhnote/tree/v0.7.0/docs/security-review) and
+[`DISCREPANCIES.md`](https://github.com/shhnote/shhnote/blob/v0.7.0/DISCREPANCIES.md); IDs such as R-7 or S-39 in older entries refer to
+them. Their findings live on as the `spec_*` tests.
+
+## 0.7.1 — unreleased
+
+- The reverse-proxy guide says to bind shhnote to a loopback or private address and to let
+  the proxy refuse Host values it has no site for: the panel and the API are chosen by the
+  Host header, so a panel allow-list in the proxy only holds if nothing reaches shhnote
+  around it.
+- An upload without a `Content-Length` could write one read buffer past its reservation to
+  the spool before being refused; the size is now checked before each write.
+- `DISCREPANCIES.md` and `docs/security-review/` are removed from the tree; they stay
+  readable at the `v0.7.0` tag, and `SECURITY.md` links there.
+- Tests: the review-era files are named by area (`spec_attacks`, `spec_metadata`,
+  `spec_exhaustion`, `spec_correctness`, `spec_documented`, `spec_gate_routing_and_sessions`,
+  `spec_deployment`, `spec_arithmetic`, `spec_manifest_parity`, and `spec_activation`,
+  `spec_body_cap`, `spec_ui`, `spec_conformance` for the client), every test is named after
+  the property it asserts, and comments cite `SPEC.md` instead of review IDs. No assertion
+  changed. The SQLite lock-contention test (#19) runs with the suite instead of being
+  ignored.
+- New regression tests for four fixes that had none: a configured site whose database is down
+  says `degraded` instead of showing the setup page; a key used twice on one day takes no
+  write lock; the reveal page refuses a file-card template without a download link when
+  wired, and reloads when restored from the back-forward cache (`spec_reveal_page`). The
+  store gains `close_for_tests` for the first.
+- Code and CI comments cite `SPEC.md` instead of review IDs. `cargo deny` also checks the
+  musl targets the release binaries are built for.
+- The changelog records every change, one list per version; `scripts/release.sh` stops a
+  release while a merged pull request touched neither changelog, and `CLAUDE.md` says so.
+- A project skill describes how a security review runs: its notes stay on the review branch,
+  its findings become `spec_*` tests, and the notes are deleted before the branch merges.
+  CI fails while review notes, a test named `review_*` or `finding_*`, or an ignored test
+  that names no issue are in the tree.
 
 ## 0.7.0 — 2026-11-08
 
-### Fixed
 - The S3 tier starts with a bucket-scoped Cloudflare R2 token (Object Read & Write), the
   least-privilege credential. R2 has no bucket versioning, so the startup versioning check
   is skipped there; on other providers a `403` on that check is logged as a warning instead
@@ -23,13 +58,25 @@ review that preceded 0.3.0, with every finding and fix, has its own record in
   `IPAddressAllow` for a remote Postgres or object store, with `IPAddressAllow=any` for
   R2 and AWS S3, which have no fixed address; it also covers where `DynamicUser` keeps
   the state and how to run commands by hand as the service's user.
+- Release PRs are merged with a merge commit, and `scripts/release.sh tag` tags the signed
+  `release: <version>` commit it finds in `main`'s history, not `main`'s tip, whose merge
+  commit GitHub signs with a key local Git cannot check (#16).
+- `scripts/release.sh` lists the pull requests merged since the last stable release that
+  touched neither changelog, and checks for the `— unreleased` heading; `CLAUDE.md` asks for
+  `Closes #<n>.` in commit messages and for a changelog entry in the same change (#13).
+- The changelog has its own sections for 0.5.0 and 0.6.0, each opening with what to do when
+  upgrading (#12).
+- Tests: a flaky disconnect test waits for the reservation to be released as well as the
+  object, and Unix-only test code is gated so the workspace builds on Windows (#14).
+
+The last four entries were added after the release, when the changelog started recording
+every change.
 
 ## 0.6.0 — 2026-11-06
 
 Upgrading: replace `subdomain` with `domain` in `SHH_API_ROUTING` and `SHH_ADMIN_ROUTING`
 before starting the new version.
 
-### Changed
 - `SHH_API_ROUTING` and `SHH_ADMIN_ROUTING` take `domain` instead of `subdomain` (the old
   value is refused with a hint). New `SHH_API_DOMAIN` and `SHH_ADMIN_DOMAIN` name the API
   and panel hosts under that routing, so an instance at `eu.example.com` can answer on
@@ -40,7 +87,6 @@ before starting the new version.
 
 Upgrading: add a unit to the size variables in `.env` before starting the new version.
 
-### Changed
 - Sizes in `.env` (`SHH_INLINE_MAX`, `SHH_EXTERNAL_MAX_OBJECT`, `SHH_LOCAL_MAX_TOTAL_BYTES`,
   `SHH_S3_MAX_TOTAL_BYTES`) and in the admin panel (`padding_min`, `padding_ladder`,
   `text_max_bytes`) are written with a unit: `100B`, `64K`, `10M`, `1G` (powers of 1024).
@@ -50,25 +96,27 @@ Upgrading: add a unit to the size variables in `.env` before starting the new ve
 
 ## 0.4.1 — 2026-11-04
 
-Client package only (`client/CHANGELOG.md` has the consumer-facing entries, and now ships in
-the package with every added or removed `UiKey` listed per release). The `dropzone-item`
-template is looked up in the `wireCreate` root, as the README says, so two create forms on
-one page each use their own; `wireBurn` and `wireReport` refuse the options they ignore at
-the type level; the README says that the create page fetches the Argon2 module on wire.
+Client package only; `client/CHANGELOG.md` has the consumer-facing entries.
+
+- `client/CHANGELOG.md` ships in the package and lists every added or removed `UiKey` per
+  release.
+- `wireBurn` and `wireReport` refuse the options they ignore at the type level.
+- The `dropzone-item` template is looked up in the `wireCreate` root, as the README says, so
+  two create forms on one page each use their own.
+- The README says that the create page fetches the Argon2 module on wire.
 
 ## 0.4.0 — 2026-11-04
 
 The docs, the client package and the server now say the same thing. A frontend can configure
 the `/ui` controllers in code and bring its own markup, and the reference pages honour the
-instance's settings. Revision 3 (`docs/security-review/spec-revision-3.md`) has the plan;
-`DISCREPANCIES.md` maps each finding to its commit.
+instance's settings. Revision 3 ([`spec-revision-3.md`](https://github.com/shhnote/shhnote/blob/v0.7.0/docs/security-review/spec-revision-3.md)) has the
+plan; [`DISCREPANCIES.md`](https://github.com/shhnote/shhnote/blob/v0.7.0/DISCREPANCIES.md) maps each finding to its commit.
 
-A second security review ran on 2026-11-04 (`docs/security-review/round-2/SUMMARY.md`: one
+A second security review ran on 2026-11-04 ([`round-2/SUMMARY.md`](https://github.com/shhnote/shhnote/blob/v0.7.0/docs/security-review/round-2/SUMMARY.md): one
 High, four Medium, twenty-four Low, and a claims audit of every document). Revision 4
-(`docs/security-review/spec-revision-4.md`) applied the fixes; the summary's closing table
+([`spec-revision-4.md`](https://github.com/shhnote/shhnote/blob/v0.7.0/docs/security-review/spec-revision-4.md)) applied the fixes; the summary's closing table
 maps each finding to its commit or to the residual `SPEC.md` now records.
 
-### Added
 - `invalidateConfig(apiBase, fetch?)` drops the cached `/config`; `createSecret` and the create
   page use it once when the instance refuses a blob's size (`invalid_blob_length`,
   `files_disabled`: the padding policy changed since `/config` was read) and pad again
@@ -78,8 +126,6 @@ maps each finding to its commit or to the residual `SPEC.md` now records.
   `reveal-error-too-large`, `reveal-single-view-destroyed` (shown once the confirm
   succeeded; `reveal-single-view` now reads "Revealed") and `create-error-text-too-long`
   (the create page refuses a note over the instance's `text_max_bytes`).
-- `.github/dependabot.yml` (actions, images, crates and npm packages, weekly, grouped) and a
-  weekly run of CI's `audit` job.
 - `getConfig(apiBase, fetch?)`: `GET /config`, fetched once per API base and shared by
   `createSecret`, `revealSecret` and the controllers; a failed fetch is not kept.
   `InstanceConfig` gains `regions`, `server_version` and `web_mode`.
@@ -95,8 +141,6 @@ maps each finding to its commit or to the residual `SPEC.md` now records.
   nothing, so a reload within the window downloads it again.
 - Admin panel: lifetimes, the claim window and the salt rotation are chosen from durations in
   words; the lifetime presets are checkboxes. The admin API still takes seconds.
-
-### Changed
 - `max_blob_bytes` in `/config` is the largest padded size (bucket) the instance accepts, on
   both sides now: the server's body limit is `blob_len(max_blob_bytes)` plus framing, so the
   largest advertised bucket is always accepted; the client compares the padded size when
@@ -159,7 +203,6 @@ maps each finding to its commit or to the residual `SPEC.md` now records.
 - A failed confirm after a successful decrypt throws an `ApiError` that carries the claim
   token and the decrypted `payload`. The create page wipes the seed, the burn token and the
   file bytes after use and on leave; the reveal page scrubs the fragment on a 404 too.
-- The client package is versioned in lockstep with the server (D-13 amended).
 - Every API response, and the "shutting down" 503, carries `Cache-Control: no-store`; the
   admin API's and the panel login's 429s carry `Retry-After`.
 - An existing spool or blob directory is set to `0700` at startup (with a warning), or the
@@ -170,8 +213,6 @@ maps each finding to its commit or to the residual `SPEC.md` now records.
   secrets go at expiry, what reports count, the expiry rounding, cookies (none for visitors,
   one sign-in cookie for the admin panel); the specification and security-policy links point
   at `SPEC.md` and `SECURITY.md` (`{{spec_url}}`, `{{security_policy_url}}`).
-
-### Fixed
 - A create whose client disconnected while the object store was acknowledging the write left
   an object the ceiling did not count until the next restart; the guard is now armed before
   the write and the reservation is released only once the object is confirmed gone (R-1).
@@ -191,9 +232,6 @@ maps each finding to its commit or to the residual `SPEC.md` now records.
   "sends nothing about the secret" before the press; "Destroyed" is said only after the
   confirm; deploy guides name what stays open before setup; the proxy guide gives the body
   limit in padded-size terms and the login bucket's refill rate.
-- The test suite leaked one SQLite file per test per run into the system temp directory;
-  databases now live under `target/tmp/shhnote-tests`, named by the test and replaced on each
-  run (`SHHNOTE_TEST_DB_DIR` moves them). The round-2 review tests are the `spec_r2_*` files.
 - The API docs page gave `lookup_key` and `burn_key` as the raw values; they are
   `SHA-256(lookup)` and `SHA-256(burn_token)`. Its client example used an API base without
   `/v1`.
@@ -209,6 +247,13 @@ maps each finding to its commit or to the residual `SPEC.md` now records.
   log line), `docker.md` (`COMPOSE_PROFILES=caddy,postgres`) and `own-frontend.md` (root
   paths and locale redirect in `api` mode, same-origin bundles) are corrected; the README's
   development steps are in build order.
+- `.github/dependabot.yml` (actions, images, crates and npm packages, weekly, grouped) and a
+  weekly run of CI's `audit` job.
+- The client package is versioned in lockstep with the server (D-13 amended).
+- The test suite leaked one SQLite file per test per run into the system temp directory;
+  databases now live under `target/tmp/shhnote-tests`, named by the test and replaced on each
+  run (`SHHNOTE_TEST_DB_DIR` moves them). The review tests were the `spec_r2_*`
+  files.
 - `static/app.js` is no longer tracked.
 
 ## 0.3.0 — 2026-11-02
@@ -216,7 +261,6 @@ maps each finding to its commit or to the residual `SPEC.md` now records.
 The built-in website becomes a minimal reference frontend, the client becomes a package, and
 an instance says who runs it before it serves anything.
 
-### Added
 - `@shhnote/client` on npm, with three entry points: `/crypto` (the protocol, no network, no
   DOM), the root (adds the API client, `createSecret`/`revealSecret`/`burnSecret` with
   claim-token retry and a body cap, and the frontend-safety helpers) and `/ui` (the reference
@@ -244,8 +288,6 @@ an instance says who runs it before it serves anything.
 - Admin panel: "End sessions" on a key; `reset-admin` and a changed bootstrap token end
   earlier bootstrap sessions; settings save and key creation redirect, the new key is shown
   once.
-
-### Changed
 - The built-in website is a reference frontend: the create form, the reveal, burn and report
   pages, the policy pages, a short how-it-works and the public API docs. The marketing
   sections, the technical breakdown and the FAQs are gone; every page speaks of "this site"
@@ -260,13 +302,12 @@ an instance says who runs it before it serves anything.
   only way to mean no passphrase.
 - A TTL secret's reveal says nothing about its remaining time; single-view secrets keep
   their "destroyed" message.
+- Everything in the security review: see its
+  [`CHANGELOG.md`](https://github.com/shhnote/shhnote/blob/v0.7.0/docs/security-review/CHANGELOG.md), where each finding is mapped to its
+  commit.
 - Dependencies trimmed (axum, tokio, sqlx features); crate metadata, `deny.toml`,
   `rust-toolchain.toml`; the release pipeline pins actions and images, builds reproducible
   archives and publishes provenance.
-
-### Fixed
-- Everything in the security review: see `docs/security-review/CHANGELOG.md`, where each
-  finding is mapped to its commit.
 
 ## 0.1.0 — release candidates only (2026-10-29 to 2026-10-31)
 

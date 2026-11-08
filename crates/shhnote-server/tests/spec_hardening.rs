@@ -1,8 +1,3 @@
-// Regression tests from the security review (docs/security-review/findings/SUMMARY.md) for
-// the rate limiter's keying, the proxy configuration, credential decoding and file modes on
-// the local tier. Ignored tests are waiting for the step that fixes their finding; un-ignore
-// them with the fix.
-
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
 
 use axum::{
@@ -255,7 +250,7 @@ async fn spec_blob_files_are_private() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-// SPEC §6.1 (revision 3, C3): directories that already exist with a looser mode are made
+// SPEC §6.1: directories that already exist with a looser mode are made
 // private at startup, not only the ones the tier creates itself.
 #[cfg(unix)]
 #[tokio::test]

@@ -1,6 +1,3 @@
-// Regression tests from the security review (docs/security-review/findings/SUMMARY.md): what a
-// SQLite dump or a copy of the database files must not show. Ignored tests are waiting for the
-// step that fixes their finding; un-ignore them with the fix.
 use shhnote_store::{Lifetime, NewSecret, Scope, Store, sqlite_path_for_tests};
 use sqlx::{Row, SqlitePool};
 

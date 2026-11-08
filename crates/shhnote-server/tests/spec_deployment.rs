@@ -1,10 +1,3 @@
-// Security review, round 2, pass 6 (supply chain, build and deployment). These pin the
-// deployment-facing properties the pass checked by hand: CORS reaches the API only and
-// matches origins exactly, the setup gate under subdomain routing, the version string, and
-// what `shhnote init --env` does to an existing file's mode.
-//
-// Run with: cargo test -p shhnote-server --test review_r2_pass6
-
 use std::{collections::HashMap, fs, net::SocketAddr, process::Command};
 
 use axum::{
@@ -19,7 +12,7 @@ use shhnote_server::{api::ApiState, app};
 use shhnote_store::{Scope, Store, sqlite_path_for_tests};
 use tower::ServiceExt;
 
-const BOOTSTRAP: &str = "review-r2-pass6-bootstrap-token-of-32-chars-plus";
+const BOOTSTRAP: &str = "deploy-bootstrap-token-of-at-least-32-chars";
 
 async fn build(name: &str, extra: &[(&str, &str)], configured: bool) -> Router {
     let mut vars: HashMap<String, String> = [
@@ -43,10 +36,10 @@ async fn build(name: &str, extra: &[(&str, &str)], configured: bool) -> Router {
     let mut settings = Settings::default();
     if configured {
         store
-            .create_api_key(&credential_hash(b"review-admin-key"), "r", Scope::Admin, 0)
+            .create_api_key(&credential_hash(b"deploy-admin-key"), "r", Scope::Admin, 0)
             .await
             .unwrap();
-        settings.site_name = "Review".into();
+        settings.site_name = "Test".into();
         settings.contact_email = "ops@example.test".into();
         settings.allowed_origins = vec!["https://app.example".into()];
     }
@@ -101,13 +94,8 @@ fn allow_origin(seen: &Seen) -> Option<String> {
 // exactly (scheme, host, port; no trailing slash, no `null`, no look-alike host), and no
 // response ever allows credentials.
 #[tokio::test]
-async fn spec_r2_pass6_cors_is_api_only_and_exact() {
-    let app = build(
-        "review-r2-pass6-cors",
-        &[("SHH_API_ROUTING", "domain")],
-        true,
-    )
-    .await;
+async fn spec_cors_is_api_only_and_exact() {
+    let app = build("deploy-cors", &[("SHH_API_ROUTING", "domain")], true).await;
     let api = "api.example.com";
     let site = "example.com";
 
@@ -175,9 +163,9 @@ async fn spec_r2_pass6_cors_is_api_only_and_exact() {
 // the panel on the main host is refused (503, never the panel), `/static/*` stays, and in
 // `api` mode the root is the gate's 503 rather than the mode's 404.
 #[tokio::test]
-async fn spec_r2_pass6_setup_gate_under_subdomain_routing() {
+async fn spec_setup_gate_under_domain_routing() {
     let app = build(
-        "review-r2-pass6-gate",
+        "deploy-gate",
         &[
             ("SHH_API_ROUTING", "domain"),
             ("SHH_ADMIN_ROUTING", "domain"),
@@ -255,13 +243,13 @@ async fn spec_r2_pass6_setup_gate_under_subdomain_routing() {
 // D-27: the public version is the crate version and nothing else: no git hash, no build
 // metadata, no dirty marker, the same string on /config, /health and the footer.
 #[tokio::test]
-async fn spec_r2_pass6_version_is_the_crate_version_only() {
+async fn spec_version_is_the_crate_version_only() {
     let version = env!("CARGO_PKG_VERSION");
     assert!(
         !version.contains('+') && version.split('.').count() >= 3,
         "{version}"
     );
-    let app = build("review-r2-pass6-version", &[], true).await;
+    let app = build("deploy-version", &[], true).await;
     let config = send(&app, Method::GET, "example.com", "/api/v1/config", &[]).await;
     let health = send(&app, Method::GET, "example.com", "/api/v1/health", &[]).await;
     let home = send(&app, Method::GET, "example.com", "/en", &[]).await;
@@ -293,10 +281,10 @@ async fn spec_r2_pass6_version_is_the_crate_version_only() {
 // owner-only, and the printing form writes the two lines to stdout and nothing to stderr.
 #[cfg(unix)]
 #[test]
-fn spec_r2_pass6_init_env_modes() {
+fn spec_init_env_keeps_existing_mode_and_creates_owner_only() {
     use std::os::unix::fs::PermissionsExt;
 
-    let dir = std::env::temp_dir().join(format!("review-r2-pass6-init-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("shhnote-deploy-init-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     let shhnote = || {

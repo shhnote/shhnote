@@ -255,6 +255,12 @@ impl Store {
         }
         Ok(())
     }
+
+    // Test helper: closes the pool, so every later query fails as if the database were
+    // down. Never called by the server.
+    pub async fn close_for_tests(&self) {
+        self.pool.close().await;
+    }
 }
 
 #[cfg(test)]

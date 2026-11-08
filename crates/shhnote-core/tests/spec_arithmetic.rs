@@ -1,6 +1,3 @@
-// Round-2 pass 3 (Rust-specific correctness): arithmetic edge cases in the code added since
-// round 1. Run with `RUSTFLAGS="-C overflow-checks=on"` to make a wrap a failure.
-
 use shhnote_core::{
     expiry::{claim_expires_at, expires_at, grid},
     padding::{PaddingPolicy, blob_len, chunk_count, padme},
@@ -9,7 +6,7 @@ use shhnote_core::{
 // D-18: the grid boundaries are exactly 1 h and 3 days; rounding is always up, never past
 // one grid step, and extreme inputs saturate instead of overflowing.
 #[test]
-fn spec_r2_pass3_expiry_grid_boundaries_and_extremes() {
+fn spec_expiry_grid_boundaries_and_extremes() {
     assert_eq!(grid(0), 300);
     assert_eq!(grid(60), 300);
     assert_eq!(grid(3599), 300);
@@ -52,7 +49,7 @@ fn spec_r2_pass3_expiry_grid_boundaries_and_extremes() {
 
 // The padded-size helpers at the ends of their domains: no panic, no wrap.
 #[test]
-fn spec_r2_pass3_padding_helpers_on_extreme_sizes() {
+fn spec_padding_helpers_on_extreme_sizes() {
     for size in [
         0u64,
         1,
@@ -92,11 +89,11 @@ fn spec_r2_pass3_padding_helpers_on_extreme_sizes() {
     assert_eq!(empty.largest_blob_len_at_most(u64::MAX), None);
 }
 
-// F-3-1's arithmetic: the route body limit is `max_blob_bytes + 16 KiB` (api.rs) while the
-// blob at the top bucket is `blob_len(max_blob_bytes)`. From 1019 chunks on, the tags and
-// header alone exceed the 16 KiB slack, so the advertised maximum cannot be uploaded.
+// From 1019 chunks on, the header and tags alone exceed 16 KiB. That is why the route body
+// limit starts from `blob_len(max_blob_bytes)` and not from `max_blob_bytes + 16 KiB`:
+// otherwise the largest advertised bucket (SPEC §4) could not be uploaded.
 #[test]
-fn spec_r2_pass3_top_bucket_exceeds_the_framing_slack_from_64_mib() {
+fn spec_framing_overhead_exceeds_16_kib_from_1019_chunks() {
     let slack = 16 * 1024;
     assert!(blob_len(2 << 20) <= (2 << 20) + slack);
     assert!(blob_len(62 << 20) <= (62 << 20) + slack);

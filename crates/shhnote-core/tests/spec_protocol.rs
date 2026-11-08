@@ -1,7 +1,3 @@
-// Regression tests from the security review (docs/security-review/findings/SUMMARY.md) for the
-// protocol pieces the conformance vectors do not pin: length math at the edges and the few
-// parser decisions that have no vector yet. Ignored tests are waiting for the step that fixes
-// their finding; un-ignore them with the fix.
 use shhnote_core::{
     Error,
     container::Payload,
@@ -89,7 +85,7 @@ fn spec_extreme_lengths_do_not_panic() {
     assert!(panics.is_empty(), "overflow panics: {panics:?}");
 }
 
-// SPEC §2.10 (S-46): an empty passphrase is an error at the API boundary on both sides, never
+// SPEC §2.10: an empty passphrase is an error at the API boundary on both sides, never
 // "no passphrase"; omitting it is the only way to mean direct mode.
 #[test]
 fn spec_empty_passphrase_is_refused() {

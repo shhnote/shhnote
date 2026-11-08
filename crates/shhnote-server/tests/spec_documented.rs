@@ -1,6 +1,3 @@
-// Round-2 pass 0 (claims audit): cheap runtime checks of documented behaviour that no
-// existing test pins by name. Throwaway; delete after the review.
-
 use std::{collections::HashMap, net::SocketAddr};
 
 use axum::{
@@ -21,9 +18,9 @@ use shhnote_server::{api::ApiState, app};
 use shhnote_store::{Scope, Store, sqlite_path_for_tests};
 use tower::ServiceExt;
 
-const BOUNDARY: &str = "r2p0boundary";
-const ADMIN_KEY: &str = "review-r2-pass0-admin-key-of-32-chars-plus";
-const BOOTSTRAP: &str = "review-r2-pass0-bootstrap-token-32-chars-plus";
+const BOUNDARY: &str = "documentedboundary";
+const ADMIN_KEY: &str = "documented-admin-key-of-at-least-32-chars";
+const BOOTSTRAP: &str = "documented-bootstrap-token-of-32-chars-plus";
 
 async fn build(name: &str, configured: bool, settings: Settings) -> (Router, Store) {
     let vars: HashMap<String, String> = [
@@ -161,8 +158,8 @@ async fn create(
 
 // SPEC §4 / D-29: the API root sits behind the setup gate, /health does not and reports the state.
 #[tokio::test]
-async fn spec_r2_pass0_setup_gate_and_api_root() {
-    let (app, _) = build("r2p0-gate", false, Settings::default()).await;
+async fn spec_setup_gate_closes_the_api_root_but_not_health() {
+    let (app, _) = build("documented-gate", false, Settings::default()).await;
     let root = get(&app, "/api/v1", None).await;
     assert_eq!(root.status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(root.json()["error"]["code"], "not_configured");
@@ -196,7 +193,7 @@ async fn spec_r2_pass0_setup_gate_and_api_root() {
 // SPEC §4 table: the API root body, /config fields, /reports fixed body, unknown endpoint,
 // trailing-slash redirect, Retry-After constant, api_key_required.
 #[tokio::test]
-async fn spec_r2_pass0_api_shapes() {
+async fn spec_api_answers_have_the_documented_shapes() {
     let settings = Settings {
         rate_limits: RateLimits {
             report_per_hour: 1,
@@ -204,7 +201,7 @@ async fn spec_r2_pass0_api_shapes() {
         },
         ..Settings::default()
     };
-    let (app, store) = build("r2p0-shapes", true, settings).await;
+    let (app, store) = build("documented-shapes", true, settings).await;
     let root = get(&app, "/api/v1", None).await;
     assert_eq!(root.status, StatusCode::OK);
     assert_eq!(root.json(), json!({"name": "shhnote", "version": "v1"}));
@@ -281,8 +278,8 @@ async fn spec_r2_pass0_api_shapes() {
 // bucket, nothing about expiry on a TTL secret; burn/report refuse a claimed row;
 // require_api_key_for_create gives 401 api_key_required.
 #[tokio::test]
-async fn spec_r2_pass0_lifecycle_headers() {
-    let (app, store) = build("r2p0-life", true, Settings::default()).await;
+async fn spec_reveal_burn_and_report_headers_follow_the_lifecycle() {
+    let (app, store) = build("documented-life", true, Settings::default()).await;
     let (lookup, burn) = (random32(), random32());
     assert_eq!(
         create(&app, &lookup, &burn, "single_view", None)
@@ -412,12 +409,12 @@ async fn spec_r2_pass0_lifecycle_headers() {
 }
 
 #[tokio::test]
-async fn spec_r2_pass0_api_key_required_and_admin_api_errors() {
+async fn spec_api_key_required_and_admin_api_error_codes() {
     let settings = Settings {
         require_api_key_for_create: true,
         ..Settings::default()
     };
-    let (app, store) = build("r2p0-keys", true, settings).await;
+    let (app, store) = build("documented-keys", true, settings).await;
     let (lookup, burn) = (random32(), random32());
     let refused = create(&app, &lookup, &burn, "ttl", None).await;
     assert_eq!(refused.status, StatusCode::UNAUTHORIZED);

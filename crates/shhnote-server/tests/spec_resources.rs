@@ -1,6 +1,3 @@
-// Regression tests from the security review (docs/security-review/findings/SUMMARY.md) for
-// resource bounds, the storage ceiling, spooling and the single-view race at the API level.
-// Ignored tests are waiting for the step that fixes their finding; un-ignore them with the fix.
 use std::{
     collections::HashMap,
     io,
@@ -326,7 +323,7 @@ async fn spec_multipart_shapes() {
     let _ = tokio::fs::remove_dir_all(&root).await;
 }
 
-// SPEC §6.1 (revision 3, C1): a declared length that leaves no valid padded size within the
+// SPEC §6.1: a declared length that leaves no valid padded size within the
 // framing slack below it is refused before any blob byte is read, so nothing is ever spooled.
 // A valid upload of the same order of size still goes through.
 #[tokio::test]
@@ -992,7 +989,7 @@ async fn spec_orphan_objects_are_collected_at_startup() {
     );
 }
 
-// SPEC §6.1 (revision 3, C2): the sweep deletes unreferenced objects of ours and leaves every
+// SPEC §6.1: the sweep deletes unreferenced objects of ours and leaves every
 // other entry alone, counting them, so a stray file never stops the server at startup.
 #[tokio::test]
 async fn spec_orphan_sweep_ignores_stray_files() {
@@ -1046,7 +1043,7 @@ async fn spec_orphan_sweep_ignores_stray_files() {
     assert_eq!(referenced, StatusCode::OK, "the referenced object went");
 }
 
-// SPEC §6.1 (round 2, R-4): an unreferenced object or a spool file younger than the upload
+// SPEC §6.1: an unreferenced object or a spool file younger than the upload
 // window may belong to an upload another process is still finishing, so a startup leaves it
 // alone and the rows are re-read after the listing; once it is older than the window it goes.
 #[tokio::test]
@@ -1093,7 +1090,7 @@ async fn spec_sweep_leaves_objects_that_may_still_be_uploads_in_flight() {
     assert!(young_gone && part_gone, "aged leftovers survived");
 }
 
-// Round 2, suspicion 9: an object of ours that the store will not delete is counted and
+// An object of ours that the store will not delete is counted and
 // logged; the server still starts and the other orphans still go.
 #[tokio::test]
 async fn spec_sweep_continues_past_an_undeletable_orphan() {
@@ -1133,7 +1130,7 @@ async fn spec_sweep_continues_past_an_undeletable_orphan() {
     assert_eq!(left, vec!["blobs/AAAAAAAAAAAAAAAAAAAAAA".to_string()]);
 }
 
-// --- revision 3, D5: a fake S3, so the S3 tier's own code runs without a bucket
+// --- A fake S3, so the S3 tier's own code runs without a bucket
 
 // Unlike `fake_s3` above, which only answers or hangs, an in-memory bucket behind an axum router: path-style addressing, as with
 // `SHH_S3_ENDPOINT`. It answers what the tier sends (the versioning check, ListObjectsV2,
@@ -1314,7 +1311,7 @@ async fn spec_s3_missing_bucket_refuses_the_start() {
     }
 }
 
-// SPEC §6.1 (revision 3, C2) on S3: the same sweep as on disk, through a listing that spans
+// SPEC §6.1 on S3: the same sweep as on disk, through a listing that spans
 // several pages. A secret stored through the tier round-trips, the orphans go, and every key
 // that is not of our shape stays.
 #[tokio::test]

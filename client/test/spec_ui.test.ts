@@ -1,6 +1,3 @@
-// Security review round 2, pass 4: the client-side pieces the reference pages rely on
-// (activation guard, the strings block, the claim store, config caching). Each test states the
-// property it checks; a failing test is a finding.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
@@ -16,7 +13,7 @@ function event(type: string, fields: Record<string, unknown>): Event {
   return { type, isTrusted: true, ...fields } as unknown as Event;
 }
 
-describe("review r2 pass4: activation guard (SPEC §5.1)", () => {
+describe("activation guard (SPEC §5.1)", () => {
   it("accepts only a trusted pointer click with detail > 0 or a trusted Enter/Space", () => {
     assert.equal(isUserActivation(event("click", { detail: 1 })), true);
     assert.equal(isUserActivation(event("click", { detail: 0 })), false, "button.click() from a script");
@@ -42,7 +39,7 @@ describe("review r2 pass4: activation guard (SPEC §5.1)", () => {
   });
 });
 
-describe("review r2 pass4: strings block", () => {
+describe("strings block", () => {
   const rootWith = (json: string) => ({ querySelector: () => ({ textContent: json }) }) as unknown as ParentNode;
 
   it("treats the block as data: markup in a string stays a string, unknown keys are ignored", () => {
@@ -58,7 +55,7 @@ describe("review r2 pass4: strings block", () => {
   });
 });
 
-describe("review r2 pass4: claim store (SPEC §10)", () => {
+describe("claim store (SPEC §10)", () => {
   class FakeStorage {
     readonly items = new Map<string, string>();
     get length() {
@@ -101,7 +98,7 @@ describe("review r2 pass4: claim store (SPEC §10)", () => {
   });
 });
 
-// What a well-formed `/config` looks like; the client refuses anything else (revision 4, C1).
+// What a well-formed `/config` looks like; the client refuses anything else.
 const validConfig = {
   fragment_version: 1,
   padding: { mode: "padme", min: 65536 },
@@ -119,7 +116,7 @@ const validConfig = {
   web_mode: "full",
 };
 
-describe("review r2 pass4: instance config", () => {
+describe("instance config", () => {
   it("getConfig caches per normalised base and per fetch, and a failure is not kept", async () => {
     let calls = 0;
     const failing = async () => {

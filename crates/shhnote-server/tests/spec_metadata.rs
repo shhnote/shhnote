@@ -1,7 +1,3 @@
-// Security review, round 2, pass 1 (metadata and PII leakage): checks on the surfaces added
-// since round 1 (docs/security-review/round-2/pass1.md). A test named `..._reproduces_...`
-// passes while its finding is present and should be inverted or removed with the fix; every
-// other test asserts a property that holds today.
 use std::{collections::HashMap, net::SocketAddr, time::Instant};
 
 use axum::{
@@ -26,8 +22,8 @@ use shhnote_server::{
 use shhnote_store::{Lifetime, NewSecret, Scope, Store, sqlite_path_for_tests, sqlite_test_dir};
 use tower::ServiceExt;
 
-const ADMIN_KEY: &str = "r2p1-admin-key-of-at-least-32-characters-ok";
-const BOOTSTRAP: &str = "r2p1-bootstrap-token-of-at-least-32-chars-x";
+const ADMIN_KEY: &str = "metadata-admin-key-of-at-least-32-characters";
+const BOOTSTRAP: &str = "metadata-bootstrap-token-of-at-least-32-chars";
 const BUCKET: u64 = 65_536;
 
 const UNLIMITED: &[(&str, &str)] = &[
@@ -228,15 +224,15 @@ fn describe(name: &str, v: &mut [u128]) -> String {
 // row is not touched, and the setup page is the same whether or not a bootstrap token is
 // configured. `/health` says only `configured: false`.
 #[tokio::test]
-async fn spec_r2_pass1_setup_gate_is_uniform_and_touches_no_row() {
+async fn spec_setup_gate_is_uniform_and_touches_no_row() {
     let with_token = server(
-        "r2p1-gate-token",
+        "metadata-gate-token",
         &[("SHH_ADMIN_TOKEN", BOOTSTRAP)],
         &[],
         false,
     )
     .await;
-    let without_token = server("r2p1-gate-notoken", &[], &[], false).await;
+    let without_token = server("metadata-gate-notoken", &[], &[], false).await;
 
     // A row planted straight into the store, as a dump holder might find one.
     let t = now();
@@ -324,13 +320,13 @@ async fn spec_r2_pass1_setup_gate_is_uniform_and_touches_no_row() {
     assert_eq!(keys.len(), 3, "{v}");
 }
 
-// SPEC §4 (round 1 S-16 and the reveal control): the negative paths on reveal do the same
-// work whether the row never existed, exists but is claimed by someone else, exists but
-// expired, is a TTL row with a bogus claim token, or the input is malformed.
+// SPEC §4: the negative paths on reveal do the same work whether the row never existed,
+// exists but is claimed by someone else, exists but expired, is a TTL row with a bogus claim
+// token, or the input is malformed.
 #[tokio::test]
-async fn spec_r2_pass1_reveal_negatives_take_the_same_time() {
+async fn spec_reveal_negatives_take_the_same_time() {
     const N: usize = 150;
-    let srv = server("r2p1-reveal-timing", &[], UNLIMITED, true).await;
+    let srv = server("metadata-reveal-timing", &[], UNLIMITED, true).await;
     let t = now();
     let mut claimed = Vec::new();
     let mut expired = Vec::new();
@@ -438,7 +434,7 @@ async fn spec_r2_pass1_reveal_negatives_take_the_same_time() {
 // D-18 at the grid boundaries: the stored expiry is a grid point and the same for every
 // creation second inside a grid step, so a row holds at most the step, never the second.
 #[test]
-fn spec_r2_pass1_expiry_grid_hides_the_creation_second_at_every_boundary() {
+fn spec_expiry_grid_hides_the_creation_second_at_every_boundary() {
     for (ttl, step) in [
         (60, 300),
         (3599, 300),
@@ -468,13 +464,13 @@ fn spec_r2_pass1_expiry_grid_hides_the_creation_second_at_every_boundary() {
 // D-25: on the main host the path form of the panel answers like any unknown page, byte
 // for byte, and while unconfigured it gets the same setup page as everything else.
 #[tokio::test]
-async fn spec_r2_pass1_admin_path_form_is_an_ordinary_404_in_subdomain_mode() {
+async fn spec_admin_path_form_is_an_ordinary_404_in_subdomain_mode() {
     let env: &[(&str, &str)] = &[
         ("SHH_ENV", "production"),
         ("SHH_URL", "https://example.com"),
         ("SHH_ADMIN_ROUTING", "domain"),
     ];
-    let srv = server("r2p1-admin-sub", env, &[], true).await;
+    let srv = server("metadata-admin-sub", env, &[], true).await;
     for path in ["/en/admin", "/en/admin/login", "/en/admin/keys"] {
         let admin = send(&srv.app, get_req("example.com", path)).await;
         let plain = send(&srv.app, get_req("example.com", "/en/no-such-page")).await;
@@ -487,14 +483,14 @@ async fn spec_r2_pass1_admin_path_form_is_an_ordinary_404_in_subdomain_mode() {
     assert_eq!(bare.headers[header::REFERRER_POLICY], "no-referrer");
     assert!(bare.headers.contains_key(header::STRICT_TRANSPORT_SECURITY));
 
-    let gated = server("r2p1-admin-sub-gate", env, &[], false).await;
+    let gated = server("metadata-admin-sub-gate", env, &[], false).await;
     let admin = send(&gated.app, get_req("example.com", "/en/admin/login")).await;
     let plain = send(&gated.app, get_req("example.com", "/en/privacy")).await;
     assert_eq!(admin.status, StatusCode::SERVICE_UNAVAILABLE);
     assert_same("gated path-form admin", &admin, &plain);
     let panel = send(&gated.app, get_req("admin.example.com", "/en/login")).await;
     assert_eq!(panel.status, StatusCode::OK);
-    // Noticed (not a leak): the setup page's "open the admin panel" link is host-relative,
+    // Printed, not asserted (not a leak): the setup page's "open the admin panel" link is host-relative,
     // so on the main host it points at `/en/login`, which that host does not serve.
     let link = plain
         .text()
@@ -512,9 +508,9 @@ async fn spec_r2_pass1_admin_path_form_is_an_ordinary_404_in_subdomain_mode() {
 // D-26: a probing origin learns nothing but whether it is itself allowed: the answer to a
 // stranger is the answer to a request without `Origin`, plus `Vary: Origin`.
 #[tokio::test]
-async fn spec_r2_pass1_cors_tells_a_stranger_nothing_about_the_list() {
+async fn spec_cors_tells_a_stranger_nothing_about_the_list() {
     let srv = server(
-        "r2p1-cors",
+        "metadata-cors",
         &[],
         &[("allowed_origins", "http://app.example:5173")],
         true,
@@ -559,8 +555,8 @@ async fn spec_r2_pass1_cors_tells_a_stranger_nothing_about_the_list() {
 // D-23: admin API use, panel login and keyed API use all record the day only, once per day;
 // the admin API and the panel show no finer value.
 #[tokio::test]
-async fn spec_r2_pass1_last_used_on_is_a_day_on_every_path() {
-    let srv = server("r2p1-last-used", &[], UNLIMITED, true).await;
+async fn spec_last_used_on_is_a_day_on_every_path() {
+    let srv = server("metadata-last-used", &[], UNLIMITED, true).await;
     let user_key = b64(&random32());
     srv.store
         .create_api_key(
@@ -607,8 +603,8 @@ async fn spec_r2_pass1_last_used_on_is_a_day_on_every_path() {
 // SPEC §4: the report answer and work are the same for a secret that exists, one that is
 // claimed, one that is gone and garbage; the daily counters move, nothing else is written.
 #[tokio::test]
-async fn spec_r2_pass1_report_counts_per_day_and_keeps_no_row() {
-    let srv = server("r2p1-report", &[], UNLIMITED, true).await;
+async fn spec_report_counts_per_day_and_keeps_no_row() {
+    let srv = server("metadata-report", &[], UNLIMITED, true).await;
     let t = now();
     let active = plant(&srv.store, Lifetime::Ttl, t + 3600).await;
     let claimed = plant(&srv.store, Lifetime::SingleView, t + 3600).await;
@@ -635,7 +631,7 @@ async fn spec_r2_pass1_report_counts_per_day_and_keeps_no_row() {
     assert_eq!((stats.reports, stats.removed), (5, 1));
     assert_eq!(stats.active, 1, "the claimed row stays for its claimant");
     // The database holds the counters and nothing keyed by the reported secret.
-    let dump = std::fs::read(sqlite_path_for_tests_existing("r2p1-report")).unwrap();
+    let dump = std::fs::read(sqlite_path_for_tests_existing("metadata-report")).unwrap();
     assert!(!contains(&dump, &credential_hash(&active)));
 }
 
@@ -650,8 +646,8 @@ fn contains(hay: &[u8], needle: &[u8]) -> bool {
 // Nothing in the public answers identifies the build beyond the release version: `/config`,
 // `/health` and the footer carry the crate version only, and no other header names it.
 #[tokio::test]
-async fn spec_r2_pass1_version_is_the_release_tag_only() {
-    let srv = server("r2p1-version", &[], &[], true).await;
+async fn spec_version_is_the_release_tag_only() {
+    let srv = server("metadata-version", &[], &[], true).await;
     let version = env!("CARGO_PKG_VERSION");
     let config = send(&srv.app, get_req("localhost", "/api/v1/config")).await;
     let v: Value = serde_json::from_slice(&config.body).unwrap();

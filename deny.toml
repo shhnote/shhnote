@@ -2,7 +2,14 @@
 
 [graph]
 all-features = false
-targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "wasm32-unknown-unknown"]
+# The release binaries are musl builds (Dockerfile); the gnu targets cover `cargo build`.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+    "wasm32-unknown-unknown",
+]
 
 [advisories]
 version = 2
@@ -34,7 +41,7 @@ license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
 
 [bans]
 # sqlx carries its own generation of base64, getrandom and the RustCrypto stack next to the
-# ones the core uses; accepted rather than forced in step (S-35).
+# ones the core uses; accepted rather than forced in step.
 multiple-versions = "warn"
 wildcards = "deny"
 # The workspace crates refer to each other by path alone; they are never published.
