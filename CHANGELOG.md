@@ -4,20 +4,7 @@ User-visible changes, newest first. The protocol is specified in `SPEC.md`; the 
 review that preceded 0.3.0, with every finding and fix, has its own record in
 `docs/security-review/CHANGELOG.md`.
 
-## Unreleased
-
-### Changed
-- Sizes in `.env` (`SHH_INLINE_MAX`, `SHH_EXTERNAL_MAX_OBJECT`, `SHH_LOCAL_MAX_TOTAL_BYTES`,
-  `SHH_S3_MAX_TOTAL_BYTES`) and in the admin panel (`padding_min`, `padding_ladder`,
-  `text_max_bytes`) are written with a unit: `100B`, `64K`, `10M`, `1G` (powers of 1024).
-  A bare number is refused, so add a suffix to `.env` values before upgrading; stored
-  settings are converted by a migration. The admin API takes these settings as strings
-  with a unit. `/config` still reports bytes.
-- `SHH_API_ROUTING` and `SHH_ADMIN_ROUTING` take `domain` instead of `subdomain` (the old
-  value is refused with a hint). New `SHH_API_DOMAIN` and `SHH_ADMIN_DOMAIN` name the API
-  and panel hosts under that routing, so an instance at `eu.example.com` can answer on
-  `api-eu.example.com` instead of `api.eu.example.com`; the defaults are unchanged.
-- The operations guide says what changing `SHH_URL` affects.
+## 0.6.1 — unreleased
 
 ### Fixed
 - The S3 tier starts with a bucket-scoped Cloudflare R2 token (Object Read & Write), the
@@ -26,6 +13,30 @@ review that preceded 0.3.0, with every finding and fix, has its own record in
   of refusing to start. Wrong credentials still fail the start, at the bucket listing,
   whose error now names the call. The operations guide lists the permissions per provider
   (#10).
+
+## 0.6.0 — 2026-11-06
+
+Upgrading: replace `subdomain` with `domain` in `SHH_API_ROUTING` and `SHH_ADMIN_ROUTING`
+before starting the new version.
+
+### Changed
+- `SHH_API_ROUTING` and `SHH_ADMIN_ROUTING` take `domain` instead of `subdomain` (the old
+  value is refused with a hint). New `SHH_API_DOMAIN` and `SHH_ADMIN_DOMAIN` name the API
+  and panel hosts under that routing, so an instance at `eu.example.com` can answer on
+  `api-eu.example.com` instead of `api.eu.example.com`; the defaults are unchanged.
+- The operations guide says what changing `SHH_URL` affects.
+
+## 0.5.0 — 2026-11-06
+
+Upgrading: add a unit to the size variables in `.env` before starting the new version.
+
+### Changed
+- Sizes in `.env` (`SHH_INLINE_MAX`, `SHH_EXTERNAL_MAX_OBJECT`, `SHH_LOCAL_MAX_TOTAL_BYTES`,
+  `SHH_S3_MAX_TOTAL_BYTES`) and in the admin panel (`padding_min`, `padding_ladder`,
+  `text_max_bytes`) are written with a unit: `100B`, `64K`, `10M`, `1G` (powers of 1024).
+  A bare number is refused, so add a suffix to `.env` values before upgrading; stored
+  settings are converted by a migration. The admin API takes these settings as strings
+  with a unit. `/config` still reports bytes.
 
 ## 0.4.1 — 2026-11-04
 
