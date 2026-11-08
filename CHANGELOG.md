@@ -4,7 +4,7 @@ User-visible changes, newest first. The protocol is specified in `SPEC.md`; the 
 review that preceded 0.3.0, with every finding and fix, has its own record in
 `docs/security-review/CHANGELOG.md`.
 
-## 0.6.1 — unreleased
+## 0.7.0 — 2026-11-08
 
 ### Fixed
 - The S3 tier starts with a bucket-scoped Cloudflare R2 token (Object Read & Write), the
