@@ -17,9 +17,11 @@
 #   2. creates release/<version>, updates Cargo.toml, Cargo.lock, client/package.json,
 #      client/package-lock.json and dates the "— unreleased" headings in CHANGELOG.md and
 #      client/CHANGELOG.md (stable versions only); signed commit "release: <version>";
-#   3. pushes the branch, opens the PR with gh, enables auto-merge (rebase);
+#   3. pushes the branch, opens the PR with gh, enables auto-merge (merge commit: the branch
+#      ruleset allows only merge and squash, and a squash would drop our signed commit);
 #   4. waits for the checks and the merge;
-#   5. pulls main, signs tag v<version> on the merged commit, pushes the tag, deletes the branch.
+#   5. pulls main, signs tag v<version> on the signed "release: <version>" commit (in main's
+#      history, as the merge commit's second parent), pushes the tag, deletes the branch.
 # main is never pushed directly, so the branch ruleset is satisfied. Needs `gh` logged in.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -57,19 +59,38 @@ current="$cargo_v"
 git rev-parse -q --verify "refs/tags/v$current" >/dev/null && tagged="(tagged)" || tagged="(not tagged)"
 
 # ---- resume: tag what main already carries -------------------------------------------
+# The commit to tag is our own "release: <version>" commit, not main's tip: the PR lands as a
+# merge commit that GitHub signs with its key, which local git cannot check. The release
+# commit stays in main's history, so it is found by its subject and must be signed by us
+# and carry the version in Cargo.toml.
+release_commit() {
+  local hash subject found=""
+  while read -r hash subject; do
+    if [ "$subject" = "release: $current" ]; then found="$hash"; break; fi
+  done < <(git log --format='%H %s' HEAD)
+  [ -n "$found" ] || { echo "no 'release: $current' commit in main's history (was the PR squashed? merge it with a merge commit)" >&2; return 1; }
+  git verify-commit "$found" >/dev/null 2>&1 || { echo "release commit $(git rev-parse --short "$found") is not signed by a key in your allowed signers" >&2; return 1; }
+  local version
+  version=$(git show "$found:Cargo.toml" | sed -n 's/^version = "\([^"]*\)"/\1/p' | head -1)
+  [ "$version" = "$current" ] || { echo "release commit $(git rev-parse --short "$found") carries version $version, not $current" >&2; return 1; }
+  echo "$found"
+}
+
 tag_current() {
   git rev-parse -q --verify "refs/tags/v$current" >/dev/null && { echo "tag v$current already exists" >&2; exit 1; }
-  git verify-commit HEAD >/dev/null 2>&1 || { echo "HEAD is not signed; releases are tagged on signed commits" >&2; exit 1; }
-  git tag -s "v$current" -m "v$current"
+  local commit
+  commit=$(release_commit) || exit 1
+  git tag -s "v$current" -m "v$current" "$commit"
   git verify-tag "v$current" >/dev/null 2>&1 || { echo "tag is not signed; check user.signingkey here" >&2; exit 1; }
   git push origin "v$current"
-  echo "tagged and pushed v$current at $(git rev-parse --short HEAD)"
+  echo "tagged and pushed v$current at $(git rev-parse --short "$commit")"
 }
 
 if [ "$mode" = "tag" ]; then
   echo "current: $current $tagged"
+  commit=$(release_commit) || exit 1
   if [ -z "$yes" ]; then
-    read -r -p "Tag v$current on main at $(git rev-parse --short HEAD) and push the tag? [y/N] " answer
+    read -r -p "Tag v$current at $(git rev-parse --short "$commit") ($(git log -1 --format=%s "$commit")) and push the tag? [y/N] " answer
     case "$answer" in y|Y|yes) ;; *) echo "aborted"; exit 1;; esac
   fi
   tag_current
@@ -191,8 +212,8 @@ git push --quiet -u origin "$rb"
 pr_url=$(gh pr create --base main --head "$rb" --title "release: $next" \
   --body "Version bump to $next. Tag v$next is created on main after this merges.")
 echo "PR: $pr_url"
-gh pr merge "$rb" --auto --rebase --delete-branch >/dev/null
-echo "auto-merge enabled (rebase); waiting for checks and merge"
+gh pr merge "$rb" --auto --merge --delete-branch >/dev/null
+echo "auto-merge enabled (merge commit); waiting for checks and merge"
 
 if [ -n "$nowait" ]; then
   echo "left the PR to merge on its own. When it has merged: git switch main && git pull && scripts/release.sh tag"
