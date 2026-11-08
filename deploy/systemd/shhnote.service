@@ -1,5 +1,6 @@
 # Install: copy the binary to /usr/local/bin/shhnote, the environment file to
-# /etc/shhnote/env (mode 0640, root:shhnote is not needed thanks to DynamicUser), then
+# /etc/shhnote/env (mode 0600, owned by root: systemd reads it as root, so DynamicUser
+# needs no group access), then
 #   systemctl enable --now shhnote
 # State lives in /var/lib/shhnote; relative paths in the environment file resolve there.
 [Unit]
@@ -39,9 +40,11 @@ ProtectHostname=yes
 ProtectProc=invisible
 ProcSubset=pid
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-# Only the proxy on this host talks to it, and SQLite needs no network at all. Add the
-# database or object-store hosts here when SHH_DB=postgres or SHH_STORAGE=s3 points
-# elsewhere (IPAddressAllow=192.0.2.5, or a range).
+# Only the proxy on this host talks to it, and SQLite needs no network at all. A Postgres
+# or object store on another machine needs allowing, or its connection times out: put
+# IPAddressAllow=192.0.2.5 (or a range) in a drop-in (`systemctl edit shhnote`). Hosted
+# object stores such as Cloudflare R2 and AWS S3 have no fixed address, so for them the
+# drop-in says IPAddressAllow=any. See docs/deploy/bare-metal.md, "Network access".
 IPAddressDeny=any
 IPAddressAllow=localhost
 # Footprint: a few tokio threads, SHH_MAX_UPLOADS uploads of at most SHH_INLINE_MAX each,

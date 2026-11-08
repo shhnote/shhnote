@@ -13,6 +13,16 @@ review that preceded 0.3.0, with every finding and fix, has its own record in
   of refusing to start. Wrong credentials still fail the start, at the bucket listing,
   whose error now names the call. The operations guide lists the permissions per provider
   (#10).
+- `shhnote --version` and `shhnote --help` work without any configuration, and an unknown
+  command is refused before the configuration is read, instead of after connecting to the
+  database and applying migrations (#4).
+- Bare-metal guide (#4, #9): the environment file is `0600`, as `shhnote init` asks;
+  the health endpoint is `/api/v1/health`, not `/health` (also in the Docker, Fly and
+  operations guides); the local tier keeps blobs in `<SHH_LOCAL_PATH>/blobs/`; the
+  archive check has a command. A new "Network access" section explains the unit's
+  `IPAddressAllow` for a remote Postgres or object store, with `IPAddressAllow=any` for
+  R2 and AWS S3, which have no fixed address; it also covers where `DynamicUser` keeps
+  the state and how to run commands by hand as the service's user.
 
 ## 0.6.0 — 2026-11-06
 

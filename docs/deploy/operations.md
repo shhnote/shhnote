@@ -40,10 +40,11 @@ Deployment settings come from the environment (or a `.env` file in the working d
 | `shhnote check` | Loads the configuration and pings the database; exit code 0 when a start would succeed. |
 | `shhnote health` | Asks the running server's health endpoint (`/api/v1/health`, or `/v1/health` on the API host under domain routing); used as the container health check. |
 | `shhnote reset-admin` | Deletes every admin API key, so `SHH_ADMIN_TOKEN` works again. For lockouts. |
+| `shhnote --version`, `shhnote --help` | Print the version or the commands. They need no configuration; an unknown command is refused before the configuration is read. |
 
 ## First admin, and retiring the token
 
-Until setup is done the site serves only its admin panel and admin API (every other page and API call answers 503 with a setup page; `/health` says `configured: false`). Setup is three things: sign in at `/en/admin` with `SHH_ADMIN_TOKEN`, create an admin API key (keep it in a password manager; it is shown once), then sign in with the key and set the site name and the contact address under Settings. The token, and any session signed in with it, stops working as soon as the first admin key exists; if it is still set, the server logs a warning at startup. Remove it. The admin JSON API under `/api/v1/admin` (`<API domain>/v1/admin` under domain routing; see [admin API](../admin-api.md)) takes the same keys as `Authorization: Bearer`.
+Until setup is done the site serves only its admin panel and admin API (every other page and API call answers 503 with a setup page; the health endpoint, `/api/v1/health` or `/v1/health` on the API host, answers `"configured": false`). Setup is three things: sign in at `/en/admin` with `SHH_ADMIN_TOKEN`, create an admin API key (keep it in a password manager; it is shown once), then sign in with the key and set the site name and the contact address under Settings. The token, and any session signed in with it, stops working as soon as the first admin key exists; if it is still set, the server logs a warning at startup. Remove it. The admin JSON API under `/api/v1/admin` (`<API domain>/v1/admin` under domain routing; see [admin API](../admin-api.md)) takes the same keys as `Authorization: Bearer`.
 
 ## Changing the public address
 
