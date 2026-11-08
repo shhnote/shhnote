@@ -23,8 +23,10 @@ use shhnote_server::{
     api::ApiState,
     app,
     ratelimit::{Endpoint, RateLimiter},
-    storage::Blobs,
 };
+// Only the Unix-only tests (file modes) open a storage tier.
+#[cfg(unix)]
+use shhnote_server::storage::Blobs;
 use shhnote_store::{Scope, Store, sqlite_path_for_tests};
 use tower::ServiceExt;
 

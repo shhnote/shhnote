@@ -39,7 +39,7 @@ docker compose up -d
 docker compose ps                   # shhnote shows "healthy" within a minute
 ```
 
-Open `https://<domain>/en/admin`, sign in with the bootstrap token, create an admin API key under "API keys", sign in with it, and set the site name and contact address under "Settings": until then every public page answers 503 with a setup page and every public API call `503 not_configured`; only the admin panel, the admin API, `/static/*` and `/health` work. Then delete the `SHH_ADMIN_TOKEN` line from `.env` (the token stops working anyway once an admin key exists). Settings such as lifetimes and rate limits live in the admin panel too, not in `.env`.
+Open `https://<domain>/en/admin`, sign in with the bootstrap token, create an admin API key under "API keys", sign in with it, and set the site name and contact address under "Settings": until then every public page answers 503 with a setup page and every public API call `503 not_configured`; only the admin panel, the admin API, `/static/*` and the health endpoint (`/api/v1/health`, or `/v1/health` on the API host) work. Then delete the `SHH_ADMIN_TOKEN` line from `.env` (the token stops working anyway once an admin key exists). Settings such as lifetimes and rate limits live in the admin panel too, not in `.env`.
 
 ## With your own reverse proxy
 

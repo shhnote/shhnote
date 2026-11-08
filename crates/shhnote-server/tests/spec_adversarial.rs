@@ -678,11 +678,13 @@ async fn spec_disconnect_after_upload_leaves_no_uncounted_object() {
         }
         let _ = task.await;
         // The cleanup runs as its own task; give it a moment, then nothing may be uncounted.
+        // It removes the object first and gives the reservation back after, so wait for the
+        // ledger too: the room check below needs that space free again.
         let settled = tokio::time::timeout(Duration::from_secs(5), async {
             loop {
                 let on_disk = dir_stats(&blobs_dir).1;
                 let counted = s.store.external_bytes().await.unwrap();
-                if on_disk == counted {
+                if on_disk == counted && blobs.reserved_bytes() == 0 {
                     return;
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;
@@ -693,9 +695,10 @@ async fn spec_disconnect_after_upload_leaves_no_uncounted_object() {
         let counted = s.store.external_bytes().await.unwrap();
         assert!(
             settled.is_ok(),
-            "{} objects ({} bytes) on disk, rows account for {counted}",
+            "{} objects ({} bytes) on disk, rows account for {counted}, {} bytes still reserved",
             on_disk.0,
-            on_disk.1
+            on_disk.1,
+            blobs.reserved_bytes()
         );
     }
     // The ledger agrees with the disk: exactly the free room can still be reserved.

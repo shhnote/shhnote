@@ -4,16 +4,43 @@ use shhnote_core::{config::Config, settings::Settings};
 use shhnote_server::{api::ApiState, app, drain::Drain, health, log, scheduler, storage::Blobs};
 use shhnote_store::Store;
 
+const USAGE: &str = "usage: shhnote [command]
+  (none)        run the server
+  init          generate SHH_SECRET_KEY and SHH_ADMIN_TOKEN (--env <path> writes them into that file)
+  check         load the configuration and ping the database (applies pending migrations)
+  health        ask the running server's health endpoint
+  reset-admin   delete every admin API key, so SHH_ADMIN_TOKEN works again
+  --version     print the version
+  --help        print this help
+Every command except init, --version and --help reads the SHH_* environment (or .env).";
+
 #[tokio::main]
 async fn main() {
-    // `init` runs before any configuration exists: it makes the secrets a start needs.
+    // These run before any configuration exists: `init` makes the secrets a start needs, and
+    // the version and help must work right after installing the binary.
     let args: Vec<String> = std::env::args().collect();
-    if args.get(1).map(String::as_str) == Some("init") {
-        if let Err(e) = shhnote_server::init::run(&args[2..]) {
-            shhnote_server::log_error!("init: {e}");
-            std::process::exit(1);
+    match args.get(1).map(String::as_str) {
+        Some("init") => {
+            if let Err(e) = shhnote_server::init::run(&args[2..]) {
+                shhnote_server::log_error!("init: {e}");
+                std::process::exit(1);
+            }
+            return;
         }
-        return;
+        Some("--version" | "-V") => {
+            println!("shhnote {}", env!("CARGO_PKG_VERSION"));
+            return;
+        }
+        Some("--help" | "-h") => {
+            println!("{USAGE}");
+            return;
+        }
+        // Refused here, so a typo never connects to the database or applies migrations.
+        Some(other) if !matches!(other, "check" | "health" | "reset-admin") => {
+            shhnote_server::log_error!("unknown command {other:?}\n{USAGE}");
+            std::process::exit(2);
+        }
+        _ => {}
     }
 
     let config = match Config::load() {
@@ -73,13 +100,8 @@ async fn main() {
             }
             return;
         }
-        Some(other) => {
-            shhnote_server::log_error!(
-                "unknown command {other:?}; commands: init, check, health, reset-admin"
-            );
-            std::process::exit(2);
-        }
-        None => {}
+        // Unknown commands were refused before the configuration was read.
+        _ => {}
     }
 
     let overrides = match store.setting_overrides().await {
