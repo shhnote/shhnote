@@ -19,6 +19,14 @@ review that preceded 0.3.0, with every finding and fix, has its own record in
   `api-eu.example.com` instead of `api.eu.example.com`; the defaults are unchanged.
 - The operations guide says what changing `SHH_URL` affects.
 
+### Fixed
+- The S3 tier starts with a bucket-scoped Cloudflare R2 token (Object Read & Write), the
+  least-privilege credential. R2 has no bucket versioning, so the startup versioning check
+  is skipped there; on other providers a `403` on that check is logged as a warning instead
+  of refusing to start. Wrong credentials still fail the start, at the bucket listing,
+  whose error now names the call. The operations guide lists the permissions per provider
+  (#10).
+
 ## 0.4.1 — 2026-11-04
 
 Client package only (`client/CHANGELOG.md` has the consumer-facing entries, and now ships in
