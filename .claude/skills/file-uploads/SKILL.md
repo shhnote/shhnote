@@ -29,7 +29,7 @@ The server never sees a file. It receives one opaque encrypted blob per secret (
 
 - Inline rows are hard-deleted in the terminal transaction.
 - External rows move to `pending_delete` in the terminal transaction (counters included); the scheduler deletes the object, and only once that is confirmed deletes the row. Retry on every pass until it succeeds.
-- S3 bucket versioning must be off, or "deleted" objects silently survive. Check it at startup where the API allows and refuse to start if it is on.
+- S3 bucket versioning must be off, or "deleted" objects silently survive. Check it at startup where the API allows and refuse to start if it is on. A `403` on the check only warns (least-privilege tokens may not read it), and R2, which has no versioning, skips it; the startup listing is what checks the credentials.
 
 ## Code map
 

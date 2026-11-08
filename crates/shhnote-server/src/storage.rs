@@ -656,11 +656,20 @@ impl S3 {
         clear_parts(&s3.spool_dir, upload_window)
             .await
             .map_err(describe)?;
-        s3.check_versioning().await?;
+        if is_r2(&s3.host) {
+            // R2 has no bucket versioning, and reading the setting needs an account-wide Admin
+            // token. If Cloudflare ever adds versioning, this check has to come back.
+            crate::log_info!(
+                "storage: skipping the bucket versioning check on R2, which has no versioning"
+            );
+        } else {
+            s3.check_versioning().await?;
+        }
         Ok(s3)
     }
 
     // Versioned buckets keep "deleted" objects around, which breaks the destruction promise.
+    // Credentials and the bucket are checked by the startup listing, not here.
     async fn check_versioning(&self) -> Result<(), String> {
         let path = format!("{}/", self.prefix);
         let response = self
@@ -679,8 +688,14 @@ impl S3 {
                 );
             }
             Ok(())
-        } else if status == StatusCode::FORBIDDEN || status == StatusCode::NOT_FOUND {
+        } else if status == StatusCode::NOT_FOUND {
             Err(format!("S3 bucket check failed: {status}"))
+        } else if status == StatusCode::FORBIDDEN {
+            // A least-privilege token may lack this one permission; it is not needed otherwise.
+            crate::log_error!(
+                "warning: could not check S3 bucket versioning: GetBucketVersioning answered {status} (the token lacks that permission); make sure versioning is off"
+            );
+            Ok(())
         } else {
             // Some S3-compatible services don't implement the versioning API at all.
             crate::log_error!(
@@ -749,7 +764,11 @@ impl S3 {
             };
             let response = self.send(Method::GET, &path, &query, &[], None).await?;
             if !response.status().is_success() {
-                return Err(status_error(response).await);
+                // At startup this is where wrong credentials or a wrong bucket show up.
+                let e = status_error(response).await;
+                return Err(io::Error::other(format!(
+                    "listing the bucket (ListObjectsV2) failed: {e}"
+                )));
             }
             let body = read_page(response).await?;
             for object in between_all(&body, "<Contents>", "</Contents>") {
@@ -980,6 +999,12 @@ async fn expect_success(response: Response<Incoming>) -> io::Result<()> {
     }
 }
 
+// Cloudflare R2, including its jurisdiction hosts (`<account>.eu.r2.cloudflarestorage.com`).
+fn is_r2(host: &str) -> bool {
+    host.to_ascii_lowercase()
+        .ends_with(".r2.cloudflarestorage.com")
+}
+
 // Only the status and S3's error code make it into the error, which ends up in a log line.
 // The body names the object key, and the key maps to a secret's row (CLAUDE.md: nothing
 // request-specific is ever logged).
@@ -1178,6 +1203,18 @@ mod tests {
         );
         assert!(parse_endpoint("s3.example.com").is_err());
         assert!(parse_endpoint("https://s3.example.com/bucket").is_err());
+    }
+
+    #[test]
+    fn recognises_r2_hosts() {
+        assert!(is_r2("0123abcd.r2.cloudflarestorage.com"));
+        assert!(is_r2("0123abcd.eu.r2.cloudflarestorage.com"));
+        assert!(is_r2("0123ABCD.R2.CloudflareStorage.com"));
+        assert!(!is_r2("r2.cloudflarestorage.com"));
+        assert!(!is_r2("r2.cloudflarestorage.com.evil.example"));
+        assert!(!is_r2("evilr2.cloudflarestorage.com"));
+        assert!(!is_r2("fake.s3.us-east-1.amazonaws.com"));
+        assert!(!is_r2("127.0.0.1"));
     }
 
     #[tokio::test]

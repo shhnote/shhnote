@@ -1146,6 +1146,8 @@ struct FakeBucket {
     requests: std::sync::Mutex<Vec<String>>,
     // Keys whose DELETE the bucket refuses with a 500, as a policy or an outage would.
     undeletable: std::sync::Mutex<std::collections::BTreeSet<String>>,
+    // What `GET ?versioning` answers instead of "never configured".
+    versioning: std::sync::Mutex<Option<(StatusCode, &'static str)>>,
 }
 
 const FAKE_BUCKET: &str = "fake";
@@ -1188,7 +1190,10 @@ async fn fake_bucket_request(
     let mut objects = s3.objects.lock().unwrap();
     match (method, key) {
         (Method::GET, "") if query.contains_key("versioning") => {
-            "<VersioningConfiguration></VersioningConfiguration>".into_response()
+            match *s3.versioning.lock().unwrap() {
+                Some(answer) => answer.into_response(),
+                None => "<VersioningConfiguration></VersioningConfiguration>".into_response(),
+            }
         }
         (Method::GET, "") => {
             let prefix = query.get("prefix").map_or("", String::as_str);
@@ -1239,6 +1244,73 @@ async fn fake_bucket_request(
             StatusCode::NO_CONTENT.into_response()
         }
         _ => StatusCode::BAD_REQUEST.into_response(),
+    }
+}
+
+// Opens the S3 tier against a fake bucket, as a start would (the versioning check runs here).
+async fn open_fake_s3(addr: SocketAddr, bucket: &str, spool: &Path) -> Result<Blobs, String> {
+    let endpoint = format!("http://{addr}");
+    let mut vars = base_vars();
+    for (k, v) in [
+        ("SHH_STORAGE", "s3"),
+        ("SHH_S3_BUCKET", bucket),
+        ("SHH_S3_REGION", "us-east-1"),
+        ("SHH_S3_ENDPOINT", &endpoint),
+        ("SHH_S3_ACCESS_KEY_ID", "test-access-key"),
+        ("SHH_S3_SECRET_ACCESS_KEY", "test-secret-key"),
+        ("SHH_S3_MAX_TOTAL_BYTES", "1000000000B"),
+        ("SHH_SPOOL_PATH", spool.to_str().unwrap()),
+    ] {
+        vars.insert(k.to_string(), v.to_string());
+    }
+    let config = Config::from_vars(&vars).unwrap();
+    let opened = Blobs::open(config.storage.external.as_ref().unwrap()).await;
+    let _ = tokio::fs::remove_dir_all(spool).await;
+    opened
+}
+
+// Issue #10: a token that may not read the versioning setting (R2's bucket-scoped Object
+// Read & Write, a least-privilege AWS policy) still starts the server; the listing that
+// follows is what checks the credentials.
+#[tokio::test]
+async fn spec_s3_versioning_check_forbidden_only_warns() {
+    let (s3, addr) = fake_bucket().await;
+    *s3.versioning.lock().unwrap() = Some((
+        StatusCode::FORBIDDEN,
+        "<Error><Code>AccessDenied</Code></Error>",
+    ));
+    let spool = std::env::temp_dir().join("shhnote-spec-resources-s3-versioning-403");
+    let opened = open_fake_s3(addr, FAKE_BUCKET, &spool).await;
+    assert!(
+        opened.is_ok(),
+        "a 403 on GetBucketVersioning refused the start: {:?}",
+        opened.err()
+    );
+}
+
+// The refusal itself stays: a bucket that reports versioning on never starts the tier.
+#[tokio::test]
+async fn spec_s3_versioning_enabled_refuses_the_start() {
+    let (s3, addr) = fake_bucket().await;
+    *s3.versioning.lock().unwrap() = Some((
+        StatusCode::OK,
+        "<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>",
+    ));
+    let spool = std::env::temp_dir().join("shhnote-spec-resources-s3-versioning-on");
+    match open_fake_s3(addr, FAKE_BUCKET, &spool).await {
+        Ok(_) => panic!("a versioned bucket was accepted"),
+        Err(e) => assert!(e.contains("versioning is enabled"), "{e}"),
+    }
+}
+
+// A bucket that does not exist is still a failed start, not a warning.
+#[tokio::test]
+async fn spec_s3_missing_bucket_refuses_the_start() {
+    let (_s3, addr) = fake_bucket().await;
+    let spool = std::env::temp_dir().join("shhnote-spec-resources-s3-no-bucket");
+    match open_fake_s3(addr, "no-such-bucket", &spool).await {
+        Ok(_) => panic!("a missing bucket was accepted"),
+        Err(e) => assert!(e.contains("404"), "{e}"),
     }
 }
 
