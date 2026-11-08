@@ -1,7 +1,3 @@
-// Round 2, pass 7 (adversarial, fresh eyes): each test attacks one property of SPEC.md on the
-// current code. A test that fails here is a finding in docs/security-review/round-2/pass7.md;
-// the ones that pass are its "checked and clean" evidence.
-
 use std::{
     collections::HashMap,
     net::SocketAddr,
@@ -36,9 +32,9 @@ use shhnote_store::{Lifetime, NewSecret, Scope, Store, sqlite_path_for_tests};
 use tokio::net::TcpListener;
 use tower::ServiceExt;
 
-const ADMIN_KEY: &str = "r2-admin-key-of-at-least-32-characters-okay";
-const BOOTSTRAP: &str = "r2-adversarial-bootstrap-token-0123456789";
-const BOUNDARY: &str = "----r2-adversarial";
+const ADMIN_KEY: &str = "spec-admin-key-of-at-least-32-characters-okay";
+const BOOTSTRAP: &str = "spec-attacks-bootstrap-token-0123456789";
+const BOUNDARY: &str = "----spec-attacks";
 const NO_LIMITS: &[(&str, &str)] = &[
     ("rate_create_per_hour", "0"),
     ("rate_reveal_per_hour", "0"),
@@ -47,7 +43,7 @@ const NO_LIMITS: &[(&str, &str)] = &[
     ("rate_report_per_hour", "0"),
 ];
 
-// --- harness (the same shape as spec_adversarial.rs, so results are comparable)
+// --- harness
 
 struct Srv {
     app: Router,
@@ -94,7 +90,7 @@ async fn srv_with(
         Some(external) => Some(Arc::new(Blobs::open(external).await.unwrap())),
         None => None,
     };
-    let db = sqlite_path_for_tests(&format!("r2-adv-{name}"));
+    let db = sqlite_path_for_tests(&format!("spec-attacks-{name}"));
     let store = Store::connect_url(&format!("sqlite://{}?mode=rwc", db.display()))
         .await
         .unwrap();
@@ -326,7 +322,10 @@ async fn admin(app: &Router, method: &str, path: &str, token: &str, body: Option
 }
 
 fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("shhnote-r2-pass7-{name}-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "shhnote-spec-attacks-{name}-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
@@ -345,11 +344,11 @@ fn dir_entries(dir: &Path) -> Vec<String> {
 }
 
 // ============================================================================================
-// A. SPEC §5.1 / §5.3 / principle 6: one single-view secret, many concurrent takers of every
+// SPEC §5.1 / §5.3 / principle 6: one single-view secret, many concurrent takers of every
 // kind (reveal, burn, report). At most one of them gets anything.
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-async fn spec_r2_a_mixed_concurrent_takers_at_most_one_wins() {
+async fn spec_mixed_concurrent_takers_have_at_most_one_winner() {
     for tier in ["inline", "local"] {
         let root = scratch(&format!("a-{tier}"));
         let env: Vec<(&str, &str)> = if tier == "local" {
@@ -418,11 +417,11 @@ async fn spec_r2_a_mixed_concurrent_takers_at_most_one_wins() {
 }
 
 // ============================================================================================
-// B. SPEC §5.1 step 2: only the exact claim token re-downloads. Tokens of a sibling secret,
+// SPEC §5.1 step 2: only the exact claim token re-downloads. Tokens of a sibling secret,
 // the hashes a dump holds, and a token after confirm all get the uniform negative.
 
 #[tokio::test]
-async fn spec_r2_b_redownload_refuses_every_token_but_its_own() {
+async fn spec_redownload_refuses_every_token_but_its_own() {
     let s = srv("b-tokens", &[], NO_LIMITS).await;
     let (k1, k2) = (keys(), keys());
     make(&s.app, &k1, "single_view", 65536).await;
@@ -474,11 +473,11 @@ async fn spec_r2_b_redownload_refuses_every_token_but_its_own() {
 }
 
 // ============================================================================================
-// C. SPEC §4: a reporter learns nothing from the answer. Status, body and headers are
-// identical for every target; timing is measured and reported, not asserted (see pass7.md).
+// SPEC §4: a reporter learns nothing from the answer. Status, body and headers are
+// identical for every target; timing is printed by the next test, not asserted.
 
 #[tokio::test]
-async fn spec_r2_c_report_answer_identical_for_every_target() {
+async fn spec_report_answer_is_identical_for_gone_and_malformed_targets() {
     let s = srv("c-report", &[], NO_LIMITS).await;
     let live = keys();
     make(&s.app, &live, "ttl", 65536).await;
@@ -533,9 +532,9 @@ async fn spec_r2_c_report_answer_identical_for_every_target() {
 }
 
 // Timing side: a report that removes a large inline row does more database work than one
-// that removes nothing. Prints the medians; the write-up decides.
+// that removes nothing. Prints the medians for comparison; nothing is asserted.
 #[tokio::test]
-async fn spec_r2_c_report_timing_live_vs_missing_measured() {
+async fn spec_report_timing_live_vs_missing_is_printed() {
     let s = srv("c-timing", &[], NO_LIMITS).await;
     let bucket = 1 << 20;
     let mut live = Vec::new();
@@ -558,18 +557,18 @@ async fn spec_r2_c_report_timing_live_vs_missing_measured() {
     live.sort();
     missing.sort();
     eprintln!(
-        "r2_c timing (1 MiB inline rows): live median {:?}, missing median {:?}",
+        "report timing (1 MiB inline rows): live median {:?}, missing median {:?}",
         live[live.len() / 2],
         missing[missing.len() / 2]
     );
 }
 
 // ============================================================================================
-// D. SPEC §2.11 / §5.3: a wrong burn token learns nothing and changes nothing, including on a
+// SPEC §2.11 / §5.3: a wrong burn token learns nothing and changes nothing, including on a
 // claimed secret (whose claimant keeps re-downloading) and with the share seed as the token.
 
 #[tokio::test]
-async fn spec_r2_d_wrong_burn_learns_and_changes_nothing() {
+async fn spec_wrong_burn_token_learns_and_changes_nothing() {
     let s = srv("d-burn", &[], NO_LIMITS).await;
     let k = keys();
     make(&s.app, &k, "single_view", 65536).await;
@@ -608,11 +607,11 @@ async fn spec_r2_d_wrong_burn_learns_and_changes_nothing() {
 }
 
 // ============================================================================================
-// E. D-3 / §2.12 / §13: a dump of the database. Every credential column is a hash, and no hash
+// D-3 / §2.12 / §13: a dump of the database. Every credential column is a hash, and no hash
 // in the dump opens, consumes, destroys, reports or administers anything.
 
 #[tokio::test]
-async fn spec_r2_e_dump_contents_open_nothing_including_admin() {
+async fn spec_dump_hashes_open_nothing_including_admin() {
     let s = srv("e-dump", &[], NO_LIMITS).await;
     let k = keys();
     make(&s.app, &k, "single_view", 65536).await;
@@ -711,12 +710,12 @@ async fn spec_r2_e_dump_contents_open_nothing_including_admin() {
 }
 
 // ============================================================================================
-// F/G. §2.8 / §6.1 / D-22: blobs of one bucket are the same on the wire whatever is inside,
+// §2.8 / §6.1 / D-22: blobs of one bucket are the same on the wire whatever is inside,
 // and the only header that differs between lifetimes is the claim token. The server does not
 // get a passphrase signal from anything it sees.
 
 #[tokio::test]
-async fn spec_r2_fg_wire_shape_same_for_every_content_and_mode() {
+async fn spec_wire_shape_is_the_same_for_every_content_and_lifetime() {
     let s = srv("fg-wire", &[], NO_LIMITS).await;
     let policy = PaddingPolicy::Padme { min: 65536 };
     let text = Payload {
@@ -787,9 +786,9 @@ async fn spec_r2_fg_wire_shape_same_for_every_content_and_mode() {
 }
 
 // ============================================================================================
-// H. D-20 / §6.1 / principle 7: an object the tier holds must count against the ceiling. A
+// D-20 / §6.1 / principle 7: an object the tier holds must count against the ceiling. A
 // request dropped after the object store committed the PUT but before the row is written
-// leaves an object nobody counts; the ceiling is then exceeded by the next honest create.
+// must not leave an object nobody counts, or the next honest create crosses the ceiling.
 
 #[derive(Default)]
 struct SlowBucket {
@@ -860,7 +859,7 @@ async fn slow_bucket_request(
 }
 
 #[tokio::test]
-async fn spec_r2_h_request_dropped_during_put_leaves_uncounted_object_and_breaks_ceiling() {
+async fn spec_upload_dropped_during_put_still_counts_against_the_ceiling() {
     let (s3, addr) = slow_bucket(Duration::from_millis(400)).await;
     let spool = scratch("h-spool");
     let endpoint = format!("http://{addr}");
@@ -917,7 +916,7 @@ async fn spec_r2_h_request_dropped_during_put_leaves_uncounted_object_and_breaks
         Vec::<String>::new(),
         "spool left behind"
     );
-    eprintln!("r2_h: tier holds {held} bytes, rows account for {counted}");
+    eprintln!("dropped upload: tier holds {held} bytes, rows account for {counted}");
 
     // What the spec promises: the tier holds nothing the rows do not account for, and the
     // ceiling bounds what it holds. An honest create of one more object must therefore fail.
@@ -941,12 +940,12 @@ async fn spec_r2_h_request_dropped_during_put_leaves_uncounted_object_and_breaks
 }
 
 // ============================================================================================
-// H/I. §7.1 / principle 7: the concurrent-upload cap. A client that sends one byte every few
-// seconds keeps a slot for the whole upload deadline (max_blob / 32 KiB per second), so a
+// §7.1 / principle 7: the concurrent-upload cap. A client that sends a byte now and then
+// must not keep a slot for the whole upload deadline (max_blob / 32 KiB per second), or a
 // handful of trickling connections hold every slot and every other create gets 503.
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn spec_r2_h_trickle_uploads_hold_every_slot() {
+async fn spec_trickling_uploads_cannot_hold_every_slot() {
     let s = srv("h-trickle", &[("SHH_MAX_UPLOADS", "2")], NO_LIMITS).await;
     let bucket = 65_536u64;
     let total = multipart(&meta(&keys(), "ttl", 3600), &raw_blob(bucket)).len();
@@ -991,10 +990,10 @@ async fn spec_r2_h_trickle_uploads_hold_every_slot() {
 }
 
 // ============================================================================================
-// I. No request may panic the server, answer 500 with a non-uniform body, or hang.
+// No request may panic the server, answer 500 with a non-uniform body, or hang.
 
 #[tokio::test]
-async fn spec_r2_i_malformed_requests_never_500_or_hang() {
+async fn spec_malformed_requests_never_500_or_hang() {
     let s = srv("i-fuzz", &[], NO_LIMITS).await;
     let deep = "[".repeat(100_000) + &"]".repeat(100_000);
     let mut reqs: Vec<Request<Body>> = Vec::new();
@@ -1045,18 +1044,18 @@ async fn spec_r2_i_malformed_requests_never_500_or_hang() {
         (None, b"--x\r\n\r\n".to_vec(), "multipart/form-data; boundary=x"),
         (None, Vec::new(), "multipart/form-data"),
         (None, good.clone(), "application/json"),
-        (Some(10), good.clone(), "multipart/form-data; boundary=----r2-adversarial"),
-        (Some(good.len() * 2), good.clone(), "multipart/form-data; boundary=----r2-adversarial"),
-        (Some(0), Vec::new(), "multipart/form-data; boundary=----r2-adversarial"),
-        (None, multipart(&json!({"lookup_key": b64(&random32()), "burn_key": b64(&random32()), "lifetime": "ttl", "ttl_seconds": 1e300}), &raw_blob(65536)), "multipart/form-data; boundary=----r2-adversarial"),
-        (None, multipart(&json!({"lookup_key": b64(&random32()), "burn_key": b64(&random32()), "lifetime": "ttl", "ttl_seconds": i64::MAX}), &raw_blob(65536)), "multipart/form-data; boundary=----r2-adversarial"),
-        (None, multipart(&json!({"lookup_key": b64(&random32()), "burn_key": b64(&random32()), "lifetime": "ttl", "ttl_seconds": -9223372036854775808i64}), &raw_blob(65536)), "multipart/form-data; boundary=----r2-adversarial"),
-        (None, multipart(&json!({"lookup_key": "A".repeat(43), "burn_key": b64(&random32()), "lifetime": "ttl", "ttl_seconds": 60}), &[]), "multipart/form-data; boundary=----r2-adversarial"),
-        (None, multipart(&json!({"lookup_key": "=".repeat(43), "burn_key": b64(&random32()), "lifetime": "ttl", "ttl_seconds": 60}), &raw_blob(65536)), "multipart/form-data; boundary=----r2-adversarial"),
-        (None, { let mut b = multipart_head(&m).into_bytes(); b.extend_from_slice(&[0u8; 95]); b.extend_from_slice(multipart_tail().as_bytes()); b }, "multipart/form-data; boundary=----r2-adversarial"),
-        (None, { let mut b = multipart_head(&json!({"lookup_key": b64(&random32()), "burn_key": b64(&random32()), "lifetime": "ttl", "ttl_seconds": 60})).into_bytes(); b.extend_from_slice(&[0u8; 0]); b.extend_from_slice(multipart_tail().as_bytes()); b }, "multipart/form-data; boundary=----r2-adversarial"),
-        (None, { let mut b = format!("--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"blob\"; filename=\"blob\"\r\n\r\n").into_bytes(); b.extend_from_slice(&raw_blob(65536)); b.extend_from_slice(multipart_tail().as_bytes()); b }, "multipart/form-data; boundary=----r2-adversarial"),
-        (None, format!("--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"meta\"\r\n\r\n{}\r\n--{BOUNDARY}--\r\n", "{".repeat(5000)).into_bytes(), "multipart/form-data; boundary=----r2-adversarial"),
+        (Some(10), good.clone(), "multipart/form-data; boundary=----spec-attacks"),
+        (Some(good.len() * 2), good.clone(), "multipart/form-data; boundary=----spec-attacks"),
+        (Some(0), Vec::new(), "multipart/form-data; boundary=----spec-attacks"),
+        (None, multipart(&json!({"lookup_key": b64(&random32()), "burn_key": b64(&random32()), "lifetime": "ttl", "ttl_seconds": 1e300}), &raw_blob(65536)), "multipart/form-data; boundary=----spec-attacks"),
+        (None, multipart(&json!({"lookup_key": b64(&random32()), "burn_key": b64(&random32()), "lifetime": "ttl", "ttl_seconds": i64::MAX}), &raw_blob(65536)), "multipart/form-data; boundary=----spec-attacks"),
+        (None, multipart(&json!({"lookup_key": b64(&random32()), "burn_key": b64(&random32()), "lifetime": "ttl", "ttl_seconds": -9223372036854775808i64}), &raw_blob(65536)), "multipart/form-data; boundary=----spec-attacks"),
+        (None, multipart(&json!({"lookup_key": "A".repeat(43), "burn_key": b64(&random32()), "lifetime": "ttl", "ttl_seconds": 60}), &[]), "multipart/form-data; boundary=----spec-attacks"),
+        (None, multipart(&json!({"lookup_key": "=".repeat(43), "burn_key": b64(&random32()), "lifetime": "ttl", "ttl_seconds": 60}), &raw_blob(65536)), "multipart/form-data; boundary=----spec-attacks"),
+        (None, { let mut b = multipart_head(&m).into_bytes(); b.extend_from_slice(&[0u8; 95]); b.extend_from_slice(multipart_tail().as_bytes()); b }, "multipart/form-data; boundary=----spec-attacks"),
+        (None, { let mut b = multipart_head(&json!({"lookup_key": b64(&random32()), "burn_key": b64(&random32()), "lifetime": "ttl", "ttl_seconds": 60})).into_bytes(); b.extend_from_slice(&[0u8; 0]); b.extend_from_slice(multipart_tail().as_bytes()); b }, "multipart/form-data; boundary=----spec-attacks"),
+        (None, { let mut b = format!("--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"blob\"; filename=\"blob\"\r\n\r\n").into_bytes(); b.extend_from_slice(&raw_blob(65536)); b.extend_from_slice(multipart_tail().as_bytes()); b }, "multipart/form-data; boundary=----spec-attacks"),
+        (None, format!("--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"meta\"\r\n\r\n{}\r\n--{BOUNDARY}--\r\n", "{".repeat(5000)).into_bytes(), "multipart/form-data; boundary=----spec-attacks"),
     ];
     for (len, body, ct) in variants {
         let mut req = Request::post("/api/v1/secrets")
@@ -1158,11 +1157,11 @@ async fn spec_r2_i_malformed_requests_never_500_or_hang() {
 }
 
 // ============================================================================================
-// J. §4: the anonymous limit cannot be escaped by IPv6 spread, mapped forms, bogus
+// §4: the anonymous limit cannot be escaped by IPv6 spread, mapped forms, bogus
 // X-Forwarded-For, rotating garbage bearer tokens or an admin key on the public API.
 
 #[tokio::test]
-async fn spec_r2_j_anonymous_limit_holds_against_every_disguise() {
+async fn spec_anonymous_limit_holds_against_every_disguise() {
     let s = srv("j-limit", &[], &[("rate_reveal_per_hour", "5")]).await;
     let user = {
         let r = admin(
@@ -1268,11 +1267,11 @@ async fn spec_r2_j_anonymous_limit_holds_against_every_disguise() {
 }
 
 // ============================================================================================
-// K. D-17 / D-23 / principle 8: everything the admin API and the database expose about a key
+// D-17 / D-23 / principle 8: everything the admin API and the database expose about a key
 // and a secret created with it.
 
 #[tokio::test]
-async fn spec_r2_k_nothing_links_a_user_key_to_its_secret() {
+async fn spec_nothing_links_a_user_key_to_its_secret() {
     let s = srv("k-link", &[], NO_LIMITS).await;
     let r = admin(
         &s.app,
@@ -1352,10 +1351,10 @@ async fn spec_r2_k_nothing_links_a_user_key_to_its_secret() {
 }
 
 // ============================================================================================
-// L. §2.2 / §11: the locale redirect never leaves the site and never carries a fragment.
+// §2.2 / §11: the locale redirect never leaves the site and never carries a fragment.
 
 #[tokio::test]
-async fn spec_r2_l_locale_redirect_targets_stay_relative_to_the_site() {
+async fn spec_locale_redirect_targets_stay_relative_to_the_site() {
     let s = srv("l-redirect", &[], &[]).await;
     let s_api = srv("l-redirect-api", &[("SHH_WEB", "api")], &[]).await;
     for path in [
@@ -1428,7 +1427,7 @@ async fn spec_r2_l_locale_redirect_targets_stay_relative_to_the_site() {
 }
 
 // ============================================================================================
-// M. §8: the panel without a valid session.
+// §8: the panel without a valid session.
 
 async fn form(app: &Router, path: &str, cookie: &str, fields: &[(&str, &str)]) -> Reply {
     let body: String = fields
@@ -1484,7 +1483,7 @@ fn csrf_of(r: &Reply) -> String {
 }
 
 #[tokio::test]
-async fn spec_r2_m_panel_refuses_forged_stale_and_cross_scope_sessions() {
+async fn spec_panel_refuses_forged_stale_and_cross_scope_sessions() {
     let s = srv_unconfigured("m-panel", &[], &[]).await;
     // Bootstrap login, mint the first admin key: the bootstrap session ends with it.
     let login = form(&s.app, "/en/admin/login", "", &[("credential", BOOTSTRAP)]).await;
@@ -1656,10 +1655,10 @@ async fn spec_r2_m_panel_refuses_forged_stale_and_cross_scope_sessions() {
 }
 
 // ============================================================================================
-// N. §7.2 / D-7 / §6.2: no PATCH lets the instance accept what the policy should reject.
+// §7.2 / D-7 / §6.2: no PATCH lets the instance accept what the policy should reject.
 
 #[tokio::test]
-async fn spec_r2_n_settings_patch_cannot_widen_policy() {
+async fn spec_settings_patch_cannot_widen_policy() {
     let s = srv("n-patch", &[], NO_LIMITS).await;
     let before = get(&s.app, "localhost", "/api/v1/config").await.json();
     let bad: Vec<Value> = vec![
@@ -1786,11 +1785,11 @@ async fn spec_r2_n_settings_patch_cannot_widen_policy() {
 }
 
 // ============================================================================================
-// O. §5 / principle 6: pending_delete rows are never served, and two schedulers sweeping the
+// §5 / principle 6: pending_delete rows are never served, and two schedulers sweeping the
 // same backlog count every row exactly once.
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn spec_r2_o_two_sweepers_count_each_row_once_and_parked_rows_stay_dark() {
+async fn spec_two_sweepers_count_each_row_once_and_parked_rows_stay_dark() {
     let root = scratch("o-local");
     let s = srv(
         "o-sched",
@@ -1927,10 +1926,10 @@ async fn spec_r2_o_two_sweepers_count_each_row_once_and_parked_rows_stay_dark() 
 }
 
 // ============================================================================================
-// R. D-29: the setup gate. Nothing public and no create before setup; the gate never re-arms.
+// D-29: the setup gate. Nothing public and no create before setup; the gate never re-arms.
 
 #[tokio::test]
-async fn spec_r2_r_setup_gate_blocks_everything_public_and_never_rearms() {
+async fn spec_setup_gate_blocks_everything_public_and_never_rearms() {
     let s = srv_unconfigured("r-gate", &[], &[]).await;
     assert_eq!(
         get(&s.app, "localhost", "/api/v1/health").await.json()["configured"],
@@ -1964,8 +1963,8 @@ async fn spec_r2_r_setup_gate_blocks_everything_public_and_never_rearms() {
             .status,
         StatusCode::SERVICE_UNAVAILABLE
     );
-    // Through the admin prefix: anything under /{locale}/admin/ is open, so an unknown admin
-    // path (or one with dot segments nobody normalises) renders a public page.
+    // Through the admin prefix: the gate lets /{locale}/admin/ through, so an unknown admin
+    // path (or one with dot segments nobody normalises) must not render a public page.
     for path in [
         "/en/admin/nothing-here",
         "/en/admin/../s",
@@ -2052,10 +2051,10 @@ async fn spec_r2_r_setup_gate_blocks_everything_public_and_never_rearms() {
 }
 
 // ============================================================================================
-// S. D-24 / D-25: api mode serves nothing public; subdomain admin answers only on its host.
+// D-24 / D-25: api mode serves nothing public; subdomain admin answers only on its host.
 
 #[tokio::test]
-async fn spec_r2_s_api_mode_and_admin_subdomain_serve_only_their_own() {
+async fn spec_api_mode_and_admin_subdomain_serve_only_their_own() {
     let api = srv("s-api", &[("SHH_WEB", "api")], &[]).await;
     for (path, expect) in [
         ("/", 404),
@@ -2165,10 +2164,10 @@ async fn spec_r2_s_api_mode_and_admin_subdomain_serve_only_their_own() {
     }
 }
 
-// D-24 / §7.1: "every other public route is 404" in api mode. A path with a trailing slash
-// is answered with a redirect instead, by the normalisation layer that runs before routing.
+// D-24 / §7.1: "every other public route is 404" in api mode. That holds for a path with a
+// trailing slash too: the normalisation layer that runs before routing must not redirect it.
 #[tokio::test]
-async fn spec_r2_s_api_mode_serves_no_redirect() {
+async fn spec_api_mode_serves_no_redirect() {
     let api = srv("s-api-redirect", &[("SHH_WEB", "api")], &[]).await;
     for path in [
         "/en/",
@@ -2193,10 +2192,10 @@ async fn spec_r2_s_api_mode_serves_no_redirect() {
 }
 
 // ============================================================================================
-// T. D-26 / §4: CORS only for the site and the allow-list; never credentials, never `*`.
+// D-26 / §4: CORS only for the site and the allow-list; never credentials, never `*`.
 
 #[tokio::test]
-async fn spec_r2_t_cors_answers_only_allowed_origins_without_credentials() {
+async fn spec_cors_answers_only_allowed_origins_without_credentials() {
     let s = srv(
         "t-cors",
         &[],
@@ -2276,12 +2275,12 @@ async fn spec_r2_t_cors_answers_only_allowed_origins_without_credentials() {
 }
 
 // ============================================================================================
-// U. §6.1: the startup sweep deletes only our own orphans and stops for nothing.
+// §6.1: the startup sweep deletes only our own orphans and stops for nothing.
 
 // Unix only: the stray entries include a non-UTF-8 file name and symlinks.
 #[cfg(unix)]
 #[tokio::test]
-async fn spec_r2_u_orphan_sweep_keeps_referenced_and_strange_entries() {
+async fn spec_orphan_sweep_keeps_referenced_and_strange_entries() {
     use std::os::unix::ffi::OsStrExt;
     let root = scratch("u-sweep");
     let s = srv(
@@ -2336,8 +2335,8 @@ async fn spec_r2_u_orphan_sweep_keeps_referenced_and_strange_entries() {
     std::os::unix::fs::symlink("/etc/hostname", blobs_dir.join(valid(4))).unwrap();
     std::os::unix::fs::symlink(root.join("blobs"), blobs_dir.join(valid(5))).unwrap();
 
-    // No upload window here: the age gate (R-4) has its own test; this one is about the
-    // reference and name-shape rules.
+    // No upload window here: the age gate has its own test in spec_resources.rs; this one is
+    // about the reference and name-shape rules.
     let reopened = Blobs::open_with(
         Config::from_vars(&base_vars(&[
             ("SHH_STORAGE", "local"),
@@ -2394,11 +2393,11 @@ async fn spec_r2_u_orphan_sweep_keeps_referenced_and_strange_entries() {
 }
 
 // ============================================================================================
-// V. §6.1 / D-20: declared lengths that are invalid are refused before a byte reaches disk;
+// §6.1 / D-20: declared lengths that are invalid are refused before a byte reaches disk;
 // spool bytes stay within what was reserved.
 
 #[tokio::test]
-async fn spec_r2_v_invalid_declared_lengths_never_touch_disk() {
+async fn spec_invalid_declared_lengths_never_touch_disk() {
     let root = scratch("v-spool");
     let s = srv(
         "v-spool",
@@ -2501,7 +2500,7 @@ async fn spec_r2_v_invalid_declared_lengths_never_touch_disk() {
 }
 
 // ============================================================================================
-// X. §8: `shhnote init --env`.
+// §8: `shhnote init --env`.
 
 fn shhnote(cwd: &Path) -> std::process::Command {
     let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_shhnote"));
@@ -2510,7 +2509,7 @@ fn shhnote(cwd: &Path) -> std::process::Command {
 }
 
 #[test]
-fn spec_r2_x_init_env_never_changes_what_the_server_reads() {
+fn spec_init_env_never_changes_what_the_server_reads() {
     let dir = scratch("x-init");
     // Three ways an operator writes a set value that dotenvy (the server's .env reader)
     // accepts: plain, `export`ed, and spaced around `=`. Each must survive `init --env`.
@@ -2565,7 +2564,7 @@ fn spec_r2_x_init_env_never_changes_what_the_server_reads() {
 
 #[cfg(unix)]
 #[test]
-fn spec_r2_x_init_env_does_not_leave_secrets_world_readable() {
+fn spec_init_env_does_not_leave_secrets_world_readable() {
     use std::os::unix::fs::PermissionsExt;
     let dir = scratch("x-mode");
     let env = dir.join(".env");

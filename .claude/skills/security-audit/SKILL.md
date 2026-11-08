@@ -1,26 +1,53 @@
-# shhnote security review — prompts
+---
+name: security-audit
+description: Run a multi-pass security review of shhnote against SPEC.md with subagents, and turn its findings into spec_* tests, SPEC residuals and GitHub issues before the branch merges. Use when asked for a security review, audit or pentest of this repository.
+---
 
-This file drives a multi-pass security review of the repository. Each pass is
-self-contained and written to be handed to a subagent. The orchestrator prompt
-at the top is what a human pastes into Claude Code.
+# Security audit
 
-Ground rules for every pass:
+A review runs on its own branch, and nothing it writes as notes reaches `main`. What survives
+is what the project keeps anyway: tests, `SPEC.md` and the issue tracker. The two reviews of
+November 2026 came before this procedure; their notes are archived at the `v0.7.0` tag
+(`docs/security-review/`).
 
-- `SPEC.md` is the authority. A finding is a place where the code, a header, a
-  log line, a database column or a response differs from what `SPEC.md` says,
-  or where `SPEC.md` is silent and the behaviour violates a principle in §12.
-- Every finding needs evidence: `path:line`, a reproduction (a failing test, a
-  concrete request, or a command) and the principle or decision it violates.
-  A finding that cannot be reproduced goes in the "Suspicions" section, not in
-  "Findings".
-- Do not propose fixes that violate §12 or §13. If the only fix would, say so
-  and mark it for a spec revision.
-- Write to `docs/security-review/findings/<pass>.md` using the output format
-  below. Never edit application code or commit. Writing tests under
-  `crates/*/tests/` or `client/test/` to reproduce a finding is allowed and
-  encouraged; name them `review_*` so they are easy to find and remove.
-- Read `CLAUDE.md` and the project skills in `.claude/skills/` first; they
-  state conventions whose violation is itself a finding.
+## Lifecycle
+
+1. **Branch.** Start from `main` on a branch such as `review/<yyyy-mm>`. Notes go in a
+   top-level `review/` directory on that branch: one file per pass and a `SUMMARY.md`.
+2. **Review.** Run the passes below as subagents (see *Orchestrator prompt*). Each pass may
+   write tests that reproduce what it finds, named `spec_<property>` after the property that
+   should hold, in the area's existing test file, never after the pass or the finding.
+3. **Resolve every finding**, one of three ways:
+   - **Fixed:** the code changes and the reproducing test now passes.
+   - **Accepted:** `SPEC.md` records the residual and why it is accepted; the test asserts the
+     accepted behaviour, citing that section.
+   - **Open:** a GitHub issue holds the description, the reproduction and the options (written
+     so it stands without the notes). A reproducing test stays as
+     `#[ignore = "#<issue>: <one line>"]` (in TypeScript, `{ skip: "#<issue>: ..." }`), ready
+     for the fix.
+
+   Suspicions are resolved the same way, or closed with one line in the summary saying why.
+4. **Clean up.** Test names and comments cite `SPEC.md` (sections, `D-n` decisions) or issues,
+   never pass or finding IDs. Every change is in `CHANGELOG.md`. Delete `review/`.
+5. **Merge.** CI's "Review notes stay off main" step fails while `review/` exists, a test is
+   named `review_*` or `finding_*`, or an ignored test names no issue, so the branch cannot
+   merge until steps 3 and 4 are done.
+
+## Ground rules for every pass
+
+- `SPEC.md` is the authority. A finding is a place where the code, a header, a log line, a
+  database column or a response differs from what `SPEC.md` says, or where `SPEC.md` is silent
+  and the behaviour violates a principle in §12.
+- Every finding needs evidence: `path:line`, a reproduction (a failing test, a concrete
+  request, or a command) and the principle or decision it violates. A finding that cannot be
+  reproduced goes in the "Suspicions" section, not in "Findings".
+- Do not propose fixes that violate §12 or §13. If the only fix would, say so and mark it for
+  a spec revision.
+- Write to `review/<pass>.md` using the output format below. Never edit application code or
+  commit. Writing tests under `crates/*/tests/` or `client/test/` to reproduce a finding is
+  allowed and encouraged; name them after the property (`spec_*`), in the file for that area.
+- Read `CLAUDE.md` and the project skills in `.claude/skills/` first; they state conventions
+  whose violation is itself a finding.
 
 ## Output format (every pass)
 
@@ -58,34 +85,34 @@ a narrow window; a dependency issue. Low = hardening.
 
 ## Orchestrator prompt
 
-Paste this into Claude Code at the repo root.
+Paste this into Claude Code at the repo root, on the review branch.
 
 ```
-Run the security review described in docs/security-review/README.md.
+Run the security review described in .claude/skills/security-audit/SKILL.md.
 
-Read that file, CLAUDE.md, SPEC.md and the five skills under .claude/skills/
+Read that file, CLAUDE.md, SPEC.md and the other skills under .claude/skills/
 first. Then run passes 1 to 6 as separate subagents, each with the full text
 of its pass prompt plus the "Ground rules" and "Output format" sections. Passes
 1, 2 and 3 use the most capable model available; passes 4 and 5 may use the
 same; pass 6 may use a faster model. Run passes that touch different crates in
-parallel. Each subagent writes docs/security-review/findings/<pass>.md and
-nothing else outside crates/*/tests/ and client/test/.
+parallel. Each subagent writes review/<pass>.md and nothing else outside
+crates/*/tests/ and client/test/.
 
 When passes 1 and 2 have written their files, run pass 7 (adversarial) as a
 fresh subagent that is given SPEC.md, the pass 7 prompt and NOTHING from the
 other findings files. It must try to break the listed properties with tests.
 
-Finally run pass 8 (synthesis) yourself: read every findings file, dedupe,
+Finally run pass 8 (synthesis) yourself: read every file in review/, dedupe,
 reconcile severities, check each proposed fix against SPEC §12 and §13, and
-write docs/security-review/findings/SUMMARY.md with a ranked list, the
-accepted residuals that were rediscovered (point at the SPEC section that
-already records them), and the items that need a spec revision rather than
-a code change.
+write review/SUMMARY.md with a ranked list, the accepted residuals that were
+rediscovered (point at the SPEC section that already records them), and the
+items that need a spec revision rather than a code change.
 
-Do not fix anything. Do not commit. Report when SUMMARY.md exists.
+Do not fix anything. Do not commit. Report when review/SUMMARY.md exists.
 ```
 
----
+Resolving the findings (Lifecycle, step 3) is a separate session, with the person who owns
+the decisions.
 
 ## Pass 1 — Metadata and PII leakage (ethos audit)
 
@@ -462,10 +489,10 @@ Check and record:
 ```
 You are an attacker who has read SPEC.md and nothing else about this review.
 Your job is to break the properties below by writing tests in
-crates/shhnote-server/tests/review_adversarial.rs (and client/test/ where a
+crates/shhnote-server/tests/spec_attacks.rs (and client/test/ where a
 browser-side property is involved). For each property, either produce a
 failing test with the attack, or explain in two sentences what you tried and
-why it holds. Do not read docs/security-review/findings/.
+why it holds. Do not read anything under review/.
 
 Properties to attack:
 
@@ -506,7 +533,7 @@ Checked and clean with the test name that proves it.
 ## Pass 8 — Synthesis (orchestrator runs this itself)
 
 ```
-Read every file in docs/security-review/findings/. Produce SUMMARY.md with:
+Read every file in review/. Produce review/SUMMARY.md with:
 
 1. A ranked table: id, severity, one line, location, which pass found it,
    whether pass 7 independently confirmed it.

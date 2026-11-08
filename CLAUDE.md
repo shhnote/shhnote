@@ -39,7 +39,7 @@ Settings live in one of two places.
 
 Deployment artifacts live in `deploy/` (Docker Compose with Caddy, systemd unit, Fly config) and `docs/deploy/` (guides); the `Dockerfile` at the root builds both the image and the release binaries, and `.github/workflows/` runs the tests and publishes releases on `v*` tags.
 
-Project skills in `.claude/skills/` hold the conventions for each area: `api-endpoint`, `web-page`, `database`, `i18n`, `file-uploads`.
+Project skills in `.claude/skills/` hold the conventions for each area: `api-endpoint`, `web-page`, `database`, `i18n`, `file-uploads`, and `security-audit` for running a security review.
 
 ## Commands
 
@@ -55,7 +55,8 @@ Project skills in `.claude/skills/` hold the conventions for each area: `api-end
 
 - Never commit, push, or create branches on your own. Leave changes uncommitted unless explicitly asked.
 - Commit messages are a single line. When a change fixes or closes a GitHub issue, end that line with `Closes #<n>.` (e.g. `skip the versioning check on R2. Closes #10.`), so that merging closes the issue. A PR description carries the longer explanation, with `Closes #<n>.` on its own line. If the issue needs information neither carries (what was decided, what was left out, how to verify it), post that first with `gh issue comment <n>`, then show the commit message.
-- A user-visible change (server behaviour, API, configuration, `SPEC.md`, deploy guides, the client package) adds its entry to `CHANGELOG.md` in the same change, under the top `## <version> — unreleased` heading; if there is none, add one for the next version. Keep that exact `— unreleased` form: `scripts/release.sh` dates only that heading, and before a release it lists every merged PR that touched neither changelog. Consumer-facing client changes also go in `client/CHANGELOG.md`.
+- Every change adds its entry to `CHANGELOG.md` in the same change: server behaviour, API, configuration, `SPEC.md`, docs, the client package, and equally tests, CI, tooling and the release process. The project keeps its record open, so nothing is left out for being internal. Entries go under the top `## <version> — unreleased` heading; if there is none, add one for the next version, and keep that exact `— unreleased` form, which `scripts/release.sh` dates. Each version is one list without subsections, in this order: new features and enhancements, fixes, removals, internal changes. `scripts/release.sh` refuses to release while a merged pull request touched neither changelog. Consumer-facing client changes also go in `client/CHANGELOG.md`.
+- Security reviews and audits run on their own branch, and their notes never reach `main`. Each finding becomes a `spec_*` test named after the property it protects, an accepted residual is recorded in `SPEC.md`, anything left open becomes a GitHub issue, and the notes are deleted before the branch merges (the `security-audit` skill has the procedure). The reviews before 0.7.1 are archived at the `v0.7.0` tag.
 - Write modern, pragmatic Rust: current edition idioms, simple code over clever abstractions, no premature generics or traits.
 - This is a privacy- and security-focused project, so keep dependencies to a minimum. Before adding a crate, check whether the standard library or an existing dependency already covers it, and say why the new one is worth it. Prefer small, well-maintained crates, and turn off default features that aren't needed. Ask before adding any crate that pulls in a large dependency tree.
 - Use the latest stable versions of crates. Add dependencies with `cargo add` rather than guessing version numbers.

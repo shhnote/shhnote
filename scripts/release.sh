@@ -11,9 +11,9 @@
 #   options: --yes (no prompt)  --no-wait (open the PR and stop; finish later with `tag`)
 #
 # What it does, from an up-to-date main:
-#   1. computes the next version, lists PRs merged since the last stable tag that added no
-#      changelog entry (and a missing "— unreleased" heading), and asks before going on;
-#      with --yes the list is printed and the release goes ahead;
+#   1. computes the next version and stops if the changelog is missing something: a PR
+#      merged since the last stable tag that touched neither changelog and is not named
+#      (#<n>) in the "— unreleased" section, or (for a stable release) no such section;
 #   2. creates release/<version>, updates Cargo.toml, Cargo.lock, client/package.json,
 #      client/package-lock.json and dates the "— unreleased" headings in CHANGELOG.md and
 #      client/CHANGELOG.md (stable versions only); signed commit "release: <version>";
@@ -129,8 +129,9 @@ if [ "$tagged" = "(not tagged)" ]; then
 fi
 
 # ---- changelog -----------------------------------------------------------------------
-# Nothing writes the changelog for us, so list what it may be missing: PRs merged since the
-# last stable tag that touched neither changelog, and a missing "— unreleased" heading.
+# Every change is in the changelog, so a release stops while one is missing: a PR merged
+# since the last stable tag that touched neither changelog (an entry added later counts when
+# the unreleased section names the PR as #<n>), or a missing "— unreleased" heading.
 changelog_gaps=""
 if [[ "$next" != *-rc.* ]] && ! grep -q '^## .* — unreleased$' CHANGELOG.md; then
   changelog_gaps+="  CHANGELOG.md has no '## <version> — unreleased' heading, so nothing gets dated"$'\n'
@@ -141,15 +142,20 @@ if [ -n "$last_stable" ]; then
   changelog_gaps+=$(gh pr list --state merged --base main --limit 200 \
       --search "merged:>=$since" --json number,title,mergeCommit,files \
     | python3 -c '
-import json, subprocess, sys
+import json, re, subprocess, sys
 # The search is by day; the merge commit decides whether a PR is really after the tag.
 after_tag = set(subprocess.run(["git", "rev-list", sys.argv[1] + "..HEAD"],
                                capture_output=True, text=True, check=True).stdout.split())
+# The top "— unreleased" section, where a later entry names the PR it belongs to.
+log = open("CHANGELOG.md", encoding="utf-8").read()
+m = re.search(r"^## [^\n]* — unreleased$(.*?)(?=^## |\Z)", log, re.M | re.S)
+unreleased = m.group(1) if m else ""
 for pr in sorted(json.load(sys.stdin), key=lambda pr: pr["number"]):
     if (pr.get("mergeCommit") or {}).get("oid") not in after_tag or pr["title"].startswith("release: "):
         continue
     paths = {f["path"] for f in pr.get("files") or []}
-    if not paths & {"CHANGELOG.md", "client/CHANGELOG.md"}:
+    named = re.search(r"#%d\b" % pr["number"], unreleased)
+    if not paths & {"CHANGELOG.md", "client/CHANGELOG.md"} and not named:
         print("  #%d %s: no changelog entry" % (pr["number"], pr["title"]))
 ' "$last_stable")
 fi
@@ -159,11 +165,9 @@ echo "next:    $next"
 if [ -n "$changelog_gaps" ]; then
   echo "changelog, since ${last_stable:-the first release}:"
   printf '%s\n' "${changelog_gaps%$'\n'}"
-  echo "  (add the missing entries on a branch first, or go on if none of these is user-visible)"
-  if [ -z "$yes" ]; then
-    read -r -p "Release without them? [y/N] " answer
-    case "$answer" in y|Y|yes) ;; *) echo "aborted"; exit 1;; esac
-  fi
+  echo "every change goes in the changelog: add the missing entries on a branch (naming each" >&2
+  echo "PR as #<n>), merge it, and run this again" >&2
+  exit 1
 fi
 if [ -z "$yes" ]; then
   read -r -p "Release $next (branch, PR, auto-merge, tag)? [y/N] " answer

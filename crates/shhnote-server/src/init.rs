@@ -316,7 +316,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    // Round 2, R-9: the forms the server's reader accepts are all recognised, a key set
+    // The forms the server's reader accepts are all recognised, a key set
     // twice or in a form that cannot be judged is an error, and nothing is ever appended
     // behind a set value.
     #[test]
@@ -392,7 +392,7 @@ mod tests {
         names
     }
 
-    // Revision 3, C5: the file is replaced whole, keeps its mode, stays a symlink when it is
+    // The file is replaced whole, keeps its mode, stays a symlink when it is
     // one, and leaves no temp file behind.
     #[cfg(unix)]
     #[test]

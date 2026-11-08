@@ -1,6 +1,3 @@
-// Round-2 security review, pass 5 (client cryptography and protocol conformance). Each test
-// pins what the code does today; the ones whose name starts with "F-5-" document a finding
-// in docs/security-review/round-2/pass5.md and will need updating when the finding is fixed.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
@@ -104,13 +101,13 @@ async function lyingBlob(claimed: number): Promise<Uint8Array<ArrayBuffer>> {
   return blobFrom(padded);
 }
 
-describe("review r2 pass 5: body cap and memory bound (D-4, S-20)", () => {
-  it("F-5-1: the decoder, bounded by the response length as both revealSecret and wireReveal now pass it, reserves nothing of a lying manifest", async () => {
+describe("body cap and memory bound (D-4)", () => {
+  it("the decoder, bounded by the response length as both revealSecret and wireReveal pass it, reserves nothing of a lying manifest", async () => {
     const claimed = 48 * 1024 * 1024;
     const blob = await lyingBlob(claimed);
     const ek = await ekKey(["decrypt"]);
 
-    // What both the library and the reference page do (revision 4, C2): the cap is
+    // What both the library and the reference page do: the cap is
     // min(blobLen(max_blob_bytes), Content-Length), so the length prefix is refused before
     // any file buffer exists. Measured right after the failure.
     const bounded = await readHeader(pieces(blob, 4096));
@@ -126,14 +123,14 @@ describe("review r2 pass 5: body cap and memory bound (D-4, S-20)", () => {
     assert.ok(process.memoryUsage().arrayBuffers - beforeLoose < claimed / 2, "the manifest's sizes were not checked against the bound");
   });
 
-  it("F-5-2: a non-numeric max_blob_bytes from /config switches the body cap off instead of failing closed", async () => {
+  it("a non-numeric max_blob_bytes from /config fails closed, and one above the ceiling is clamped", async () => {
     const blob = await blobFrom(pad(encodePayload({ text: "s", files: [] }), { mode: "padme", min: 4096 }));
     const link = `#${encodeFragment(seed, "share")}`;
     // A sane instance refuses a body over its maximum.
     const strict = instance(() => new Response(blob, { status: 200 }), { ...instanceConfig, max_blob_bytes: 100 });
     await assert.rejects(revealSecret(link, { apiBase: "https://cap-1.example/api/v1", fetch: strict.fetchImpl }), (e: unknown) => e instanceof ApiError && e.code === "too_large");
-    // A hostile or broken /config fails closed (revision 4, C1): nothing is revealed, so the
-    // single-view secret is not claimed, and the error names the config.
+    // A hostile or broken /config fails closed: nothing is revealed, so the single-view
+    // secret is not claimed, and the error names the config.
     const hostile = instance(() => new Response(blob, { status: 200 }), { ...instanceConfig, max_blob_bytes: "unlimited" });
     await assert.rejects(revealSecret(link, { apiBase: "https://cap-2.example/api/v1", fetch: hostile.fetchImpl }), (e: unknown) => e instanceof ApiError && e.code === "invalid_config");
     assert.ok(!hostile.calls.some((c) => c.url.endsWith("/secrets/reveal")), "a reveal was sent on an untrusted config");
@@ -143,13 +140,13 @@ describe("review r2 pass 5: body cap and memory bound (D-4, S-20)", () => {
     assert.equal((await revealSecret(link, { apiBase: "https://cap-3.example/api/v1", fetch: huge.fetchImpl })).payload.text, "s");
   });
 
-  it("F-5-2: a malformed Content-Length disables the as-received cap in Api.reveal", async () => {
+  it("a malformed Content-Length counts as not announced, so Api.reveal applies the as-received cap", async () => {
     const body = new Uint8Array(1000);
     const { fetchImpl } = recorder(() => new Response(body, { status: 200, headers: { "content-length": "abc" } }));
     const api = new Api("https://cap-4.example/api/v1", fetchImpl);
     const revealed = await api.reveal(await lookup(seed), null, 10);
-    // Revision 4, C1: not a usable length, so it is treated as not announced and the
-    // as-received cap applies.
+    // Not a usable length, so it is treated as not announced and the as-received cap
+    // applies.
     assert.equal(revealed.contentLength, null);
     await assert.rejects(
       (async () => {
@@ -160,8 +157,8 @@ describe("review r2 pass 5: body cap and memory bound (D-4, S-20)", () => {
   });
 });
 
-describe("review r2 pass 5: /config caching and precedence", () => {
-  it("F-5-3: a padding policy changed on the instance is never re-read, so every later create from the same page fails", async () => {
+describe("/config caching and precedence", () => {
+  it("a padding policy changed on the instance is re-read after the first refusal, so later creates succeed", async () => {
     let policy: InstanceConfig["padding"] = { mode: "padme", min: 65536 };
     let refused = 0;
     const { fetchImpl } = recorder((url, body) => {
@@ -176,15 +173,17 @@ describe("review r2 pass 5: /config caching and precedence", () => {
     const opts = { apiBase: "https://stale.example/api/v1", fetch: fetchImpl, payload: { text: "x", files: [] }, lifetime: "ttl" as const, ttlSeconds: 3600 };
     await createSecret(opts);
     // The admin switches to a bucket ladder; the first refusal makes the client re-read
-    // /config and pad again, and later creates use the fresh answer (revision 4, C1).
+    // /config and pad again, and later creates use the fresh answer.
     policy = { mode: "buckets", ladder: [131072] };
     for (let i = 0; i < 3; i++) await createSecret(opts);
     assert.equal(refused, 1, "only the first attempt after the change is refused");
   });
 });
 
-describe("review r2 pass 5: Argon2 module origin", () => {
-  it("F-5-4: loadArgon2 fetches the module from whatever URL it is given, cross-origin included", async () => {
+describe("Argon2 module origin", () => {
+  // Node has no `location`, so the caller is the origin; in a page the module must be
+  // same-origin (SPEC §10).
+  it("outside a page, loadArgon2 fetches the module from whatever URL it is given, cross-origin included", async () => {
     const g = globalThis as { fetch: typeof fetch };
     const saved = g.fetch;
     const urls: string[] = [];
@@ -202,17 +201,19 @@ describe("review r2 pass 5: Argon2 module origin", () => {
   });
 });
 
-describe("review r2 pass 5: manifest parsing parity with the Rust core (S-46)", () => {
+// Both implementations must decide the same for the same bytes (SPEC §2.14);
+// crates/shhnote-core/tests/spec_manifest_parity.rs has the Rust side of each case.
+describe("manifest parsing parity with the Rust core", () => {
   const withManifest = (json: string, tail: Uint8Array = new Uint8Array(0)) => {
     const m = enc.encode(json);
     return concat(u32be(m.length), m, tail);
   };
 
-  it("F-5-5: a file size of -0 is refused here as serde_json refuses it (revision 4, C4)", () => {
+  it("a file size of -0 is refused, as serde_json refuses it", () => {
     assert.throws(() => decodePayload(withManifest('{"v":1,"text":"t","files":[{"name":"a","type":"","size":-0}]}')), isCode("manifest"));
   });
 
-  it("deep nesting in an ignored key is accepted on both sides, and stays inside the error contract (checked)", () => {
+  it("deep nesting in an ignored key is accepted on both sides, and stays inside the error contract", () => {
     // serde_json skips ignored values iteratively and V8's JSON.parse is iterative too.
     for (const depth of [200, 500_000]) {
       const deep = `${"[".repeat(depth)}${"]".repeat(depth)}`;
@@ -221,7 +222,7 @@ describe("review r2 pass 5: manifest parsing parity with the Rust core (S-46)", 
     }
   });
 
-  it("F-5-5: a duplicated unknown key is ignored here as serde_json ignores it; a duplicated known key is still refused (revision 4, C4)", () => {
+  it("a duplicated unknown key is ignored, as serde_json ignores it; a duplicated known key is still refused", () => {
     assert.equal(decodePayload(withManifest('{"v":1,"text":"t","files":[],"x":1,"x":2}')).text, "t");
     assert.throws(() => decodePayload(withManifest('{"v":1,"text":"t","files":[{"name":"a","type":"","size":0,"size":0}]}')), isCode("manifest"));
   });
@@ -235,8 +236,8 @@ describe("review r2 pass 5: manifest parsing parity with the Rust core (S-46)", 
   });
 });
 
-describe("review r2 pass 5: what stays in memory and in storage", () => {
-  it("revealSecret with confirm:false returns the token and sends no confirm; a stale token on a TTL secret is a 404 (checked)", async () => {
+describe("what stays in memory and in storage", () => {
+  it("revealSecret with confirm:false returns the token and sends no confirm", async () => {
     const blob = await blobFrom(pad(encodePayload({ text: "s", files: [] }), { mode: "padme", min: 4096 }));
     const link = `#${encodeFragment(seed, "share")}`;
     const { calls, fetchImpl } = instance(() => new Response(blob, { status: 200, headers: { "x-shh-claim-token": "CLAIM" } }));
@@ -245,13 +246,13 @@ describe("review r2 pass 5: what stays in memory and in storage", () => {
     assert.deepEqual(calls.map((c) => c.url.split("/v1")[1]), ["/secrets/reveal"]);
   });
 
-  it("createT treats a block whose JSON is null like any other gap (revision 4, C5)", () => {
+  it("createT treats a block whose JSON is null like any other gap", () => {
     const block = { textContent: "null" };
     const root = { querySelector: () => block } as unknown as ParentNode;
     assert.equal(createT(root)("reveal-download"), "reveal-download");
   });
 
-  it("the burn-token hash and lookup hash leave the client; the seed and token never do (S-19, S-46 re-check)", async () => {
+  it("the burn-token hash and lookup hash leave the client; the seed and token never do", async () => {
     const { calls, fetchImpl } = instance(() => new Response(null, { status: 201 }));
     const created = await createSecret({ apiBase: "https://m.example/api/v1", fetch: fetchImpl, payload: { text: "x", files: [] }, lifetime: "ttl", ttlSeconds: 3600 });
     const form = calls[0]!.body as FormData;

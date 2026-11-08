@@ -64,7 +64,7 @@ fn spec_init_subcommand() {
     assert!(String::from_utf8_lossy(&out.stdout).contains("written to a new file"));
     assert_eq!(fs::read_to_string(&fresh).unwrap().lines().count(), 2);
 
-    // Round 2, R-9: a value set in any form the server reads (`export`, spaces around `=`)
+    // A value set in any form the server reads (`export`, spaces around `=`)
     // is kept, never shadowed by an appended line; an empty quoted value is filled; a key
     // set twice is refused with the lines named and the file left alone.
     let forms = dir.join("forms");
@@ -114,7 +114,7 @@ fn spec_init_subcommand() {
         "SHH_SECRET_KEY=\nSHH_SECRET_KEY=second\n"
     );
 
-    // Round 2, R-10: the mode is kept, and one that lets others read the file is called out.
+    // The mode is kept, and one that lets others read the file is called out.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

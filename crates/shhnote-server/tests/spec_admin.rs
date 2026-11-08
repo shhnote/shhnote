@@ -1,7 +1,3 @@
-// Regression tests from the security review (docs/security-review/findings/SUMMARY.md) for
-// admin sessions, CSRF, login, the admin JSON API and settings validation (SPEC §8). Ignored
-// tests are waiting for the step that fixes their finding; un-ignore them with the fix.
-
 use std::{collections::HashMap, net::SocketAddr};
 
 use axum::{
@@ -334,8 +330,8 @@ async fn spec_logout_requires_csrf() {
 }
 
 // SPEC §8: a bootstrap session is invalid once any admin key exists, and neither
-// `reset-admin` nor deleting the last admin key through the panel or the admin API (round 2,
-// R-7) revives it.
+// `reset-admin` nor deleting the last admin key through the panel or the admin API
+// revives it.
 #[tokio::test]
 async fn spec_bootstrap_session_does_not_come_back() {
     for via in ["reset-admin", "panel", "api"] {
@@ -708,7 +704,7 @@ async fn spec_settings_patch_rejects_values_that_break_the_instance() {
     let bad: Vec<(&str, Value)> = vec![
         ("padding_min", json!(0)),
         ("padding_min", json!(1)),
-        // Above the largest blob the instance stores (round 2, suspicion 4).
+        // Above the largest blob the instance stores.
         ("padding_min", json!(4_294_967_296u64)),
         ("padding_mode/ladder", json!(null)),
         ("claim_window_secs", json!(-1)),
@@ -805,7 +801,7 @@ async fn spec_settings_markup_is_escaped_in_pages() {
         .await
         .text();
     assert!(!settings_page.contains("<script>alert(1)</script>"));
-    // The policy pages take the site name through a placeholder in Markdown (round 2, R-8):
+    // The policy pages take the site name through a placeholder in Markdown:
     // it must land there as text too, in every locale, and a refresh tag is the markup that
     // CSP would not stop. The pages exist only once the instance is set up.
     let admin_key = configure(&app).await;
@@ -838,7 +834,7 @@ async fn spec_settings_markup_is_escaped_in_pages() {
     }
 }
 
-// Round 2, R-17: a bad query string on the admin API gets the shared error shape, not the
+// A bad query string on the admin API gets the shared error shape, not the
 // framework's plain-text rejection.
 #[tokio::test]
 async fn spec_admin_stats_query_rejection_uses_the_error_shape() {
@@ -851,7 +847,7 @@ async fn spec_admin_stats_query_rejection_uses_the_error_shape() {
     assert_eq!(r.status, StatusCode::OK, "{}", r.text());
 }
 
-// Round 2, R-16: "files off" with a ladder that has no rung for a text-only secret would
+// "Files off" with a ladder that has no rung for a text-only secret would
 // refuse every create; the save refuses the combination instead.
 #[tokio::test]
 async fn spec_files_off_needs_a_rung_for_text() {

@@ -1,7 +1,3 @@
-// Regression tests from the security review (docs/security-review/findings/SUMMARY.md) for the
-// client: the negative cases the conformance vectors do not pin, and the library behaviour the
-// spec promises. Skipped tests are waiting for the step that fixes their finding (the skip
-// reason names it); un-skip them with the fix.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it, mock } from "node:test";
@@ -166,7 +162,7 @@ describe("spec: container beyond the vectors", () => {
     return concat(u32be(m.length), m, tail);
   };
 
-  it("a null file entry stays inside the error contract (S-47)", () => {
+  it("a null file entry stays inside the error contract", () => {
     assert.throws(() => decodePayload(withManifest('{"v":1,"text":null,"files":[null]}')), isCode("manifest"));
     assert.throws(() => decodePayload(withManifest('{"v":1,"text":null,"files":[1]}')), isCode("manifest"));
   });
@@ -239,7 +235,7 @@ describe("spec: argon2", () => {
     assert.ok(sampledKiB < 256, `${sampledKiB} KiB still non-zero`);
   });
 
-  it("an empty passphrase is refused at the boundary, never read as 'none' (SPEC §2.10, S-46)", async () => {
+  it("an empty passphrase is refused at the boundary, never read as 'none' (SPEC §2.10)", async () => {
     const header = await headerFor(seed, INFO.kekDirect);
     const padded = pad(encodePayload({ text: "direct", files: [] }), { mode: "padme", min: 4096 });
     const blob = concat(header, await sealChunk(await ekKey(), prefix, 0, true, padded));
@@ -384,7 +380,7 @@ const instanceConfig: InstanceConfig = {
   web_mode: "full",
 };
 
-describe("spec: what a failed reveal says (revision 4, C5)", () => {
+describe("spec: what a failed reveal says", () => {
   it("only a decryption failure is called corrupt; the server's state and the cap get their own words", () => {
     assert.equal(revealErrorKey(new ShhError("corrupt")), "reveal-error-corrupt");
     assert.equal(revealErrorKey(new ShhError("wrong_passphrase")), "reveal-error-corrupt");
@@ -403,7 +399,7 @@ describe("spec: what a failed reveal says (revision 4, C5)", () => {
   });
 });
 
-describe("spec: shared instance config (revision 3, B1)", () => {
+describe("spec: shared instance config", () => {
   it("getConfig fetches once per base and fetch implementation", async () => {
     const { calls, fetchImpl } = recorder(() => Response.json(instanceConfig));
     const first = await getConfig("https://cfg-a.example/api/v1", fetchImpl);
@@ -427,8 +423,8 @@ describe("spec: shared instance config (revision 3, B1)", () => {
     assert.equal(calls.length, 2);
   });
 
-  // Revision 4, C1: /config is the one input the client uses as a bound, so it is checked
-  // before use and fails closed; a stale answer can be dropped.
+  // /config is the one input the client uses as a bound, so it is checked before use and
+  // fails closed; a stale answer can be dropped.
   it("getConfig refuses a config it cannot trust and clamps the blob ceiling", async () => {
     const bad: [string, unknown][] = [
       ["max_blob_bytes", "unlimited"],
@@ -477,7 +473,7 @@ describe("spec: shared instance config (revision 3, B1)", () => {
   });
 });
 
-describe("spec: page strings (revision 3, B1)", () => {
+describe("spec: page strings", () => {
   const rootWith = (json: string | null) =>
     ({ querySelector: () => (json === null ? null : { textContent: json }) }) as unknown as ParentNode;
 
@@ -491,14 +487,14 @@ describe("spec: page strings (revision 3, B1)", () => {
     assert.equal(createT(rootWith(null))("reveal-download"), "reveal-download");
     assert.equal(createT(rootWith("{}"))("reveal-download"), "reveal-download");
     assert.equal(createT(rootWith("{not json"))("burn-working"), "burn-working");
-    // Revision 4, C5: JSON that parses to no object (`null`, a list) is a gap, not a crash.
+    // JSON that parses to no object (`null`, a list) is a gap, not a crash.
     assert.equal(createT(rootWith("null"))("burn-working"), "burn-working");
     assert.equal(createT(rootWith("[1]"))("burn-working"), "burn-working");
     assert.equal(createT()("burn-working"), "burn-working", "no document in Node: keys, no crash");
   });
 });
 
-describe("spec: controller options (revision 3, B2)", () => {
+describe("spec: controller options", () => {
   // An element whose ancestors carry these `data-shh-*` attributes; Node has no DOM.
   const pageWith = (attrs: Record<string, string>) =>
     ({
@@ -538,7 +534,7 @@ describe("spec: controller options (revision 3, B2)", () => {
   });
 });
 
-describe("spec: controller options and hooks (revision 3, D3a)", () => {
+describe("spec: controller options and hooks", () => {
   // A root with one `[data-shh-form=<name>]` form inside and no data-shh-* attributes anywhere.
   function bareRoot(name: string) {
     const form = {
@@ -581,7 +577,7 @@ describe("spec: controller options and hooks (revision 3, D3a)", () => {
       assert.equal(report.form.hidden, false, "the form is shown");
 
       // Checked by `npm run typecheck`, never run: the options that only the create and reveal
-      // pages use are refused by the burn and report signatures (round 2, E3).
+      // pages use are refused by the burn and report signatures.
       const neverCalled = () => {
         // @ts-expect-error argon2Url is not an option of wireBurn
         ui.wireBurn(burn.root, { t, apiBase: options.apiBase, argon2Url: "/argon2.wasm" });
@@ -617,7 +613,7 @@ describe("spec: controller options and hooks (revision 3, D3a)", () => {
     assert.equal(tabList.hidden, false);
   });
 
-  it("each create form's drop zone uses the dropzone-item template inside its own root (round 2, E1)", () => {
+  it("each create form's drop zone uses the dropzone-item template inside its own root", () => {
     // Two create forms on one page, each with its own template somewhere inside its root (not
     // next to the zone). A fake DOM: the zone, its parent with the file list, and the root.
     function createForm(name: string) {
@@ -670,7 +666,7 @@ describe("spec: controller options and hooks (revision 3, D3a)", () => {
   });
 });
 
-describe("spec: protocol check in the controllers (revision 3, D3b)", () => {
+describe("spec: protocol check in the controllers", () => {
   // `getConfig` without a fetch implementation uses the global one, as the pages do.
   async function withFetch<T>(fetchImpl: typeof fetch, run: () => Promise<T>): Promise<T> {
     const previous = globalThis.fetch;
@@ -714,7 +710,7 @@ describe("spec: protocol check in the controllers (revision 3, D3b)", () => {
   });
 });
 
-describe("spec: lifetimes from the instance (revision 3, B2)", () => {
+describe("spec: lifetimes from the instance", () => {
   it("offers the instance's presets shortest first, with its default preselected", () => {
     assert.deepEqual(ttlChoices(instanceConfig), { seconds: [3600, 86400], selected: 86400 });
   });
@@ -770,7 +766,7 @@ describe("spec: lifetimes from the instance (revision 3, B2)", () => {
   });
 });
 
-describe("spec: copy buttons (revision 3, B3)", () => {
+describe("spec: copy buttons", () => {
   // A stand-in button and clipboard; Node has no DOM.
   function fakeButton() {
     let onClick: (() => Promise<void>) | undefined;
@@ -812,7 +808,7 @@ describe("spec: copy buttons (revision 3, B3)", () => {
   });
 });
 
-describe("spec: claim token across a reload (revision 3, B4)", () => {
+describe("spec: claim token across a reload", () => {
   // `sessionStorage` as Node lacks it: one instance plays the tab's storage across "reloads".
   class FakeStorage {
     readonly items = new Map<string, string>();
@@ -925,7 +921,7 @@ describe("spec: claim token across a reload (revision 3, B4)", () => {
   });
 });
 
-describe("spec: protocol version (revision 3, B5)", () => {
+describe("spec: protocol version", () => {
   const future = { ...instanceConfig, fragment_version: 2 };
 
   it("createSecret refuses an instance with another fragment version before uploading", async () => {
@@ -958,7 +954,7 @@ describe("spec: protocol version (revision 3, B5)", () => {
   });
 });
 
-describe("spec: scrubbing (revision 3, B6)", () => {
+describe("spec: scrubbing", () => {
   it("a failed confirm throws with the claim token and the decrypted payload", async () => {
     const blob = await blobFrom(pad(encodePayload({ text: "s", files: [] }), { mode: "padme", min: 4096 }));
     const { calls, fetchImpl } = instance((url) =>
@@ -994,7 +990,7 @@ describe("spec: scrubbing (revision 3, B6)", () => {
   });
 });
 
-describe("spec: body cap from the instance (revision 3, B7)", () => {
+describe("spec: body cap from the instance", () => {
   it("revealSecret without maxBlobBytes refuses a body over the instance's max_blob_bytes", async () => {
     const blob = await blobFrom(pad(encodePayload({ text: "s", files: [] }), { mode: "padme", min: 4096 }));
     const link = `#${encodeFragment(seed, "share")}`;

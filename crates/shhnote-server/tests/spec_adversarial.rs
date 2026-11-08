@@ -1,8 +1,3 @@
-// Regression tests from the adversarial pass of the security review
-// (docs/security-review/findings/SUMMARY.md): each test attacks one property of SPEC.md end
-// to end and must fail to break it. Ignored tests are waiting for the step that fixes their
-// finding; un-ignore them with the fix.
-
 use std::{
     collections::HashMap,
     net::SocketAddr,
@@ -655,7 +650,7 @@ async fn local_srv(name: &str, ceiling: &str) -> (Srv, PathBuf) {
 // A client that disconnects right after its upload completes cancels the handler between the
 // object write and the row write. The object is removed as soon as the write has settled, so
 // at every moment the tier holds only what the rows account for, and the ceiling (room for two
-// objects here) still bounds what an honest create can add; no restart is needed (R-1).
+// objects here) still bounds what an honest create can add; no restart is needed.
 #[tokio::test]
 async fn spec_disconnect_after_upload_leaves_no_uncounted_object() {
     let ceiling = 300_000u64;
@@ -1136,7 +1131,7 @@ async fn patch(s: &Srv, body: Value) -> Reply {
 #[tokio::test]
 async fn spec_ttl_is_capped_at_14_days_whatever_is_patched() {
     let s = srv("n-ttl", &[], NO_LIMITS).await;
-    // Refused outright (SPEC §7.2) or, until S-10 lands, clamped: never stored above 14 days.
+    // Refused outright (SPEC §7.2) or clamped: never stored above 14 days.
     let r = patch(&s, json!({"max_ttl_secs": 30 * 86_400})).await;
     assert!(
         r.status == StatusCode::UNPROCESSABLE_ENTITY

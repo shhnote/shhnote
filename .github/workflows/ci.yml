@@ -6,7 +6,7 @@ on:
   pull_request:
   # Release runs this workflow first, so nothing ships that CI has not passed.
   workflow_call:
-  # Once a week the `audit` job alone runs again (round 2, R-27): an advisory published
+  # Once a week the `audit` job alone runs again: an advisory published
   # while nothing is pushed still shows up against what is deployed.
   schedule:
     - cron: "17 6 * * 1"
@@ -67,6 +67,23 @@ jobs:
           if [ -n "$bad" ]; then
             echo "not executable in git (run: git update-index --chmod=+x <file>):"; echo "$bad"; exit 1
           fi
+
+      - name: Review notes stay off main
+        # A security review's notes live on its branch and are deleted before it merges; its
+        # findings become spec_* tests, and a test left ignored names the issue it waits for
+        # (the security-audit skill).
+        run: |
+          fail=0
+          if [ -n "$(git ls-files review/)" ]; then
+            echo "review/ is still in the tree: resolve the findings and delete the notes"; fail=1
+          fi
+          if git grep -nE 'fn (review|finding)_' -- 'crates/*/tests/*.rs'; then
+            echo "name these tests after the property they check (spec_*)"; fail=1
+          fi
+          if git grep -nE '#\[ignore' -- 'crates/' | grep -vE '#\[ignore = "[^"]*#[0-9]+'; then
+            echo 'an ignored test names its issue: #[ignore = "#<n>: ..."]'; fail=1
+          fi
+          exit $fail
 
       - name: Format
         run: cargo fmt --all --check

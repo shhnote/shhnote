@@ -1,6 +1,3 @@
-// Round 2, pass 7 (adversarial): the browser-side properties. W: sessionStorage holds the
-// claim token and its expiry and nothing else, never past the window. P: nothing but a real
-// activation reveals, so a scanner that runs the page's scripts consumes nothing.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
@@ -31,7 +28,9 @@ class FakeStorage {
 }
 const asStorage = (s: FakeStorage) => s as unknown as Storage;
 
-describe("r2 W: what the claim store writes", () => {
+// sessionStorage holds the claim token and its expiry and nothing else, never past the
+// claim window (SPEC §10).
+describe("what the claim store writes", () => {
   it("writes exactly one entry per claimed secret: {claimToken, expiresAt} under the lookup hash", async () => {
     const storage = new FakeStorage();
     let now = 1_000;
@@ -88,7 +87,8 @@ describe("r2 W: what the claim store writes", () => {
   });
 });
 
-describe("r2 P: only a real activation reveals", () => {
+// A scanner that runs the page's scripts must consume nothing (SPEC §5).
+describe("only a real activation reveals", () => {
   const nav = globalThis.navigator as { userActivation?: { isActive: boolean } } | undefined;
   const withActivation = (active: boolean | undefined, run: () => void) => {
     const had = Object.getOwnPropertyDescriptor(globalThis, "navigator");

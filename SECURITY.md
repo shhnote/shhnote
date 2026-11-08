@@ -86,9 +86,10 @@ patched; upgrading is a binary or image swap with forward-only migrations.
 
 ## Design review
 
-The protocol and its threat model are in [`SPEC.md`](SPEC.md). A full security
-review of the code against that specification, with every finding, its fix and the
-accepted residual risks, is in [`docs/security-review/`](docs/security-review/)
-and its [`CHANGELOG.md`](docs/security-review/CHANGELOG.md). If your finding is
-listed there as an accepted residual, a report is still welcome if you think the
-assessment is wrong.
+The protocol and its threat model are in [`SPEC.md`](SPEC.md), which also records every
+accepted residual risk and why it is accepted. The two security reviews of the code against
+that specification (November 2026), with every finding and its fix, are archived at the
+`v0.7.0` tag: [`docs/security-review/`](https://github.com/shhnote/shhnote/tree/v0.7.0/docs/security-review)
+and its [`CHANGELOG.md`](https://github.com/shhnote/shhnote/blob/v0.7.0/docs/security-review/CHANGELOG.md).
+Their findings live on as the `spec_*` regression tests. If your finding is an accepted
+residual, a report is still welcome if you think the assessment is wrong.

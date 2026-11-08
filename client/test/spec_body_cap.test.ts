@@ -1,7 +1,3 @@
-// Round-2 pass 0 (claims audit), C-27: the client caps the reveal body at `max_blob_bytes`,
-// which the server defines as a bucket (padded size); a stored secret whose bucket equals
-// the ceiling is served with Content-Length = blobLen(bucket) and the client refuses it.
-// Throwaway; delete after the review.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -29,7 +25,9 @@ const config = {
   web_mode: "full",
 };
 
-test("review_r2_pass0: a blob of blobLen(max_blob_bytes) bytes, which the server stores, passes the client's cap (revision 4, C2)", async () => {
+// `max_blob_bytes` is a bucket (SPEC §4), so a secret at the ceiling is served with
+// Content-Length = blobLen(bucket), longer than the bucket itself.
+test("a blob of blobLen(max_blob_bytes) bytes, which the server stores, passes the client's cap", async () => {
   const served = blobLen(MAX);
   assert.ok(served > MAX, "blobLen(bucket) exceeds the bucket");
   const fetchImpl = async (input: string): Promise<Response> => {

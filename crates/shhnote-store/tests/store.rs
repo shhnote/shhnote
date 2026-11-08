@@ -375,7 +375,7 @@ async fn external_rows_park_in_pending_delete() {
     }
 }
 
-// Round 2, R-14: the scrubber walks parked rows in key order from a cursor, so a batch of
+// The scrubber walks parked rows in key order from a cursor, so a batch of
 // rows that will not go never hides the ones behind them, on either engine.
 #[tokio::test]
 async fn pending_deletes_walk_in_key_order_from_a_cursor() {

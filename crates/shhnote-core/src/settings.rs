@@ -632,7 +632,7 @@ mod tests {
         assert_eq!(warnings.len(), 3, "{warnings:?}");
     }
 
-    // Revision 3, C3: `padding_min` survives a switch to the ladder and back, and is still
+    // `padding_min` survives a switch to the ladder and back, and is still
     // validated while the ladder is in use.
     #[test]
     fn padding_min_is_kept_in_buckets_mode() {
@@ -722,7 +722,7 @@ mod tests {
         assert!(padme.check_blob_limit(65536).is_empty());
     }
 
-    // Round 2, R-16: files off needs a padded size for a text-only secret; a ladder that has
+    // Files off needs a padded size for a text-only secret; a ladder that has
     // none falls back to Padmé instead of refusing every create.
     #[test]
     fn files_off_needs_a_rung_for_text() {
@@ -752,7 +752,7 @@ mod tests {
         assert_eq!(s.text_only_payload(), 2 * 65536 + 1024);
     }
 
-    // Round 2, suspicion 4: a `padding_min` above the largest blob the instance stores would
+    // A `padding_min` above the largest blob the instance stores would
     // make every create fail; it falls back to the default floor, in either mode.
     #[test]
     fn padding_min_must_fit_the_instance() {

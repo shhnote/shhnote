@@ -1,8 +1,3 @@
-// Regression tests from the security review (docs/security-review/findings/SUMMARY.md) for
-// memory bounds, measured with a counting allocator. They live in their own binary so nothing
-// else disturbs the counters, and take a lock so they never run at the same time. Ignored
-// tests are waiting for the step that fixes their finding; un-ignore them with the fix.
-
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     collections::HashMap,
@@ -27,6 +22,8 @@ const ADMIN_KEY: &str = "spec-admin-key-of-at-least-32-characters-ok";
 
 struct Counting;
 
+// Allocations are counted process-wide, so these tests live in their own binary, where nothing
+// else disturbs the counters, and take `ONE_AT_A_TIME` so they never run concurrently.
 static LIVE: AtomicIsize = AtomicIsize::new(0);
 static PEAK: AtomicIsize = AtomicIsize::new(0);
 static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());

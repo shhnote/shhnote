@@ -1,6 +1,3 @@
-// Regression tests from the security review (docs/security-review/findings/SUMMARY.md): what
-// the API must not let a client, a log reader or a dump holder learn about a secret. Ignored
-// tests are waiting for the step that fixes their finding; un-ignore them with the fix.
 use std::{collections::HashMap, net::SocketAddr, time::Instant};
 
 use axum::{

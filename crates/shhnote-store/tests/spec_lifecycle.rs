@@ -1,9 +1,6 @@
-// Regression tests from the security review (docs/security-review/findings/SUMMARY.md) for the
-// single-view lifecycle at the store level (SPEC §5). Ignored tests are waiting for the step
-// that settles their item; un-ignore them with the fix.
 use std::time::{Duration, Instant};
 
-use shhnote_store::{Lifetime, NewSecret, Store, sqlite_path_for_tests};
+use shhnote_store::{Lifetime, NewSecret, Scope, Store, sqlite_path_for_tests};
 use sqlx::Connection;
 
 const WINDOW: i64 = 900;
@@ -34,11 +31,11 @@ async fn sqlite(name: &str) -> (Store, std::path::PathBuf) {
     (store, path)
 }
 
-// Suspicion 4: a writer holding the SQLite write lock longer than busy_timeout (5 s) turns
-// every claim into a database error (the API maps it to 500). The error is the same whether
-// or not the row exists, so it is not an existence oracle, and nothing is consumed by it.
+// A writer holding the SQLite write lock longer than busy_timeout (5 s) turns every claim
+// into a database error (the API maps it to 500; issue #19). The error is the same whether
+// or not the row exists, so it is not an existence oracle (SPEC §4), and nothing is
+// consumed by it. Slow on purpose: it waits out the timeout twice.
 #[tokio::test]
-#[ignore = "suspicion-4"]
 async fn spec_sqlite_lock_holder_makes_claims_fail_after_busy_timeout() {
     let (store, path) = sqlite("spec-lifecycle-busy").await;
     let lookup = key();
@@ -69,6 +66,36 @@ async fn spec_sqlite_lock_holder_makes_claims_fail_after_busy_timeout() {
             .unwrap()
             .is_some()
     );
+}
+
+// A key used again on the day it was last used only reads its row, so it never waits for
+// SQLite's write lock (D-23): keyed requests come far more often than days, and a write per
+// request would contend with every claim and sweep.
+#[tokio::test]
+async fn spec_same_day_key_use_takes_no_write_lock() {
+    let (store, path) = sqlite("spec-lifecycle-touch").await;
+    let key_hash = key();
+    let midnight = 1_700_006_400;
+    store
+        .create_api_key(&key_hash, "ci", Scope::User, midnight)
+        .await
+        .unwrap();
+    store.touch_api_key(&key_hash, midnight + 60).await.unwrap();
+
+    let mut raw = sqlx::SqliteConnection::connect(&format!("sqlite://{}", path.display()))
+        .await
+        .unwrap();
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut raw)
+        .await
+        .unwrap();
+    let started = Instant::now();
+    let same_day = store.touch_api_key(&key_hash, midnight + 3600).await;
+    let elapsed = started.elapsed();
+    sqlx::query("ROLLBACK").execute(&mut raw).await.unwrap();
+
+    assert!(same_day.is_ok(), "{same_day:?}");
+    assert!(elapsed < Duration::from_secs(2), "waited {elapsed:?}");
 }
 
 // The claim window and the narrow predicates (SPEC §5.1, §5.3).

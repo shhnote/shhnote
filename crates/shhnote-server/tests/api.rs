@@ -773,7 +773,7 @@ async fn admin_login_bootstrap_then_keys() {
     assert_eq!(login(&app, BOOTSTRAP).await.status, StatusCode::SEE_OTHER);
 }
 
-// Revision 3, D4: durations are chosen in words, never typed as seconds. The presets are one
+// Durations are chosen in words, never typed as seconds. The presets are one
 // checkbox each and are stored comma-separated; a value that is not on the panel's list
 // (set through the admin API, say) is still offered, selected, so a save keeps it.
 #[tokio::test]

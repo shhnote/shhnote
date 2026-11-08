@@ -1,8 +1,3 @@
-// Regression tests from the security review (docs/security-review/findings/SUMMARY.md) for
-// the web layer: walks every route in-process and checks the headers, inline markup, assets
-// and redirects SPEC §10/§11 require. Ignored tests are waiting for the step that fixes their
-// finding; un-ignore them with the fix.
-
 use std::{collections::HashMap, net::SocketAddr};
 
 use axum::{
@@ -256,7 +251,7 @@ async fn spec_every_response_has_the_security_headers() {
     assert!(missing.is_empty(), "{}", missing.join("\n"));
 }
 
-// Revision 3, C4: every API response carries `Cache-Control: no-store`, whatever it is
+// Every API response carries `Cache-Control: no-store`, whatever it is
 // (policy, errors, the fallback, a CORS preflight), on both routing modes.
 #[tokio::test]
 async fn spec_headers_every_api_response_is_no_store() {
@@ -311,7 +306,7 @@ async fn spec_headers_every_api_response_is_no_store() {
     );
 }
 
-// Revision 3, D2: once a stop has begun, the "shutting down" 503 is never cached either, on
+// Once a stop has begun, the "shutting down" 503 is never cached either, on
 // a page or on the API, and still carries the security headers.
 #[tokio::test]
 async fn spec_headers_shutdown_answer_is_no_store() {
@@ -347,7 +342,7 @@ async fn spec_headers_shutdown_answer_is_no_store() {
     assert!(missing.is_empty(), "{}", missing.join("\n"));
 }
 
-// Revision 3, C4: the admin API's and the panel login's 429s say when to come back, with the
+// The admin API's and the panel login's 429s say when to come back, with the
 // same constant `Retry-After` as the public API.
 #[tokio::test]
 async fn spec_headers_admin_429s_carry_retry_after() {
@@ -635,7 +630,7 @@ async fn spec_api_mode_serves_no_pages() {
         "{}",
         config.body
     );
-    // Round 2, R-13: a trailing slash on a public path is not redirected either (there is
+    // A trailing slash on a public path is not redirected either (there is
     // nothing to redirect to), while the API and the panel keep their one URL.
     for path in ["/en/", "/s/", "/nope/", "/en/privacy/"] {
         let r = fetch(&app, host, Method::GET, path, None, None, "").await;
@@ -776,7 +771,7 @@ async fn spec_admin_subdomain_routing() {
     );
 }
 
-// Revision 3, B3: the reference pages give the page script its markup as templates with the
+// The reference pages give the page script its markup as templates with the
 // `data-shh-*` hooks the controllers fill, and every copy button carries both labels, since
 // the script only marks the button `data-shh-copied` and never rewrites its text.
 #[tokio::test]
@@ -820,7 +815,7 @@ async fn spec_reference_pages_carry_controller_templates() {
     }
 }
 
-// Revision 3, C7: "specification" and "security policy" links reach SPEC.md and SECURITY.md
+// "Specification" and "security policy" links reach SPEC.md and SECURITY.md
 // in the source repository, and no content page leaves a placeholder unreplaced.
 #[tokio::test]
 async fn spec_content_links_reach_the_spec() {
@@ -889,6 +884,24 @@ async fn spec_server_version_is_public() {
     assert!(!docs.body.contains("{{version}}"));
 }
 
+// A database that cannot answer at startup is not an instance that was never set up: a
+// configured site whose database is down answers a JSON 503 `degraded`, on pages too,
+// instead of the setup page (D-29).
+#[tokio::test]
+async fn spec_setup_gate_says_degraded_when_the_database_is_down() {
+    let (config, state) = parts("spec-web-gate-degraded", &[], true).await;
+    let store = state.store.clone();
+    let app = app::router(&config, state);
+    store.close_for_tests().await;
+    for path in ["/en/s", "/api/v1/config"] {
+        let seen = fetch(&app, "localhost", Method::GET, path, None, None, "").await;
+        assert_eq!(seen.status, StatusCode::SERVICE_UNAVAILABLE, "{path}");
+        assert!(seen.body.contains("\"degraded\""), "{path}: {}", seen.body);
+        assert!(!seen.body.contains("not set up yet"), "{path}");
+        assert_eq!(seen.headers[header::CACHE_CONTROL], "no-store", "{path}");
+    }
+}
+
 // D-29: until setup is met, the admin panel, the admin API, `/static/*` and `/health`
 // answer; everything else is 503 with the headers and `no-store`, the setup page for
 // pages and the error envelope for the API. The gate lifts once setup is done, by the
@@ -910,7 +923,7 @@ async fn spec_setup_gate() {
         setup.body.contains("/en/admin/login"),
         "no link to the panel"
     );
-    // Round 2, R-11: only the panel's own routes are open under `/{locale}/admin`; an unknown
+    // Only the panel's own routes are open under `/{locale}/admin`; an unknown
     // path there is a public page and gets the setup page like any other.
     for path in [
         "/",
@@ -1023,7 +1036,7 @@ async fn spec_setup_gate() {
         StatusCode::OK
     );
 
-    // Round 2, R-12: with the panel on its own host, the setup page's one link goes there.
+    // With the panel on its own host, the setup page's one link goes there.
     let subdomain = build_unconfigured(
         "spec-web-setup-gate-subdomain",
         &[

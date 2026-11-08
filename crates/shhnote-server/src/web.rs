@@ -918,7 +918,7 @@ fn format_size(bytes: u64, locale: &str) -> String {
 mod tests {
     use super::*;
 
-    // Revision 3, C7: spec and security-policy links reach the file on GitHub repositories,
+    // Spec and security-policy links reach the file on GitHub repositories,
     // and fall back to the source link anywhere else.
     #[test]
     fn source_file_urls() {
