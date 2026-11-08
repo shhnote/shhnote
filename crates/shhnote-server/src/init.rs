@@ -381,6 +381,8 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    // Only the Unix tests below look at the directory listing.
+    #[cfg(unix)]
     fn names(dir: &Path) -> Vec<String> {
         let mut names: Vec<String> = fs::read_dir(dir)
             .unwrap()

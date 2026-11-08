@@ -2278,6 +2278,8 @@ async fn spec_r2_t_cors_answers_only_allowed_origins_without_credentials() {
 // ============================================================================================
 // U. §6.1: the startup sweep deletes only our own orphans and stops for nothing.
 
+// Unix only: the stray entries include a non-UTF-8 file name and symlinks.
+#[cfg(unix)]
 #[tokio::test]
 async fn spec_r2_u_orphan_sweep_keeps_referenced_and_strange_entries() {
     use std::os::unix::ffi::OsStrExt;
